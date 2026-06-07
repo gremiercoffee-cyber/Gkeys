@@ -60,7 +60,7 @@ You are a text polishing assistant. The user has typed or dictated the following
                     .setType(MultipartBody.FORM)
                     .addFormDataPart("file", audioFile.name,
                         audioFile.asRequestBody("audio/m4a".toMediaType()))
-                    .addFormDataPart("model", "whisper-1")
+                    .addFormDataPart("model", "gpt-4o-mini-transcribe")
                     .addFormDataPart("temperature", "0")
                     .addFormDataPart("prompt", " ")
                     .build()

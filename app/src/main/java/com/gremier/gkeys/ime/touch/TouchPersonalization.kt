@@ -3,7 +3,7 @@ package com.gremier.gkeys.ime.touch
 import androidx.datastore.preferences.core.edit
 import android.content.Context
 import com.gremier.gkeys.settings.GkeysSettings
-import com.gremier.gkeys.settings.dataStore
+import com.gremier.gkeys.settings.gkeysDataStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -29,7 +29,7 @@ class TouchPersonalization(
     fun load() {
         if (loaded) return
         scope.launch {
-            val prefs = context.dataStore.data.first()
+            val prefs = context.applicationContext.gkeysDataStore.data.first()
             offsetX = prefs[GkeysSettings.TOUCH_OFFSET_X] ?: 0f
             offsetY = prefs[GkeysSettings.TOUCH_OFFSET_Y] ?: 0f
             sampleCount = prefs[GkeysSettings.TOUCH_OFFSET_SAMPLES] ?: 0
@@ -61,7 +61,7 @@ class TouchPersonalization(
         sampleCount++
 
         scope.launch {
-            context.dataStore.edit {
+            context.applicationContext.gkeysDataStore.edit {
                 it[GkeysSettings.TOUCH_OFFSET_X] = offsetX
                 it[GkeysSettings.TOUCH_OFFSET_Y] = offsetY
                 it[GkeysSettings.TOUCH_OFFSET_SAMPLES] = sampleCount

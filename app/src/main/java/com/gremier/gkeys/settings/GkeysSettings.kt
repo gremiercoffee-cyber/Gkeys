@@ -9,7 +9,10 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 
-val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "gkeys_settings")
+val Context.gkeysDataStore: DataStore<Preferences> by preferencesDataStore(name = "gkeys_settings")
+
+private fun settingsStore(context: Context): DataStore<Preferences> =
+    context.applicationContext.gkeysDataStore
 
 object GkeysSettings {
 
@@ -55,90 +58,90 @@ object GkeysSettings {
     }
 
     fun keyRepeatSpeed(context: Context): Flow<Int> =
-        context.dataStore.data.map { it[KEY_REPEAT_SPEED] ?: DEFAULT_KEY_REPEAT_MS }
+        settingsStore(context).data.map { it[KEY_REPEAT_SPEED] ?: DEFAULT_KEY_REPEAT_MS }
 
     fun deleteSpeed(context: Context): Flow<Int> =
-        context.dataStore.data.map { it[DELETE_SPEED] ?: DEFAULT_DELETE_SPEED_MS }
+        settingsStore(context).data.map { it[DELETE_SPEED] ?: DEFAULT_DELETE_SPEED_MS }
 
     fun vibrationEnabled(context: Context): Flow<Boolean> =
-        context.dataStore.data.map { it[VIBRATION_ENABLED] ?: DEFAULT_VIBRATION }
+        settingsStore(context).data.map { it[VIBRATION_ENABLED] ?: DEFAULT_VIBRATION }
 
     fun vibrationStrength(context: Context): Flow<Int> =
-        context.dataStore.data.map { it[VIBRATION_STRENGTH] ?: DEFAULT_VIBRATION_STRENGTH }
+        settingsStore(context).data.map { it[VIBRATION_STRENGTH] ?: DEFAULT_VIBRATION_STRENGTH }
 
     fun autoPolishEnabled(context: Context): Flow<Boolean> =
-        context.dataStore.data.map { it[AUTO_POLISH_ENABLED] ?: DEFAULT_AUTO_POLISH }
+        settingsStore(context).data.map { it[AUTO_POLISH_ENABLED] ?: DEFAULT_AUTO_POLISH }
 
     fun defaultLanguage(context: Context): Flow<String> =
-        context.dataStore.data.map { it[DEFAULT_LANGUAGE] ?: DEFAULT_LANGUAGE_VAL }
+        settingsStore(context).data.map { it[DEFAULT_LANGUAGE] ?: DEFAULT_LANGUAGE_VAL }
 
     fun oneHandedMode(context: Context): Flow<String> =
-        context.dataStore.data.map { it[ONE_HANDED_MODE] ?: ONE_HANDED_OFF }
+        settingsStore(context).data.map { it[ONE_HANDED_MODE] ?: ONE_HANDED_OFF }
 
     fun rightHandedMode(context: Context): Flow<Boolean> =
-        context.dataStore.data.map { it[RIGHT_HANDED_MODE] ?: false }
+        settingsStore(context).data.map { it[RIGHT_HANDED_MODE] ?: false }
 
     fun keySizePreset(context: Context): Flow<String> =
-        context.dataStore.data.map { it[KEY_SIZE_PRESET] ?: KEY_SIZE_DEFAULT }
+        settingsStore(context).data.map { it[KEY_SIZE_PRESET] ?: KEY_SIZE_DEFAULT }
 
     suspend fun saveOpenAiKey(context: Context, key: String) {
         SecureApiKeyStore.saveOpenAiKey(context, key)
-        context.dataStore.edit { it.remove(OPENAI_KEY) }
+        settingsStore(context).edit { it.remove(OPENAI_KEY) }
     }
 
     suspend fun saveAnthropicKey(context: Context, key: String) {
         SecureApiKeyStore.saveAnthropicKey(context, key)
-        context.dataStore.edit { it.remove(ANTHROPIC_KEY) }
+        settingsStore(context).edit { it.remove(ANTHROPIC_KEY) }
     }
 
     private suspend fun migrateOpenAiKeyIfNeeded(context: Context) {
         if (SecureApiKeyStore.getOpenAiKey(context).isNotBlank()) return
-        val legacy = context.dataStore.data.first()[OPENAI_KEY] ?: ""
+        val legacy = settingsStore(context).data.first()[OPENAI_KEY] ?: ""
         if (legacy.isNotBlank()) {
             SecureApiKeyStore.saveOpenAiKey(context, legacy)
-            context.dataStore.edit { it.remove(OPENAI_KEY) }
+            settingsStore(context).edit { it.remove(OPENAI_KEY) }
         }
     }
 
     private suspend fun migrateAnthropicKeyIfNeeded(context: Context) {
         if (SecureApiKeyStore.getAnthropicKey(context).isNotBlank()) return
-        val legacy = context.dataStore.data.first()[ANTHROPIC_KEY] ?: ""
+        val legacy = settingsStore(context).data.first()[ANTHROPIC_KEY] ?: ""
         if (legacy.isNotBlank()) {
             SecureApiKeyStore.saveAnthropicKey(context, legacy)
-            context.dataStore.edit { it.remove(ANTHROPIC_KEY) }
+            settingsStore(context).edit { it.remove(ANTHROPIC_KEY) }
         }
     }
 
     suspend fun saveKeyRepeatSpeed(context: Context, ms: Int) {
-        context.dataStore.edit { it[KEY_REPEAT_SPEED] = ms }
+        settingsStore(context).edit { it[KEY_REPEAT_SPEED] = ms }
     }
 
     suspend fun saveDeleteSpeed(context: Context, ms: Int) {
-        context.dataStore.edit { it[DELETE_SPEED] = ms }
+        settingsStore(context).edit { it[DELETE_SPEED] = ms }
     }
 
     suspend fun saveVibration(context: Context, enabled: Boolean) {
-        context.dataStore.edit { it[VIBRATION_ENABLED] = enabled }
+        settingsStore(context).edit { it[VIBRATION_ENABLED] = enabled }
     }
 
     suspend fun saveVibrationStrength(context: Context, strength: Int) {
-        context.dataStore.edit { it[VIBRATION_STRENGTH] = strength.coerceIn(0, 100) }
+        settingsStore(context).edit { it[VIBRATION_STRENGTH] = strength.coerceIn(0, 100) }
     }
 
     suspend fun saveAutoPolish(context: Context, enabled: Boolean) {
-        context.dataStore.edit { it[AUTO_POLISH_ENABLED] = enabled }
+        settingsStore(context).edit { it[AUTO_POLISH_ENABLED] = enabled }
     }
 
     suspend fun saveDefaultLanguage(context: Context, lang: String) {
-        context.dataStore.edit { it[DEFAULT_LANGUAGE] = lang }
+        settingsStore(context).edit { it[DEFAULT_LANGUAGE] = lang }
     }
 
     suspend fun saveOneHandedMode(context: Context, mode: String) {
-        context.dataStore.edit { it[ONE_HANDED_MODE] = mode }
+        settingsStore(context).edit { it[ONE_HANDED_MODE] = mode }
     }
 
     suspend fun saveRightHandedMode(context: Context, enabled: Boolean) {
-        context.dataStore.edit { prefs ->
+        settingsStore(context).edit { prefs ->
             prefs[RIGHT_HANDED_MODE] = enabled
             if (enabled) {
                 val current = prefs[KEY_SIZE_PRESET] ?: KEY_SIZE_DEFAULT
@@ -150,6 +153,6 @@ object GkeysSettings {
     }
 
     suspend fun saveKeySizePreset(context: Context, preset: String) {
-        context.dataStore.edit { it[KEY_SIZE_PRESET] = preset }
+        settingsStore(context).edit { it[KEY_SIZE_PRESET] = preset }
     }
 }

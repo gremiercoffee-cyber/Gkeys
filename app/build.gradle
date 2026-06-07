@@ -12,8 +12,17 @@ android {
         applicationId "com.gremier.gkeys"
         minSdk 26
         targetSdk 34
-        versionCode 11
-        versionName "1.1.1"
+        versionCode 14
+        versionName "1.1.4"
+    }
+
+    signingConfigs {
+        gkeys {
+            storeFile file('keystore/gkeys-dev.keystore')
+            storePassword 'gkeysdev'
+            keyAlias 'gkeys'
+            keyPassword 'gkeysdev'
+        }
     }
 
     buildFeatures {
@@ -23,9 +32,11 @@ android {
     buildTypes {
         release {
             minifyEnabled false
+            signingConfig signingConfigs.gkeys
         }
         debug {
             debuggable true
+            signingConfig signingConfigs.gkeys
         }
     }
 

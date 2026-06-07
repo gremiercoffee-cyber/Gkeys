@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.os.Build
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -25,6 +26,7 @@ class GkeysClipboardManager(
     private val onPanelClose: () -> Unit = {}
 ) {
     companion object {
+        private const val TAG = "GkeysClipboard"
         private const val MAX_ITEMS = 20
         private const val MAX_AGE_MS = 60 * 60 * 1000L
         private const val PREFS = "gkeys_clipboard"
@@ -37,6 +39,7 @@ class GkeysClipboardManager(
     private var overlayView: View? = null
     private var isListening = false
     private var lastCapturedText: String? = null
+    private var observeJob: Job? = null
     private val blockedTexts = loadBlockedTexts().toMutableSet()
 
     private val prefs by lazy {
@@ -48,29 +51,46 @@ class GkeysClipboardManager(
 
     private val clipListener = ClipboardManager.OnPrimaryClipChangedListener {
         if (!isListening) return@OnPrimaryClipChangedListener
-        val text = readSystemClipText() ?: return@OnPrimaryClipChangedListener
-        if (text != lastCapturedText && !isBlocked(text)) {
-            lastCapturedText = text
-            scope.launch { addItem(text) }
+        try {
+            val text = readSystemClipText() ?: return@OnPrimaryClipChangedListener
+            if (text != lastCapturedText && !isBlocked(text)) {
+                lastCapturedText = text
+                scope.launch { addItem(text) }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Clipboard listener failed", e)
         }
     }
 
     fun startListening() {
         if (isListening) return
         isListening = true
-        systemClipboard.addPrimaryClipChangedListener(clipListener)
-        scope.launch {
-            dao.observeAll().collectLatest { items ->
-                updatePreview(items)
-                refreshOverlay(items)
+        try {
+            systemClipboard.addPrimaryClipChangedListener(clipListener)
+        } catch (e: Exception) {
+            Log.w(TAG, "Unable to register clipboard listener", e)
+        }
+        observeJob?.cancel()
+        observeJob = scope.launch {
+            try {
+                dao.observeAll().collectLatest { items ->
+                    updatePreview(items)
+                    refreshOverlay(items)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Clipboard observe failed", e)
             }
         }
         scope.launch {
-            purgeExpired()
-            val text = readSystemClipText()
-            if (text != null && !isBlocked(text)) {
-                lastCapturedText = text
-                addItem(text)
+            try {
+                purgeExpired()
+                val text = readSystemClipText()
+                if (text != null && !isBlocked(text)) {
+                    lastCapturedText = text
+                    addItem(text)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Clipboard bootstrap failed", e)
             }
         }
     }
@@ -78,7 +98,13 @@ class GkeysClipboardManager(
     fun stopListening() {
         if (!isListening) return
         isListening = false
-        systemClipboard.removePrimaryClipChangedListener(clipListener)
+        observeJob?.cancel()
+        observeJob = null
+        try {
+            systemClipboard.removePrimaryClipChangedListener(clipListener)
+        } catch (e: Exception) {
+            Log.w(TAG, "Unable to unregister clipboard listener", e)
+        }
     }
 
     fun showPanel() {
@@ -149,10 +175,17 @@ class GkeysClipboardManager(
             dao.deleteById(item.id)
             dao.deleteByText(item.text)
             blockText(item.text)
-            if (readSystemClipText() == item.text) {
-                clearSystemClipboard()
-                lastCapturedText = ""
+        }
+        withContext(Dispatchers.Main) {
+            try {
+                if (readSystemClipText() == item.text) {
+                    clearSystemClipboard()
+                    lastCapturedText = ""
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Unable to clear system clipboard", e)
             }
+            Unit
         }
     }
 
@@ -181,17 +214,26 @@ class GkeysClipboardManager(
     }
 
     private fun readSystemClipText(): String? {
-        val clip = systemClipboard.primaryClip ?: return null
-        if (clip.itemCount == 0) return null
-        return clip.getItemAt(0).coerceToText(context)?.toString()?.trim()?.takeIf { it.isNotBlank() }
+        return try {
+            val clip = systemClipboard.primaryClip ?: return null
+            if (clip.itemCount == 0) return null
+            clip.getItemAt(0).coerceToText(context)?.toString()?.trim()?.takeIf { it.isNotBlank() }
+        } catch (e: Exception) {
+            Log.w(TAG, "Unable to read clipboard", e)
+            null
+        }
     }
 
     private fun clearSystemClipboard() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            systemClipboard.clearPrimaryClip()
-        } else {
-            @Suppress("DEPRECATION")
-            systemClipboard.setPrimaryClip(ClipData.newPlainText("", ""))
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                systemClipboard.clearPrimaryClip()
+            } else {
+                @Suppress("DEPRECATION")
+                systemClipboard.setPrimaryClip(ClipData.newPlainText("", ""))
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Unable to clear clipboard", e)
         }
     }
 

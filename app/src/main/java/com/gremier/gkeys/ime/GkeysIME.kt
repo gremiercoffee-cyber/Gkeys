@@ -184,6 +184,7 @@ class GkeysIME : InputMethodService() {
         voiceActionViews[VoiceAction.RAW] = keyboardView.findViewById(R.id.action_raw)
 
         val keyboardRows = keyboardView.findViewById<KeyboardTouchLayout>(R.id.keyboard_rows)
+            ?: throw IllegalStateException("keyboard_rows missing from keyboard_view")
 
         touchPersonalization = TouchPersonalization(this, scope)
         touchPersonalization.load()
@@ -224,12 +225,16 @@ class GkeysIME : InputMethodService() {
 
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
-        if (AppVersionTracker.noteCurrentVersion(this)) {
-            showErrorToast("Gkeys updated — pick Gkeys again in your keyboard switcher")
+        try {
+            if (AppVersionTracker.noteCurrentVersion(this)) {
+                showErrorToast("Gkeys updated — pick Gkeys again in your keyboard switcher")
+            }
+            refreshApiKeys()
+            loadSettings()
+            clipboardManager?.startListening()
+        } catch (e: Exception) {
+            android.util.Log.e("GkeysIME", "onStartInputView failed", e)
         }
-        refreshApiKeys()
-        loadSettings()
-        clipboardManager?.startListening()
     }
 
     override fun onFinishInputView(finishingInput: Boolean) {
@@ -242,26 +247,30 @@ class GkeysIME : InputMethodService() {
 
     private fun loadSettings() {
         scope.launch {
-            openAiKey = GkeysSettings.openAiKey(this@GkeysIME).first()
-            anthropicKey = GkeysSettings.anthropicKey(this@GkeysIME).first()
-            keyRepeatMs = GkeysSettings.keyRepeatSpeed(this@GkeysIME).first()
-            deleteSpeedMs = GkeysSettings.deleteSpeed(this@GkeysIME).first()
-            vibrationEnabled = GkeysSettings.vibrationEnabled(this@GkeysIME).first()
-            vibrationStrength = GkeysSettings.vibrationStrength(this@GkeysIME).first()
-            autoPolishEnabled = GkeysSettings.autoPolishEnabled(this@GkeysIME).first()
-            isHebrew = GkeysSettings.defaultLanguage(this@GkeysIME).first() == "he"
-            oneHandedMode = GkeysSettings.oneHandedMode(this@GkeysIME).first()
-            rightHandedMode = GkeysSettings.rightHandedMode(this@GkeysIME).first()
-            keySizePreset = GkeysSettings.keySizePreset(this@GkeysIME).first()
-            layoutProfile = KeyboardLayoutMetrics.profile(keySizePreset, rightHandedMode)
-            keyboardHeightPx = 0
-            if (::touchResolver.isInitialized) {
-                touchResolver.rightHandedMode = rightHandedMode
-            }
-            if (::keyboardView.isInitialized) {
-                applyOneHandedMode()
-                updateOneHandButton()
-                buildKeyboard()
+            try {
+                openAiKey = GkeysSettings.openAiKey(this@GkeysIME).first()
+                anthropicKey = GkeysSettings.anthropicKey(this@GkeysIME).first()
+                keyRepeatMs = GkeysSettings.keyRepeatSpeed(this@GkeysIME).first()
+                deleteSpeedMs = GkeysSettings.deleteSpeed(this@GkeysIME).first()
+                vibrationEnabled = GkeysSettings.vibrationEnabled(this@GkeysIME).first()
+                vibrationStrength = GkeysSettings.vibrationStrength(this@GkeysIME).first()
+                autoPolishEnabled = GkeysSettings.autoPolishEnabled(this@GkeysIME).first()
+                isHebrew = GkeysSettings.defaultLanguage(this@GkeysIME).first() == "he"
+                oneHandedMode = GkeysSettings.oneHandedMode(this@GkeysIME).first()
+                rightHandedMode = GkeysSettings.rightHandedMode(this@GkeysIME).first()
+                keySizePreset = GkeysSettings.keySizePreset(this@GkeysIME).first()
+                layoutProfile = KeyboardLayoutMetrics.profile(keySizePreset, rightHandedMode)
+                keyboardHeightPx = 0
+                if (::touchResolver.isInitialized) {
+                    touchResolver.rightHandedMode = isLayoutRightBiased()
+                }
+                if (::keyboardView.isInitialized) {
+                    applyOneHandedMode()
+                    updateOneHandButton()
+                    buildKeyboard()
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("GkeysIME", "loadSettings failed", e)
             }
         }
     }
@@ -382,8 +391,14 @@ class GkeysIME : InputMethodService() {
     }
 
     private fun refreshApiKeys() {
-        openAiKey = SecureApiKeyStore.getOpenAiKey(this)
-        anthropicKey = SecureApiKeyStore.getAnthropicKey(this)
+        try {
+            openAiKey = SecureApiKeyStore.getOpenAiKey(this)
+            anthropicKey = SecureApiKeyStore.getAnthropicKey(this)
+        } catch (e: Exception) {
+            android.util.Log.e("GkeysIME", "refreshApiKeys failed", e)
+            openAiKey = ""
+            anthropicKey = ""
+        }
     }
 
     private fun hasMicPermission(): Boolean =
@@ -502,6 +517,7 @@ class GkeysIME : InputMethodService() {
         scope.launch { GkeysSettings.saveOneHandedMode(this@GkeysIME, oneHandedMode) }
         applyOneHandedMode()
         updateOneHandButton()
+        buildKeyboard()
         vibrate()
     }
 
@@ -519,25 +535,18 @@ class GkeysIME : InputMethodService() {
 
     private fun applyOneHandedMode() {
         val params = keyboardContent.layoutParams as FrameLayout.LayoutParams
-        val displayWidth = resources.displayMetrics.widthPixels
-        when (oneHandedMode) {
-            GkeysSettings.ONE_HANDED_RIGHT -> {
-                params.width = (displayWidth * 0.78f).toInt()
-                params.gravity = Gravity.END
-            }
-            GkeysSettings.ONE_HANDED_LEFT -> {
-                params.width = (displayWidth * 0.78f).toInt()
-                params.gravity = Gravity.START
-            }
-            else -> {
-                params.width = FrameLayout.LayoutParams.MATCH_PARENT
-                params.gravity = Gravity.CENTER_HORIZONTAL
-            }
-        }
+        params.width = FrameLayout.LayoutParams.MATCH_PARENT
+        params.gravity = Gravity.CENTER_HORIZONTAL
         keyboardContent.layoutParams = params
         keyboardContent.requestLayout()
         refreshTouchTargetsAfterLayout()
     }
+
+    private fun isLayoutRightBiased(): Boolean =
+        rightHandedMode || oneHandedMode == GkeysSettings.ONE_HANDED_RIGHT
+
+    private fun isLayoutLeftBiased(): Boolean =
+        oneHandedMode == GkeysSettings.ONE_HANDED_LEFT
 
     /**
      * Re-measures key hit zones after the keyboard reflows (one-handed resize,
@@ -555,7 +564,7 @@ class GkeysIME : InputMethodService() {
                 override fun onGlobalLayout() {
                     targetContainer.viewTreeObserver.removeOnGlobalLayoutListener(this)
                     if (touchKeyViews.isEmpty() || !touchResolver.enabled) return
-                    touchResolver.rightHandedMode = rightHandedMode
+                    touchResolver.rightHandedMode = isLayoutRightBiased()
                     touchResolver.refreshFromViews(targetContainer, touchKeyViews)
                 }
             }
@@ -578,7 +587,7 @@ class GkeysIME : InputMethodService() {
         if (!::keyboardView.isInitialized || !::touchResolver.isInitialized) return@Runnable
         val container = keyboardView.findViewById<KeyboardTouchLayout>(R.id.keyboard_rows) ?: return@Runnable
         if (touchKeyViews.isEmpty() || !touchResolver.enabled) return@Runnable
-        touchResolver.rightHandedMode = rightHandedMode
+        touchResolver.rightHandedMode = isLayoutRightBiased()
         touchResolver.refreshFromViews(container, touchKeyViews)
     }
 
@@ -592,14 +601,26 @@ class GkeysIME : InputMethodService() {
         touchKeyViews.clear()
         touchResolver.clearTargets()
 
-        val profile = layoutProfile
+        val profile = layoutProfile.copy(rightHanded = isLayoutRightBiased())
+        val layoutRight = isLayoutRightBiased()
+        val layoutLeft = isLayoutLeftBiased()
         container.setPadding(
-            dp(KeyboardLayoutMetrics.keyboardPaddingStartDp(rightHandedMode)),
+            dp(
+                if (layoutLeft) KeyboardLayoutMetrics.keyboardPaddingEndDp(true)
+                else KeyboardLayoutMetrics.keyboardPaddingStartDp(layoutRight)
+            ),
             container.paddingTop,
-            dp(KeyboardLayoutMetrics.keyboardPaddingEndDp(rightHandedMode)),
+            dp(
+                if (layoutLeft) KeyboardLayoutMetrics.keyboardPaddingStartDp(true)
+                else KeyboardLayoutMetrics.keyboardPaddingEndDp(layoutRight)
+            ),
             container.paddingBottom
         )
-        container.translationX = dp(KeyboardLayoutMetrics.keyboardShiftRightDp(rightHandedMode)).toFloat()
+        container.translationX = when {
+            layoutLeft -> -dp(KeyboardLayoutMetrics.keyboardShiftRightDp(true)).toFloat()
+            layoutRight -> dp(KeyboardLayoutMetrics.keyboardShiftRightDp(true)).toFloat()
+            else -> 0f
+        }
 
         val rows = when {
             isNumpad && !isHebrew -> numpadRows
@@ -610,7 +631,7 @@ class GkeysIME : InputMethodService() {
         applyStableKeyboardHeight(container, rows.size)
         val touchCorrectionEnabled = !isHebrew && !isSymbols && !isNumpad
         touchResolver.enabled = touchCorrectionEnabled
-        touchResolver.rightHandedMode = rightHandedMode
+        touchResolver.rightHandedMode = layoutRight
         touchResolver.setPreviousChar(lastTypedChar)
 
         val totalRows = rows.size
@@ -620,7 +641,11 @@ class GkeysIME : InputMethodService() {
                 orientation = LinearLayout.HORIZONTAL
                 layoutDirection = View.LAYOUT_DIRECTION_LTR
                 textDirection = View.TEXT_DIRECTION_LTR
-                gravity = if (rightHandedMode) Gravity.END else Gravity.CENTER
+                gravity = when {
+                    layoutLeft -> Gravity.START
+                    layoutRight -> Gravity.END
+                    else -> Gravity.CENTER
+                }
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
                 )

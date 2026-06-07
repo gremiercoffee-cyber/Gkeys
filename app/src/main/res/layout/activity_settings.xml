@@ -451,5 +451,16 @@
             android:gravity="center"
             android:layout_marginTop="12dp" />
 
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Updates: install the new APK over this app. If install fails once, uninstall Gkeys and reinstall — later updates should install normally."
+            android:textColor="#4B5563"
+            android:textSize="11sp"
+            android:gravity="center"
+            android:layout_marginTop="6dp"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp" />
+
     </LinearLayout>
 </ScrollView>
