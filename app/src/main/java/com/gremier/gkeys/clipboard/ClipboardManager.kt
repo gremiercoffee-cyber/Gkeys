@@ -132,10 +132,10 @@ class GkeysClipboardManager(
         val latest = items.firstOrNull()
         if (latest != null) {
             val text = latest.text
-            previewView.text = "📋 ${if (text.length > 40) text.take(40) + "…" else text}"
+            previewView.text = if (text.length > 30) text.take(30) + "…" else text
             previewView.tag = text
         } else {
-            previewView.text = "📋 Tap for clipboard"
+            previewView.text = "Tap for clipboard"
             previewView.tag = null
         }
         previewView.visibility = View.VISIBLE

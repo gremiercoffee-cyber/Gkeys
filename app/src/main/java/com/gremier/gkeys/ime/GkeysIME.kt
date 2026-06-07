@@ -82,9 +82,9 @@ class GkeysIME : InputMethodService() {
     )
 
     private val heRows = listOf(
-        listOf("פ","ם","ן","ו","ט","א","ר","ק","-","'"),
-        listOf("ף","ך","ל","ח","י","ע","כ","ג","ד","ש"),
-        listOf("⇧","ץ","ת","צ","מ","נ","ה","ב","ס","ז","⌫"),
+        listOf("'","-","ק","ר","א","ט","ו","ן","ם","פ"),
+        listOf("ש","ד","ג","כ","ע","י","ח","ל","ך","ף"),
+        listOf("ז","ס","ב","ה","נ","מ","צ","ת","ץ","⌫"),
         listOf("?123","🌐",",","SPACE",".","↵")
     )
 
@@ -307,13 +307,10 @@ class GkeysIME : InputMethodService() {
     }
 
     private fun updateMicVisuals(recording: Boolean) {
-        if (recording) {
-            btnMic.setImageResource(R.drawable.ic_ai_mic_active)
-            btnMicContainer.setBackgroundResource(R.drawable.ai_mic_bg_active)
-        } else {
-            btnMic.setImageResource(R.drawable.ic_ai_mic)
-            btnMicContainer.setBackgroundResource(R.drawable.ai_mic_bg)
-        }
+        btnMic.setImageResource(R.drawable.ic_mic_white)
+        btnMicContainer.setBackgroundResource(
+            if (recording) R.drawable.ai_mic_bg_active else R.drawable.ai_mic_bg
+        )
     }
 
     private fun cycleOneHandedMode() {
@@ -391,6 +388,7 @@ class GkeysIME : InputMethodService() {
         val isSpace = label == "SPACE"
         val isSpecial = label in listOf("⇧", "⌫", "↵", "?123", "ABC", "🌐")
         val displayLabel = when {
+            isSpace && isHebrew -> "עברית"
             isSpace -> "space"
             isShifted && !isHebrew && label.length == 1 && label[0].isLetter() -> label.uppercase()
             else -> label
@@ -408,7 +406,11 @@ class GkeysIME : InputMethodService() {
         }
 
         val (pebbleW, pebbleH, bgRes) = when {
-            isSpace -> Triple(dp(PEBBLE_SPACE_W_DP), dp(PEBBLE_SPACE_H_DP), R.drawable.key_pebble_space)
+            isSpace -> Triple(
+                if (isHebrew) dp(150) else dp(PEBBLE_SPACE_W_DP),
+                dp(PEBBLE_SPACE_H_DP),
+                R.drawable.key_pebble_space
+            )
             isSpecial -> Triple(dp(PEBBLE_SPECIAL_DP), dp(PEBBLE_SPECIAL_DP), R.drawable.key_pebble_special_ripple)
             else -> Triple(dp(PEBBLE_SIZE_DP), dp(PEBBLE_SIZE_DP), R.drawable.key_pebble_ripple)
         }
