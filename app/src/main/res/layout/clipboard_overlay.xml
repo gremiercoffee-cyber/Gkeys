@@ -70,11 +70,11 @@
                 android:letterSpacing="0.05"
                 android:paddingBottom="8dp" />
 
-            <LinearLayout
+            <GridLayout
                 android:id="@+id/recent_cards"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="vertical" />
+                android:columnCount="2" />
 
             <View
                 android:id="@+id/section_divider"
@@ -97,11 +97,11 @@
                 android:paddingBottom="8dp"
                 android:visibility="gone" />
 
-            <LinearLayout
+            <GridLayout
                 android:id="@+id/pinned_cards"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="vertical" />
+                android:columnCount="2" />
 
             <TextView
                 android:id="@+id/tv_clipboard_empty"

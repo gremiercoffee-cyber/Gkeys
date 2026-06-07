@@ -1,13 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
-    android:layout_height="wrap_content"
+    android:layout_height="72dp"
     android:orientation="vertical"
-    android:layout_marginBottom="8dp"
     android:background="@drawable/clipboard_card_bg"
-    android:padding="14dp"
+    android:padding="10dp"
     android:clickable="true"
     android:focusable="true"
     android:longClickable="true"
@@ -16,11 +14,11 @@
     <TextView
         android:id="@+id/tv_clip_text"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:textColor="#FFFFFF"
-        android:textSize="15sp"
-        android:lineSpacingExtra="2dp"
-        android:maxLines="4"
+        android:layout_height="match_parent"
+        android:textColor="#E8EAF0"
+        android:textSize="12sp"
+        android:lineSpacingExtra="1dp"
+        android:maxLines="3"
         android:ellipsize="end" />
 
 </LinearLayout>

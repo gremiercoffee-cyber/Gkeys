@@ -7,8 +7,9 @@ import android.widget.LinearLayout
 import kotlin.math.hypot
 
 /**
- * Intercepts horizontal drags across keys so swipe-to-type works even though
- * child key views consume tap events.
+ * Intercepts drags across keys so swipe-to-type works even though child key
+ * views consume tap events. All coordinates passed to [swipeTyper] are local to
+ * this container (matched in [SwipeTyper] via offsetDescendantRectToMyCoords).
  */
 class SwipeKeyboardLayout @JvmOverloads constructor(
     context: Context,
@@ -16,6 +17,10 @@ class SwipeKeyboardLayout @JvmOverloads constructor(
 ) : LinearLayout(context, attrs) {
 
     var swipeTyper: SwipeTyper? = null
+        set(value) {
+            field = value
+            value?.root = this
+        }
 
     private var startX = 0f
     private var startY = 0f
@@ -24,21 +29,16 @@ class SwipeKeyboardLayout @JvmOverloads constructor(
     override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {
         when (ev.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                startX = ev.rawX
-                startY = ev.rawY
+                startX = ev.x
+                startY = ev.y
                 isSwiping = false
-                swipeTyper?.onTouchDown(ev.rawX, ev.rawY)
-                return false
+                swipeTyper?.onTouchDown(ev.x, ev.y)
             }
             MotionEvent.ACTION_MOVE -> {
-                if (!isSwiping && hypot(ev.rawX - startX, ev.rawY - startY) > SwipeTyper.SWIPE_START_THRESHOLD) {
+                if (!isSwiping && hypot(ev.x - startX, ev.y - startY) > SwipeTyper.SWIPE_START_THRESHOLD) {
                     isSwiping = true
                     parent?.requestDisallowInterceptTouchEvent(true)
-                    swipeTyper?.onTouchMove(ev.rawX, ev.rawY)
-                    return true
-                }
-                if (isSwiping) {
-                    swipeTyper?.onTouchMove(ev.rawX, ev.rawY)
+                    swipeTyper?.onTouchMove(ev.x, ev.y)
                     return true
                 }
             }
@@ -54,14 +54,28 @@ class SwipeKeyboardLayout @JvmOverloads constructor(
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        if (!isSwiping) return super.onTouchEvent(event)
         when (event.actionMasked) {
-            MotionEvent.ACTION_MOVE -> swipeTyper?.onTouchMove(event.rawX, event.rawY)
+            MotionEvent.ACTION_DOWN -> {
+                startX = event.x
+                startY = event.y
+                swipeTyper?.onTouchDown(event.x, event.y)
+                return true
+            }
+            MotionEvent.ACTION_MOVE -> {
+                if (!isSwiping && hypot(event.x - startX, event.y - startY) > SwipeTyper.SWIPE_START_THRESHOLD) {
+                    isSwiping = true
+                }
+                if (isSwiping) swipeTyper?.onTouchMove(event.x, event.y)
+                return true
+            }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                swipeTyper?.onTouchUp()
-                isSwiping = false
+                if (isSwiping) {
+                    swipeTyper?.onTouchUp()
+                    isSwiping = false
+                }
+                return true
             }
         }
-        return true
+        return super.onTouchEvent(event)
     }
 }

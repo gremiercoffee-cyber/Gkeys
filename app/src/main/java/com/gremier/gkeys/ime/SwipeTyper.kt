@@ -2,6 +2,7 @@ package com.gremier.gkeys.ime
 
 import android.graphics.Rect
 import android.view.View
+import android.view.ViewGroup
 import kotlin.math.hypot
 import kotlin.math.max
 
@@ -14,8 +15,11 @@ class SwipeTyper(
     private var suppressNextClick = false
     private var enabled = true
 
+    /** The container whose coordinate space incoming x/y values are expressed in. */
+    var root: ViewGroup? = null
+
     companion object {
-        const val SWIPE_START_THRESHOLD = 20f
+        const val SWIPE_START_THRESHOLD = 18f
     }
 
     fun setEnabled(value: Boolean) {
@@ -39,17 +43,17 @@ class SwipeTyper(
         return suppress
     }
 
-    fun onTouchDown(rawX: Float, rawY: Float) {
+    fun onTouchDown(x: Float, y: Float) {
         if (!enabled) return
         isSwiping = false
         path.clear()
-        keyAt(rawX, rawY)?.let { path.add(it) }
+        keyAt(x, y)?.let { path.add(it) }
     }
 
-    fun onTouchMove(rawX: Float, rawY: Float) {
+    fun onTouchMove(x: Float, y: Float) {
         if (!enabled) return
         isSwiping = true
-        keyAt(rawX, rawY)?.let { c ->
+        keyAt(x, y)?.let { c ->
             if (path.isEmpty() || path.last() != c) path.add(c)
         }
     }
@@ -75,20 +79,23 @@ class SwipeTyper(
         path.clear()
     }
 
-    private fun keyAt(rawX: Float, rawY: Float): Char? {
+    /** Resolves the key under a point expressed in [root]'s coordinate space. */
+    private fun keyAt(x: Float, y: Float): Char? {
+        val container = root ?: return null
+        val rect = Rect()
         var best: Char? = null
         var bestDist = Float.MAX_VALUE
         for ((view, char) in keyViews) {
             if (!view.isShown) continue
-            val rect = Rect()
-            if (!view.getGlobalVisibleRect(rect)) continue
-            if (rect.contains(rawX.toInt(), rawY.toInt())) {
+            rect.set(0, 0, view.width, view.height)
+            container.offsetDescendantRectToMyCoords(view, rect)
+            if (rect.contains(x.toInt(), y.toInt())) {
                 return char
             }
             val cx = rect.exactCenterX()
             val cy = rect.exactCenterY()
-            val dist = hypot(rawX - cx, rawY - cy)
-            val radius = max(rect.width(), rect.height()) * 0.65f
+            val dist = hypot(x - cx, y - cy)
+            val radius = max(rect.width(), rect.height()) * 0.7f
             if (dist < radius && dist < bestDist) {
                 bestDist = dist
                 best = char

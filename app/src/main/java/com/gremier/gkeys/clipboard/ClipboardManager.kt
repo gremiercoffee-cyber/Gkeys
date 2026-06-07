@@ -5,8 +5,8 @@ import android.content.Context
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.GridLayout
 import android.widget.ImageButton
-import android.widget.LinearLayout
 import android.widget.PopupMenu
 import android.widget.TextView
 import com.gremier.gkeys.R
@@ -151,8 +151,8 @@ class GkeysClipboardManager(
         val recent = items.filter { !it.isPinned }
         val pinned = items.filter { it.isPinned }
 
-        val recentContainer = panel.findViewById<LinearLayout>(R.id.recent_cards)
-        val pinnedContainer = panel.findViewById<LinearLayout>(R.id.pinned_cards)
+        val recentContainer = panel.findViewById<GridLayout>(R.id.recent_cards)
+        val pinnedContainer = panel.findViewById<GridLayout>(R.id.pinned_cards)
         val recentHeader = panel.findViewById<TextView>(R.id.tv_recent_header)
         val pinnedHeader = panel.findViewById<TextView>(R.id.tv_pinned_header)
         val divider = panel.findViewById<View>(R.id.section_divider)
@@ -165,22 +165,31 @@ class GkeysClipboardManager(
         emptyView.visibility = if (isEmpty) View.VISIBLE else View.GONE
         recentHeader.visibility = if (isEmpty) View.GONE else View.VISIBLE
 
-        recent.forEach { item ->
-            recentContainer.addView(createCardView(item))
+        recent.forEachIndexed { index, item ->
+            recentContainer.addView(createCardView(recentContainer, item, index))
         }
 
         val showPinned = pinned.isNotEmpty()
         divider.visibility = if (recent.isNotEmpty() && showPinned) View.VISIBLE else View.GONE
         pinnedHeader.visibility = if (showPinned) View.VISIBLE else View.GONE
 
-        pinned.forEach { item ->
-            pinnedContainer.addView(createCardView(item))
+        pinned.forEachIndexed { index, item ->
+            pinnedContainer.addView(createCardView(pinnedContainer, item, index))
         }
     }
 
-    private fun createCardView(item: ClipboardItem): View {
-        val card = LayoutInflater.from(context).inflate(R.layout.item_clipboard, null, false)
+    private fun createCardView(parent: GridLayout, item: ClipboardItem, index: Int): View {
+        val card = LayoutInflater.from(context).inflate(R.layout.item_clipboard, parent, false)
         card.findViewById<TextView>(R.id.tv_clip_text).text = item.text
+
+        val margin = (4 * context.resources.displayMetrics.density).toInt()
+        card.layoutParams = GridLayout.LayoutParams().apply {
+            width = 0
+            height = (72 * context.resources.displayMetrics.density).toInt()
+            columnSpec = GridLayout.spec(index % 2, 1f)
+            rowSpec = GridLayout.spec(index / 2)
+            setMargins(margin, margin, margin, margin)
+        }
         card.setOnClickListener {
             onPaste(item.text)
             hidePanel()
