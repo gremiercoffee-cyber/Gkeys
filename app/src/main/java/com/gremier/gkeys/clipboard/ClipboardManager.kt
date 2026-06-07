@@ -96,6 +96,13 @@ class GkeysClipboardManager(
         overlayContainer.visibility = View.GONE
     }
 
+    fun refreshPreview() {
+        scope.launch {
+            val items = withContext(Dispatchers.IO) { dao.getAllOnce() }
+            updatePreview(items)
+        }
+    }
+
     fun destroy() {
         stopListening()
         scope.cancel()
