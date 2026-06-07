@@ -22,6 +22,8 @@ class TouchInputResolver(
 
     fun clearTargets() {
         targets.clear()
+        averageKeyWidth = 48f
+        averageKeyHeight = 48f
     }
 
     fun setPreviousChar(c: Char?) {

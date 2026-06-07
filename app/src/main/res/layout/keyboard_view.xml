@@ -134,58 +134,10 @@
             android:orientation="vertical"
             android:layoutDirection="ltr">
 
-            <LinearLayout
-                android:id="@+id/swipe_suggestion_bar"
-                android:layout_width="match_parent"
-                android:layout_height="36dp"
-                android:orientation="horizontal"
-                android:gravity="center_vertical"
-                android:paddingStart="6dp"
-                android:paddingEnd="6dp"
-                android:visibility="gone"
-                android:layoutDirection="ltr">
-
-                <TextView
-                    android:id="@+id/swipe_suggestion_0"
-                    android:layout_width="0dp"
-                    android:layout_height="28dp"
-                    android:layout_weight="1"
-                    android:layout_marginEnd="4dp"
-                    android:gravity="center"
-                    android:textSize="14sp"
-                    android:textColor="#E8EAF0"
-                    android:background="@drawable/swipe_suggestion_chip"
-                    android:visibility="invisible" />
-
-                <TextView
-                    android:id="@+id/swipe_suggestion_1"
-                    android:layout_width="0dp"
-                    android:layout_height="28dp"
-                    android:layout_weight="1"
-                    android:layout_marginEnd="4dp"
-                    android:gravity="center"
-                    android:textSize="14sp"
-                    android:textColor="#E8EAF0"
-                    android:background="@drawable/swipe_suggestion_chip"
-                    android:visibility="invisible" />
-
-                <TextView
-                    android:id="@+id/swipe_suggestion_2"
-                    android:layout_width="0dp"
-                    android:layout_height="28dp"
-                    android:layout_weight="1"
-                    android:gravity="center"
-                    android:textSize="14sp"
-                    android:textColor="#E8EAF0"
-                    android:background="@drawable/swipe_suggestion_chip"
-                    android:visibility="invisible" />
-
-            </LinearLayout>
-
-            <com.gremier.gkeys.ime.SwipeKeyboardLayout
+            <com.gremier.gkeys.ime.KeyboardTouchLayout
                 android:id="@+id/keyboard_rows"
                 android:layout_width="match_parent"
-                android:layout_height="220dp"
+                android:layout_height="280dp"
                 android:orientation="vertical"
                 android:layoutDirection="ltr"
                 android:paddingStart="4dp"

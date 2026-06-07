@@ -74,10 +74,8 @@ class GkeysIME : InputMethodService() {
     private lateinit var polishLoadingOverlay: View
     private var isPolishing = false
     private var clipboardManager: GkeysClipboardManager? = null
-    private lateinit var swipeTyper: SwipeTyper
-    private lateinit var swipeSuggestionBar: LinearLayout
-    private val swipeSuggestionViews = arrayOfNulls<TextView>(3)
-    private var lastSwipeWord: String? = null
+    private var isDeleteRepeating = false
+    private var keyboardHeightPx = 0
     private lateinit var touchPersonalization: TouchPersonalization
     private lateinit var touchResolver: TouchInputResolver
     private val touchKeyViews = mutableListOf<Triple<View, String, Int>>()
@@ -169,35 +167,15 @@ class GkeysIME : InputMethodService() {
         voiceActionViews[VoiceAction.DEEP_POLISH] = keyboardView.findViewById(R.id.action_deep)
         voiceActionViews[VoiceAction.RAW] = keyboardView.findViewById(R.id.action_raw)
 
-        val keyboardRows = keyboardView.findViewById<SwipeKeyboardLayout>(R.id.keyboard_rows)
-        swipeSuggestionBar = keyboardView.findViewById(R.id.swipe_suggestion_bar)
-        swipeSuggestionViews[0] = keyboardView.findViewById(R.id.swipe_suggestion_0)
-        swipeSuggestionViews[1] = keyboardView.findViewById(R.id.swipe_suggestion_1)
-        swipeSuggestionViews[2] = keyboardView.findViewById(R.id.swipe_suggestion_2)
-        swipeSuggestionViews.forEachIndexed { _, chip ->
-            chip?.setOnClickListener {
-                val display = chip.text?.toString()?.takeIf { it.isNotBlank() } ?: return@setOnClickListener
-                val replace = lastSwipeWord != null && display != lastSwipeWord
-                applySwipeSuggestion(display, replaceLast = replace)
-            }
-        }
-
-        swipeTyper = SwipeTyper(
-            context = this,
-            onSuggestionsChanged = { suggestions -> updateSwipeSuggestions(suggestions) },
-            onWordCommitted = { word -> commitSwipeWord(word) }
-        )
-        keyboardRows.swipeTyper = swipeTyper
+        val keyboardRows = keyboardView.findViewById<KeyboardTouchLayout>(R.id.keyboard_rows)
 
         touchPersonalization = TouchPersonalization(this, scope)
         touchPersonalization.load()
         touchResolver = TouchInputResolver(touchPersonalization)
         keyboardRows.touchResolver = touchResolver
         keyboardRows.onKeyTap = { key ->
-            if (!swipeTyper.shouldSuppressClick()) {
-                vibrate()
-                handleKey(key)
-            }
+            vibrate()
+            handleKey(key)
         }
         keyboardRows.onBackspaceDown = { startDeleteRepeat() }
         keyboardRows.onBackspaceUp = { stopDeleteRepeat() }
@@ -217,6 +195,9 @@ class GkeysIME : InputMethodService() {
 
         setupAiStrip()
         buildKeyboard()
+        keyboardView.findViewById<KeyboardTouchLayout>(R.id.keyboard_rows)?.let {
+            attachTouchTargetLayoutWatcher(it)
+        }
         return keyboardView
     }
 
@@ -248,6 +229,7 @@ class GkeysIME : InputMethodService() {
             rightHandedMode = GkeysSettings.rightHandedMode(this@GkeysIME).first()
             keySizePreset = GkeysSettings.keySizePreset(this@GkeysIME).first()
             layoutProfile = KeyboardLayoutMetrics.profile(keySizePreset, rightHandedMode)
+            keyboardHeightPx = 0
             if (::touchResolver.isInitialized) {
                 touchResolver.rightHandedMode = rightHandedMode
             }
@@ -433,23 +415,65 @@ class GkeysIME : InputMethodService() {
             }
         }
         keyboardContent.layoutParams = params
+        keyboardContent.requestLayout()
+        refreshTouchTargetsAfterLayout()
+    }
+
+    /**
+     * Re-measures key hit zones after the keyboard reflows (one-handed resize,
+     * right-handed layout, settings changes). Must run after layout completes.
+     */
+    private fun refreshTouchTargetsAfterLayout(container: KeyboardTouchLayout? = null) {
+        if (!::touchResolver.isInitialized || !touchResolver.enabled) return
+        val targetContainer = container
+            ?: keyboardView.findViewById<KeyboardTouchLayout>(R.id.keyboard_rows)
+            ?: return
+        if (touchKeyViews.isEmpty()) return
+
+        targetContainer.viewTreeObserver.addOnGlobalLayoutListener(
+            object : ViewTreeObserver.OnGlobalLayoutListener {
+                override fun onGlobalLayout() {
+                    targetContainer.viewTreeObserver.removeOnGlobalLayoutListener(this)
+                    if (touchKeyViews.isEmpty() || !touchResolver.enabled) return
+                    touchResolver.rightHandedMode = rightHandedMode
+                    touchResolver.refreshFromViews(targetContainer, touchKeyViews)
+                }
+            }
+        )
+        targetContainer.requestLayout()
+    }
+
+    private fun attachTouchTargetLayoutWatcher(container: KeyboardTouchLayout) {
+        container.addOnLayoutChangeListener { _, _, _, _, _, oldLeft, oldTop, oldRight, oldBottom ->
+            val oldW = oldRight - oldLeft
+            val oldH = oldBottom - oldTop
+            if (oldW <= 0 || oldH <= 0) return@addOnLayoutChangeListener
+            if (touchKeyViews.isEmpty() || !touchResolver.enabled) return@addOnLayoutChangeListener
+            container.removeCallbacks(touchTargetRefreshRunnable)
+            container.postDelayed(touchTargetRefreshRunnable, 16)
+        }
+    }
+
+    private val touchTargetRefreshRunnable = Runnable {
+        if (!::keyboardView.isInitialized || !::touchResolver.isInitialized) return@Runnable
+        val container = keyboardView.findViewById<KeyboardTouchLayout>(R.id.keyboard_rows) ?: return@Runnable
+        if (touchKeyViews.isEmpty() || !touchResolver.enabled) return@Runnable
+        touchResolver.rightHandedMode = rightHandedMode
+        touchResolver.refreshFromViews(container, touchKeyViews)
     }
 
     private fun dp(value: Int): Int =
         (value * resources.displayMetrics.density).toInt()
 
     private fun buildKeyboard() {
-        val container = keyboardView.findViewById<SwipeKeyboardLayout>(R.id.keyboard_rows) ?: return
+        val container = keyboardView.findViewById<KeyboardTouchLayout>(R.id.keyboard_rows) ?: return
         container.removeAllViews()
         container.layoutDirection = View.LAYOUT_DIRECTION_LTR
-        swipeTyper.clearKeys()
         touchKeyViews.clear()
         touchResolver.clearTargets()
 
         val profile = layoutProfile
-        container.layoutParams = container.layoutParams.apply {
-            height = dp(profile.keyboardHeightDp)
-        }
+        applyStableKeyboardHeight(container)
         container.setPadding(
             dp(KeyboardLayoutMetrics.keyboardPaddingStartDp(rightHandedMode)),
             container.paddingTop,
@@ -464,12 +488,9 @@ class GkeysIME : InputMethodService() {
             else -> enRows
         }
         val touchCorrectionEnabled = !isHebrew && !isSymbols
-        swipeTyper.setEnabled(touchCorrectionEnabled)
         touchResolver.enabled = touchCorrectionEnabled
         touchResolver.rightHandedMode = rightHandedMode
-        if (::touchResolver.isInitialized) {
-            touchResolver.setPreviousChar(lastTypedChar)
-        }
+        touchResolver.setPreviousChar(lastTypedChar)
 
         val totalRows = rows.size
         rows.forEachIndexed { rowIndex, keys ->
@@ -497,61 +518,38 @@ class GkeysIME : InputMethodService() {
             container.addView(row)
         }
         forceLayoutLtr(container)
-        container.post {
-            swipeTyper.refreshGeometry(container)
-            if (touchCorrectionEnabled) {
-                touchResolver.refreshFromViews(container, touchKeyViews)
+        refreshTouchTargetsAfterLayout(container)
+    }
+
+    private fun applyStableKeyboardHeight(container: View) {
+        val target = dp(layoutProfile.keyboardHeightDp)
+        if (keyboardHeightPx == target && container.layoutParams.height == target) return
+        keyboardHeightPx = target
+        container.layoutParams = container.layoutParams.apply { height = target }
+    }
+
+    private fun displayLabelFor(label: String): String {
+        val isSpace = label == "SPACE"
+        val isSpecial = label in listOf("⇧", "⌫", "↵", "?123", "ABC", "🌐")
+        return when {
+            isSpace && isHebrew -> "עברית"
+            isSpace -> "space"
+            isShifted && !isHebrew && !isSpecial && label.length == 1 && label[0].isLetter() ->
+                label.uppercase()
+            else -> label
+        }
+    }
+
+    private fun refreshLetterCaseOnKeys() {
+        val container = keyboardView.findViewById<KeyboardTouchLayout>(R.id.keyboard_rows) ?: return
+        for (rowIndex in 0 until container.childCount) {
+            val row = container.getChildAt(rowIndex) as? ViewGroup ?: continue
+            for (keyIndex in 0 until row.childCount) {
+                val cell = row.getChildAt(keyIndex)
+                val label = cell.tag as? String ?: continue
+                val pebble = (cell as? ViewGroup)?.getChildAt(0) as? TextView ?: continue
+                pebble.text = displayLabelFor(label)
             }
-        }
-    }
-
-    private fun updateSwipeSuggestions(suggestions: List<com.gremier.gkeys.ime.gesture.GestureSuggestion>) {
-        if (suggestions.isEmpty()) {
-            swipeSuggestionBar.visibility = View.GONE
-            swipeSuggestionViews.forEach { it?.visibility = View.INVISIBLE }
-            return
-        }
-        swipeSuggestionBar.visibility = View.VISIBLE
-        for (i in 0 until 3) {
-            val chip = swipeSuggestionViews[i] ?: continue
-            val word = suggestions.getOrNull(i)?.word
-            if (word.isNullOrBlank()) {
-                chip.visibility = View.INVISIBLE
-                chip.text = ""
-            } else {
-                chip.visibility = View.VISIBLE
-                chip.text = formatSwipeWord(word)
-            }
-        }
-    }
-
-    private fun formatSwipeWord(word: String): String =
-        if (isShifted || capsLock) word.replaceFirstChar { it.uppercase() } else word
-
-    private fun commitSwipeWord(word: String) {
-        vibrate()
-        val text = formatSwipeWord(word)
-        lastSwipeWord = text
-        currentInputConnection?.commitText("$text ", 1)
-        updateTouchContext("$text ")
-        if (isShifted && !capsLock) {
-            isShifted = false
-            buildKeyboard()
-        }
-    }
-
-    private fun applySwipeSuggestion(word: String, replaceLast: Boolean) {
-        val ic = currentInputConnection ?: return
-        vibrate()
-        if (replaceLast && lastSwipeWord != null) {
-            ic.deleteSurroundingText(lastSwipeWord!!.length + 1, 0)
-        }
-        ic.commitText("$word ", 1)
-        lastSwipeWord = word
-        swipeTyper.clearSuggestions()
-        if (isShifted && !capsLock) {
-            isShifted = false
-            buildKeyboard()
         }
     }
 
@@ -564,12 +562,7 @@ class GkeysIME : InputMethodService() {
     ): View {
         val isSpace = label == "SPACE"
         val isSpecial = label in listOf("⇧", "⌫", "↵", "?123", "ABC", "🌐")
-        val displayLabel = when {
-            isSpace && isHebrew -> "עברית"
-            isSpace -> "space"
-            isShifted && !isHebrew && label.length == 1 && label[0].isLetter() -> label.uppercase()
-            else -> label
-        }
+        val displayLabel = displayLabelFor(label)
 
         val baseWeight = if (KeyboardLayoutMetrics.isBottomRowSpecialRow(rowIndex, totalRows)) {
             KeyboardLayoutMetrics.bottomRowWeight(label, profile.rightHanded)
@@ -585,6 +578,7 @@ class GkeysIME : InputMethodService() {
         val gap = profile.keyGapDp
         val cell = FrameLayout(this).apply {
             layoutDirection = View.LAYOUT_DIRECTION_LTR
+            tag = label
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, weight).apply {
                 setMargins(dp(gap / 2), dp(1), dp(gap / 2), dp(1))
             }
@@ -618,7 +612,6 @@ class GkeysIME : InputMethodService() {
         cell.addView(pebble)
 
         if (touchCorrectionEnabled) {
-            swipeTyper.registerKey(cell, label)
             touchKeyViews.add(Triple(cell, label, rowIndex))
             cell.isClickable = false
             cell.isFocusable = false
@@ -631,8 +624,8 @@ class GkeysIME : InputMethodService() {
             if (label == "⌫") {
                 cell.setOnLongClickListener { startDeleteRepeat(); true }
                 cell.setOnTouchListener { _, event ->
-                    if (event.action == MotionEvent.ACTION_UP || event.action == MotionEvent.ACTION_CANCEL) {
-                        stopDeleteRepeat()
+                    when (event.action) {
+                        MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> stopDeleteRepeat()
                     }
                     false
                 }
@@ -643,8 +636,6 @@ class GkeysIME : InputMethodService() {
     }
 
     private fun handleKey(key: String) {
-        swipeTyper.clearSuggestions()
-        lastSwipeWord = null
         val ic = currentInputConnection ?: return
         when (key) {
             "⌫" -> {
@@ -660,7 +651,7 @@ class GkeysIME : InputMethodService() {
                 if (isShifted && !capsLock) capsLock = true
                 else if (capsLock) { capsLock = false; isShifted = false }
                 else isShifted = true
-                buildKeyboard()
+                refreshLetterCaseOnKeys()
             }
             "?123" -> { isSymbols = true; buildKeyboard() }
             "ABC" -> { isSymbols = false; buildKeyboard() }
@@ -673,7 +664,7 @@ class GkeysIME : InputMethodService() {
                 updateTouchContext(toInsert)
                 if (isShifted && !capsLock && toInsert.length == 1 && toInsert[0].isLetter()) {
                     isShifted = false
-                    buildKeyboard()
+                    refreshLetterCaseOnKeys()
                 }
             }
         }
@@ -691,17 +682,23 @@ class GkeysIME : InputMethodService() {
     }
 
     private fun startDeleteRepeat() {
+        if (isDeleteRepeating) return
+        deleteRunnable?.let { handler.removeCallbacks(it) }
+        isDeleteRepeating = true
+        currentInputConnection?.deleteSurroundingText(1, 0)
         deleteRunnable = object : Runnable {
             override fun run() {
+                if (!isDeleteRepeating) return
                 currentInputConnection?.deleteSurroundingText(1, 0)
                 vibrate(6)
                 handler.postDelayed(this, deleteSpeedMs.toLong())
             }
         }
-        handler.postDelayed(deleteRunnable!!, (deleteSpeedMs * 3).toLong())
+        handler.postDelayed(deleteRunnable!!, deleteSpeedMs.toLong())
     }
 
     private fun stopDeleteRepeat() {
+        isDeleteRepeating = false
         deleteRunnable?.let { handler.removeCallbacks(it) }
         deleteRunnable = null
     }
