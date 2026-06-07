@@ -102,24 +102,13 @@
             </FrameLayout>
 
             <ImageButton
-                android:id="@+id/btn_polish"
-                android:layout_width="36dp"
-                android:layout_height="36dp"
-                android:layout_marginStart="4dp"
-                android:src="@drawable/ic_polish"
-                android:background="@drawable/btn_circle_bg"
-                android:contentDescription="Polish text"
-                android:scaleType="centerInside"
-                android:padding="7dp" />
-
-            <ImageButton
                 android:id="@+id/btn_keyboard"
                 android:layout_width="40dp"
                 android:layout_height="40dp"
                 android:layout_marginStart="4dp"
-                android:src="@drawable/ic_keyboard_grid"
+                android:src="@drawable/ic_dialpad"
                 android:background="@drawable/btn_circle_bg"
-                android:contentDescription="Show keyboard"
+                android:contentDescription="Number pad"
                 android:scaleType="centerInside"
                 android:padding="8dp" />
 
@@ -159,40 +148,6 @@
     </LinearLayout>
 
     <include layout="@layout/voice_overlay" />
-
-    <FrameLayout
-        android:id="@+id/polish_loading_overlay"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:background="#990F0F1A"
-        android:visibility="gone"
-        android:clickable="true"
-        android:focusable="true">
-
-        <LinearLayout
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="center"
-            android:orientation="vertical"
-            android:gravity="center">
-
-            <ProgressBar
-                android:layout_width="36dp"
-                android:layout_height="36dp"
-                android:indeterminate="true"
-                android:layout_marginBottom="12dp" />
-
-            <TextView
-                android:id="@+id/polish_loading_text"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Polishing…"
-                android:textColor="#E5E7EB"
-                android:textSize="14sp" />
-
-        </LinearLayout>
-
-    </FrameLayout>
 
     <FrameLayout
         android:id="@+id/clipboard_overlay_container"

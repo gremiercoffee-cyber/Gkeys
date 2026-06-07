@@ -1,7 +1,9 @@
 package com.gremier.gkeys.clipboard
 
+import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.os.Build
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -24,6 +26,10 @@ class GkeysClipboardManager(
 ) {
     companion object {
         private const val MAX_ITEMS = 20
+        private const val MAX_AGE_MS = 60 * 60 * 1000L
+        private const val PREFS = "gkeys_clipboard"
+        private const val KEY_BLOCKED = "blocked_texts"
+        private const val MAX_BLOCKED = 50
     }
 
     private val dao = ClipboardDatabase.getInstance(context).clipboardDao()
@@ -31,16 +37,19 @@ class GkeysClipboardManager(
     private var overlayView: View? = null
     private var isListening = false
     private var lastCapturedText: String? = null
+    private val blockedTexts = loadBlockedTexts().toMutableSet()
+
+    private val prefs by lazy {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    }
 
     private val systemClipboard =
         context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
 
     private val clipListener = ClipboardManager.OnPrimaryClipChangedListener {
         if (!isListening) return@OnPrimaryClipChangedListener
-        val clip = systemClipboard.primaryClip ?: return@OnPrimaryClipChangedListener
-        if (clip.itemCount == 0) return@OnPrimaryClipChangedListener
-        val text = clip.getItemAt(0).coerceToText(context)?.toString()?.trim().orEmpty()
-        if (text.isNotBlank() && text != lastCapturedText) {
+        val text = readSystemClipText() ?: return@OnPrimaryClipChangedListener
+        if (text != lastCapturedText && !isBlocked(text)) {
             lastCapturedText = text
             scope.launch { addItem(text) }
         }
@@ -57,10 +66,11 @@ class GkeysClipboardManager(
             }
         }
         scope.launch {
-            val clip = systemClipboard.primaryClip
-            if (clip != null && clip.itemCount > 0) {
-                val text = clip.getItemAt(0).coerceToText(context)?.toString()?.trim().orEmpty()
-                if (text.isNotBlank()) addItem(text)
+            purgeExpired()
+            val text = readSystemClipText()
+            if (text != null && !isBlocked(text)) {
+                lastCapturedText = text
+                addItem(text)
             }
         }
     }
@@ -77,7 +87,10 @@ class GkeysClipboardManager(
         if (overlayView != null) {
             overlayView?.visibility = View.VISIBLE
             scope.launch {
-                refreshOverlay(withContext(Dispatchers.IO) { dao.getAllOnce() })
+                refreshOverlay(withContext(Dispatchers.IO) {
+                    purgeExpired()
+                    dao.getAllOnce()
+                })
             }
             return
         }
@@ -90,7 +103,10 @@ class GkeysClipboardManager(
         overlayContainer.addView(panel, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
         overlayView = panel
         scope.launch {
-            refreshOverlay(withContext(Dispatchers.IO) { dao.getAllOnce() })
+            refreshOverlay(withContext(Dispatchers.IO) {
+                purgeExpired()
+                dao.getAllOnce()
+            })
         }
     }
 
@@ -115,7 +131,9 @@ class GkeysClipboardManager(
     }
 
     private suspend fun addItem(text: String) {
+        if (isBlocked(text)) return
         withContext(Dispatchers.IO) {
+            purgeExpired()
             val existing = dao.findByText(text)
             if (existing != null) {
                 dao.update(existing.copy(timestamp = System.currentTimeMillis()))
@@ -126,10 +144,54 @@ class GkeysClipboardManager(
         }
     }
 
+    private suspend fun deleteItem(item: ClipboardItem) {
+        withContext(Dispatchers.IO) {
+            dao.deleteById(item.id)
+            dao.deleteByText(item.text)
+            blockText(item.text)
+            if (readSystemClipText() == item.text) {
+                clearSystemClipboard()
+                lastCapturedText = ""
+            }
+        }
+    }
+
+    private fun blockText(text: String) {
+        blockedTexts.add(text)
+        while (blockedTexts.size > MAX_BLOCKED) {
+            blockedTexts.remove(blockedTexts.first())
+        }
+        prefs.edit().putStringSet(KEY_BLOCKED, blockedTexts.toSet()).apply()
+    }
+
+    private fun isBlocked(text: String): Boolean = text in blockedTexts
+
+    private fun loadBlockedTexts(): Set<String> =
+        prefs.getStringSet(KEY_BLOCKED, emptySet())?.toSet() ?: emptySet()
+
+    private suspend fun purgeExpired() {
+        dao.deleteOlderThan(System.currentTimeMillis() - MAX_AGE_MS)
+    }
+
     private suspend fun trimHistory() {
         while (dao.countAll() > MAX_ITEMS) {
             val oldest = dao.getOldestUnpinned() ?: break
             dao.delete(oldest)
+        }
+    }
+
+    private fun readSystemClipText(): String? {
+        val clip = systemClipboard.primaryClip ?: return null
+        if (clip.itemCount == 0) return null
+        return clip.getItemAt(0).coerceToText(context)?.toString()?.trim()?.takeIf { it.isNotBlank() }
+    }
+
+    private fun clearSystemClipboard() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            systemClipboard.clearPrimaryClip()
+        } else {
+            @Suppress("DEPRECATION")
+            systemClipboard.setPrimaryClip(ClipData.newPlainText("", ""))
         }
     }
 
@@ -208,7 +270,7 @@ class GkeysClipboardManager(
                                 timestamp = System.currentTimeMillis()
                             ))
                         }
-                        "Delete" -> scope.launch(Dispatchers.IO) { dao.delete(item) }
+                        "Delete" -> scope.launch { deleteItem(item) }
                     }
                     onVibrate()
                     true

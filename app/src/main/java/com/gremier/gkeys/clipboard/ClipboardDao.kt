@@ -35,4 +35,10 @@ interface ClipboardDao {
 
     @Query("SELECT * FROM clipboard_items WHERE isPinned = 0 ORDER BY timestamp ASC LIMIT 1")
     suspend fun getOldestUnpinned(): ClipboardItem?
+
+    @Query("DELETE FROM clipboard_items WHERE timestamp < :cutoff")
+    suspend fun deleteOlderThan(cutoff: Long)
+
+    @Query("DELETE FROM clipboard_items WHERE text = :text")
+    suspend fun deleteByText(text: String)
 }

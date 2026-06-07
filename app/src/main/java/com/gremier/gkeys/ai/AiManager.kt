@@ -16,6 +16,29 @@ class AiManager(private val context: Context) {
     companion object {
         const val POLISH_SYSTEM_PROMPT = """
 You are a text polishing assistant. The user has typed or dictated the following text on a mobile keyboard. Rewrite it to be clear, natural, and well-structured while preserving the original meaning, tone, and intent. Do not add extra information. Do not make it formal unless it already is. Keep it concise. Return only the rewritten text, nothing else."""
+
+        private const val MIN_AUDIO_BYTES = 4096L
+        private const val MIN_RECORDING_MS = 700L
+
+        private val HALLUCINATION_PHRASES = listOf(
+            "thank you for watching",
+            "thanks for watching",
+            "please subscribe",
+            "like and subscribe",
+            "see you next time",
+            "wishing you lots of happiness",
+            "until the end",
+            "subtitles by",
+            "amara.org",
+            "mbc",
+            "copyright"
+        )
+
+        fun isLikelyHallucination(text: String): Boolean {
+            val lower = text.lowercase().trim()
+            if (lower.length < 3) return true
+            return HALLUCINATION_PHRASES.any { lower.contains(it) }
+        }
     }
 
     private val client = OkHttpClient.Builder()
@@ -23,14 +46,23 @@ You are a text polishing assistant. The user has typed or dictated the following
         .readTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
         .build()
 
-    suspend fun transcribe(audioFile: File, openAiKey: String): Result<String> =
+    suspend fun transcribe(
+        audioFile: File,
+        openAiKey: String,
+        recordingDurationMs: Long = 0L
+    ): Result<String> =
         withContext(Dispatchers.IO) {
             try {
+                if (recordingDurationMs in 1 until MIN_RECORDING_MS || audioFile.length() < MIN_AUDIO_BYTES) {
+                    return@withContext Result.failure(Exception("Recording too short"))
+                }
                 val body = MultipartBody.Builder()
                     .setType(MultipartBody.FORM)
                     .addFormDataPart("file", audioFile.name,
                         audioFile.asRequestBody("audio/m4a".toMediaType()))
                     .addFormDataPart("model", "whisper-1")
+                    .addFormDataPart("temperature", "0")
+                    .addFormDataPart("prompt", " ")
                     .build()
 
                 val request = Request.Builder()
@@ -44,7 +76,11 @@ You are a text polishing assistant. The user has typed or dictated the following
                     return@withContext Result.failure(Exception("Transcription failed (${response.code})"))
                 }
                 val json = JSONObject(response.body?.string() ?: "{}")
-                Result.success(json.optString("text", ""))
+                val text = json.optString("text", "").trim()
+                if (text.isBlank() || isLikelyHallucination(text)) {
+                    return@withContext Result.failure(Exception("Nothing heard"))
+                }
+                Result.success(text)
             } catch (e: Exception) {
                 Result.failure(e)
             }

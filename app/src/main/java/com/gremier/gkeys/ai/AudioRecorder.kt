@@ -9,10 +9,12 @@ class AudioRecorder(private val context: Context) {
 
     private var recorder: MediaRecorder? = null
     private var outputFile: File? = null
+    private var recordingStartedAtMs = 0L
 
     fun startRecording(): File {
         val file = File(context.cacheDir, "gkeys_audio_${System.currentTimeMillis()}.m4a")
         outputFile = file
+        recordingStartedAtMs = System.currentTimeMillis()
 
         recorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             MediaRecorder(context)
@@ -44,11 +46,15 @@ class AudioRecorder(private val context: Context) {
         }
     }
 
+    fun lastRecordingDurationMs(): Long =
+        if (recordingStartedAtMs > 0L) System.currentTimeMillis() - recordingStartedAtMs else 0L
+
     fun cancelRecording() {
         try { recorder?.apply { stop(); release() } } catch (e: Exception) { }
         recorder = null
         outputFile?.delete()
         outputFile = null
+        recordingStartedAtMs = 0L
     }
 
     val isRecording: Boolean get() = recorder != null

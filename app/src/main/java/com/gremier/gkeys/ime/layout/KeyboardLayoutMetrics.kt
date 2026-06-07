@@ -16,7 +16,7 @@ object KeyboardLayoutMetrics {
     const val BASE_PEBBLE_WIDTH_DP = 54
     const val BASE_SPECIAL_DP = 56
     const val BASE_SPACE_HEIGHT_DP = 44
-    const val BASE_SPACE_WIDTH_DP = 132
+    const val BASE_SPACE_WIDTH_DP = 152
     const val BASE_KEY_GAP_DP = 2
     const val BASE_ROW_COUNT = 5
 
@@ -38,7 +38,7 @@ object KeyboardLayoutMetrics {
         else -> 1.0f
     }
 
-    fun profile(preset: String, rightHanded: Boolean): Profile {
+    fun profile(preset: String, rightHanded: Boolean, rowCount: Int = BASE_ROW_COUNT): Profile {
         val scale = scaleForPreset(preset)
         val pebbleH = (BASE_PEBBLE_HEIGHT_DP * scale).toInt()
         val pebbleW = (BASE_PEBBLE_WIDTH_DP * scale).toInt()
@@ -51,9 +51,14 @@ object KeyboardLayoutMetrics {
             spaceWidthDp = (BASE_SPACE_WIDTH_DP * scale).toInt(),
             spaceHeightDp = (BASE_SPACE_HEIGHT_DP * scale).toInt(),
             keyGapDp = gap,
-            keyboardHeightDp = rowHeight * BASE_ROW_COUNT,
+            keyboardHeightDp = rowHeight * rowCount,
             rightHanded = rightHanded
         )
+    }
+
+    fun heightForRowCount(profile: Profile, rowCount: Int): Int {
+        val perRow = profile.keyboardHeightDp / BASE_ROW_COUNT
+        return perRow * rowCount
     }
 
     /** Horizontal cell weight multiplier for right-handed reach. */
@@ -65,6 +70,7 @@ object KeyboardLayoutMetrics {
             "q", "a", "z", "⇧" -> 0.86f
             "w", "s", "x" -> 0.92f
             "?123", "ABC", "🌐", "," -> 0.88f
+            "0" -> 2.2f
             "SPACE" -> 1.08f
             else -> 1f
         }
@@ -74,15 +80,17 @@ object KeyboardLayoutMetrics {
     fun bottomRowWeight(label: String, rightHanded: Boolean): Float {
         if (!rightHanded) {
             return when (label) {
-                "SPACE" -> 4f
-                "⌫", "↵", "⇧" -> 1.5f
+                "SPACE" -> 4.9f
+                "⌫" -> 1.85f
+                "0" -> 2.2f
+                "↵", "⇧" -> 1.5f
                 else -> 1f
             }
         }
         return when (label) {
-            "SPACE" -> 4.35f
+            "SPACE" -> 5.2f
             "↵" -> 1.65f
-            "⌫" -> 1.55f
+            "⌫" -> 1.9f
             "." -> 1.08f
             "?123", "ABC", "🌐" -> 0.82f
             "," -> 0.90f

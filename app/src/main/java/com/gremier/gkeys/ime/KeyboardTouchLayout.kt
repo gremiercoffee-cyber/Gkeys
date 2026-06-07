@@ -16,16 +16,27 @@ class KeyboardTouchLayout @JvmOverloads constructor(
 
     var touchResolver: TouchInputResolver? = null
     var onKeyTap: ((String) -> Unit)? = null
+    var onKeyLongPress: ((String) -> Unit)? = null
+    var keyLongPressAlts: Map<String, String> = emptyMap()
     var onBackspaceDown: (() -> Unit)? = null
     var onBackspaceUp: (() -> Unit)? = null
 
     private var backspaceLongPressFired = false
+    private var letterLongPressFired = false
     private var deleteRepeatActive = false
+    private var pendingAltLabel: String? = null
 
     private val backspaceLongPressRunnable = Runnable {
         backspaceLongPressFired = true
         deleteRepeatActive = true
         onBackspaceDown?.invoke()
+    }
+
+    private val letterLongPressRunnable = Runnable {
+        val label = pendingAltLabel ?: return@Runnable
+        val alt = keyLongPressAlts[label] ?: return@Runnable
+        letterLongPressFired = true
+        onKeyLongPress?.invoke(alt)
     }
 
     private val useCentralTapHandling: Boolean
@@ -42,8 +53,12 @@ class KeyboardTouchLayout @JvmOverloads constructor(
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 backspaceLongPressFired = false
+                letterLongPressFired = false
+                pendingAltLabel = null
                 removeCallbacks(backspaceLongPressRunnable)
+                removeCallbacks(letterLongPressRunnable)
                 maybeScheduleBackspaceLongPress(event.x, event.y)
+                maybeScheduleLetterLongPress(event.x, event.y)
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
@@ -51,8 +66,13 @@ class KeyboardTouchLayout @JvmOverloads constructor(
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 removeCallbacks(backspaceLongPressRunnable)
+                removeCallbacks(letterLongPressRunnable)
                 if (deleteRepeatActive || backspaceLongPressFired) {
                     finishDeleteRepeat()
+                    return true
+                }
+                if (letterLongPressFired) {
+                    pendingAltLabel = null
                     return true
                 }
                 dispatchResolvedTap(event.x, event.y)
@@ -83,6 +103,16 @@ class KeyboardTouchLayout @JvmOverloads constructor(
         }
     }
 
+    private fun maybeScheduleLetterLongPress(x: Float, y: Float) {
+        if (onKeyLongPress == null || keyLongPressAlts.isEmpty()) return
+        val resolver = touchResolver ?: return
+        val label = resolver.resolve(x, y)?.label ?: return
+        if (keyLongPressAlts.containsKey(label)) {
+            pendingAltLabel = label
+            postDelayed(letterLongPressRunnable, KEY_LONG_PRESS_MS)
+        }
+    }
+
     private fun finishDeleteRepeat() {
         deleteRepeatActive = false
         backspaceLongPressFired = false
@@ -98,5 +128,6 @@ class KeyboardTouchLayout @JvmOverloads constructor(
 
     companion object {
         private const val BACKSPACE_LONG_PRESS_MS = 380L
+        private const val KEY_LONG_PRESS_MS = 380L
     }
 }
