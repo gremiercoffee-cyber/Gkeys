@@ -22,6 +22,7 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var sliderKeyRepeat: Slider
     private lateinit var sliderDeleteSpeed: Slider
     private lateinit var switchVibration: SwitchMaterial
+    private lateinit var sliderVibration: Slider
     private lateinit var switchAutoPolish: SwitchMaterial
     private lateinit var switchDefaultLang: SwitchMaterial
     private lateinit var radioOneHanded: RadioGroup
@@ -43,6 +44,7 @@ class SettingsActivity : AppCompatActivity() {
         sliderKeyRepeat = findViewById(R.id.slider_key_repeat)
         sliderDeleteSpeed = findViewById(R.id.slider_delete_speed)
         switchVibration = findViewById(R.id.switch_vibration)
+        sliderVibration = findViewById(R.id.slider_vibration)
         switchAutoPolish = findViewById(R.id.switch_auto_polish)
         switchDefaultLang = findViewById(R.id.switch_default_lang)
         radioOneHanded = findViewById(R.id.radio_one_handed)
@@ -57,6 +59,8 @@ class SettingsActivity : AppCompatActivity() {
             sliderKeyRepeat.value = GkeysSettings.keyRepeatSpeed(this@SettingsActivity).first().toFloat()
             sliderDeleteSpeed.value = GkeysSettings.deleteSpeed(this@SettingsActivity).first().toFloat()
             switchVibration.isChecked = GkeysSettings.vibrationEnabled(this@SettingsActivity).first()
+            sliderVibration.value = GkeysSettings.vibrationStrength(this@SettingsActivity).first().toFloat()
+            sliderVibration.isEnabled = switchVibration.isChecked
             switchAutoPolish.isChecked = GkeysSettings.autoPolishEnabled(this@SettingsActivity).first()
             switchDefaultLang.isChecked = GkeysSettings.defaultLanguage(this@SettingsActivity).first() == "he"
             when (GkeysSettings.oneHandedMode(this@SettingsActivity).first()) {
@@ -68,6 +72,9 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun setupListeners() {
+        switchVibration.setOnCheckedChangeListener { _, checked ->
+            sliderVibration.isEnabled = checked
+        }
         btnSave.setOnClickListener {
             lifecycleScope.launch {
                 GkeysSettings.saveOpenAiKey(this@SettingsActivity, etOpenAiKey.text.toString().trim())
@@ -75,6 +82,7 @@ class SettingsActivity : AppCompatActivity() {
                 GkeysSettings.saveKeyRepeatSpeed(this@SettingsActivity, sliderKeyRepeat.value.toInt())
                 GkeysSettings.saveDeleteSpeed(this@SettingsActivity, sliderDeleteSpeed.value.toInt())
                 GkeysSettings.saveVibration(this@SettingsActivity, switchVibration.isChecked)
+                GkeysSettings.saveVibrationStrength(this@SettingsActivity, sliderVibration.value.toInt())
                 GkeysSettings.saveAutoPolish(this@SettingsActivity, switchAutoPolish.isChecked)
                 GkeysSettings.saveDefaultLanguage(this@SettingsActivity,
                     if (switchDefaultLang.isChecked) "he" else "en")

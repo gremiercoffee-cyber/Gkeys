@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/voice_overlay"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#E60F0F1A"
+    android:visibility="gone"
+    android:clickable="true"
+    android:focusable="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:gravity="center">
+
+        <FrameLayout
+            android:layout_width="140dp"
+            android:layout_height="140dp"
+            android:layout_marginBottom="16dp">
+
+            <View
+                android:id="@+id/voice_mic_glow"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:background="@drawable/ai_mic_bg_active" />
+
+            <ImageView
+                android:id="@+id/voice_mic_large"
+                android:layout_width="64dp"
+                android:layout_height="64dp"
+                android:layout_gravity="center"
+                android:src="@drawable/ic_ai_mic_active"
+                android:contentDescription="Listening" />
+
+        </FrameLayout>
+
+        <TextView
+            android:id="@+id/voice_status"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Listening…"
+            android:textColor="#E5E7EB"
+            android:textSize="16sp"
+            android:layout_marginBottom="24dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Slide to an option, then release"
+            android:textColor="#6B7280"
+            android:textSize="12sp"
+            android:layout_marginBottom="12dp" />
+
+        <LinearLayout
+            android:id="@+id/voice_actions"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp">
+
+            <TextView
+                android:id="@+id/action_translate"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_margin="4dp"
+                android:paddingStart="14dp"
+                android:paddingEnd="14dp"
+                android:paddingTop="10dp"
+                android:paddingBottom="10dp"
+                android:text="Translate"
+                android:textColor="#E5E7EB"
+                android:textSize="13sp"
+                android:background="@drawable/voice_action_pill" />
+
+            <TextView
+                android:id="@+id/action_polish"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_margin="4dp"
+                android:paddingStart="14dp"
+                android:paddingEnd="14dp"
+                android:paddingTop="10dp"
+                android:paddingBottom="10dp"
+                android:text="Polish"
+                android:textColor="#E5E7EB"
+                android:textSize="13sp"
+                android:background="@drawable/voice_action_pill" />
+
+            <TextView
+                android:id="@+id/action_deep"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_margin="4dp"
+                android:paddingStart="14dp"
+                android:paddingEnd="14dp"
+                android:paddingTop="10dp"
+                android:paddingBottom="10dp"
+                android:text="Deep"
+                android:textColor="#E5E7EB"
+                android:textSize="13sp"
+                android:background="@drawable/voice_action_pill" />
+
+            <TextView
+                android:id="@+id/action_raw"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_margin="4dp"
+                android:paddingStart="14dp"
+                android:paddingEnd="14dp"
+                android:paddingTop="10dp"
+                android:paddingBottom="10dp"
+                android:text="Raw"
+                android:textColor="#E5E7EB"
+                android:textSize="13sp"
+                android:background="@drawable/voice_action_pill" />
+
+        </LinearLayout>
+
+    </LinearLayout>
+
+</FrameLayout>

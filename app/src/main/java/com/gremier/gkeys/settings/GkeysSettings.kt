@@ -16,6 +16,7 @@ object GkeysSettings {
     val KEY_REPEAT_SPEED = intPreferencesKey("key_repeat_speed")
     val DELETE_SPEED = intPreferencesKey("delete_speed")
     val VIBRATION_ENABLED = booleanPreferencesKey("vibration_enabled")
+    val VIBRATION_STRENGTH = intPreferencesKey("vibration_strength")
     val AUTO_POLISH_ENABLED = booleanPreferencesKey("auto_polish_enabled")
     val DEFAULT_LANGUAGE = stringPreferencesKey("default_language")
     val ONE_HANDED_MODE = stringPreferencesKey("one_handed_mode")
@@ -23,6 +24,7 @@ object GkeysSettings {
     const val DEFAULT_KEY_REPEAT_MS = 50
     const val DEFAULT_DELETE_SPEED_MS = 50
     const val DEFAULT_VIBRATION = true
+    const val DEFAULT_VIBRATION_STRENGTH = 20
     const val DEFAULT_AUTO_POLISH = true
     const val DEFAULT_LANGUAGE_VAL = "en"
     const val ONE_HANDED_OFF = "off"
@@ -43,6 +45,9 @@ object GkeysSettings {
 
     fun vibrationEnabled(context: Context): Flow<Boolean> =
         context.dataStore.data.map { it[VIBRATION_ENABLED] ?: DEFAULT_VIBRATION }
+
+    fun vibrationStrength(context: Context): Flow<Int> =
+        context.dataStore.data.map { it[VIBRATION_STRENGTH] ?: DEFAULT_VIBRATION_STRENGTH }
 
     fun autoPolishEnabled(context: Context): Flow<Boolean> =
         context.dataStore.data.map { it[AUTO_POLISH_ENABLED] ?: DEFAULT_AUTO_POLISH }
@@ -71,6 +76,10 @@ object GkeysSettings {
 
     suspend fun saveVibration(context: Context, enabled: Boolean) {
         context.dataStore.edit { it[VIBRATION_ENABLED] = enabled }
+    }
+
+    suspend fun saveVibrationStrength(context: Context, strength: Int) {
+        context.dataStore.edit { it[VIBRATION_STRENGTH] = strength.coerceIn(0, 100) }
     }
 
     suspend fun saveAutoPolish(context: Context, enabled: Boolean) {
