@@ -71,8 +71,13 @@ class GkeysClipboardManager(
     }
 
     fun showPanel() {
+        overlayContainer.visibility = View.VISIBLE
         if (overlayView != null) {
             overlayView?.visibility = View.VISIBLE
+            scope.launch {
+                val items = withContext(Dispatchers.IO) { dao.getAllOnce() }
+                refreshOverlay(items)
+            }
             return
         }
         val panel = LayoutInflater.from(context).inflate(R.layout.clipboard_overlay, overlayContainer, false)
@@ -122,11 +127,11 @@ class GkeysClipboardManager(
             val text = latest.text
             previewView.text = "📋 ${if (text.length > 40) text.take(40) + "…" else text}"
             previewView.tag = text
-            previewView.visibility = View.VISIBLE
         } else {
-            previewView.visibility = View.GONE
+            previewView.text = "📋 Tap for clipboard"
             previewView.tag = null
         }
+        previewView.visibility = View.VISIBLE
     }
 
     private fun refreshOverlay(items: List<ClipboardItem>) {

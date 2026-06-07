@@ -20,6 +20,7 @@ class GkeysIME : InputMethodService() {
     private var isSymbols = false
     private var isShifted = false
     private var capsLock = false
+    private var oneHandedMode = GkeysSettings.ONE_HANDED_OFF
 
     private var keyRepeatMs = GkeysSettings.DEFAULT_KEY_REPEAT_MS
     private var deleteSpeedMs = GkeysSettings.DEFAULT_DELETE_SPEED_MS
@@ -41,11 +42,15 @@ class GkeysIME : InputMethodService() {
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
     private lateinit var keyboardView: View
+    private lateinit var keyboardContent: LinearLayout
     private lateinit var tvStatus: TextView
     private lateinit var tvClipboard: TextView
+    private lateinit var clipboardArea: View
     private lateinit var btnMic: ImageButton
     private lateinit var btnPolish: ImageButton
+    private lateinit var btnOneHand: TextView
     private var clipboardManager: GkeysClipboardManager? = null
+    private lateinit var swipeTyper: SwipeTyper
 
     private val enRows = listOf(
         listOf("1","2","3","4","5","6","7","8","9","0"),
@@ -81,10 +86,27 @@ class GkeysIME : InputMethodService() {
 
     override fun onCreateInputView(): View {
         keyboardView = layoutInflater.inflate(R.layout.keyboard_view, null)
+        keyboardView.layoutDirection = View.LAYOUT_DIRECTION_LTR
+
+        keyboardContent = keyboardView.findViewById(R.id.keyboard_content)
         tvStatus = keyboardView.findViewById(R.id.tv_status)
         tvClipboard = keyboardView.findViewById(R.id.tv_clipboard)
+        clipboardArea = keyboardView.findViewById(R.id.clipboard_area)
         btnMic = keyboardView.findViewById(R.id.btn_mic)
         btnPolish = keyboardView.findViewById(R.id.btn_polish)
+        btnOneHand = keyboardView.findViewById(R.id.btn_one_hand)
+
+        val keyboardRows = keyboardView.findViewById<LinearLayout>(R.id.keyboard_rows)
+        swipeTyper = SwipeTyper(keyboardRows) { word ->
+            vibrate()
+            val text = if (isShifted || capsLock) word.replaceFirstChar { it.uppercase() } else word
+            currentInputConnection?.commitText("$text ", 1)
+            if (isShifted && !capsLock) {
+                isShifted = false
+                buildKeyboard()
+            }
+        }
+        swipeTyper.attach()
 
         val overlayContainer = keyboardView.findViewById<FrameLayout>(R.id.clipboard_overlay_container)
         clipboardManager = GkeysClipboardManager(
@@ -121,7 +143,12 @@ class GkeysIME : InputMethodService() {
             vibrationEnabled = GkeysSettings.vibrationEnabled(this@GkeysIME).first()
             autoPolishEnabled = GkeysSettings.autoPolishEnabled(this@GkeysIME).first()
             isHebrew = GkeysSettings.defaultLanguage(this@GkeysIME).first() == "he"
-            if (::keyboardView.isInitialized) buildKeyboard()
+            oneHandedMode = GkeysSettings.oneHandedMode(this@GkeysIME).first()
+            if (::keyboardView.isInitialized) {
+                applyOneHandedMode()
+                updateOneHandButton()
+                buildKeyboard()
+            }
         }
     }
 
@@ -150,28 +177,84 @@ class GkeysIME : InputMethodService() {
             }
         }
 
-        tvClipboard.setOnClickListener {
+        val openClipboard = {
             clipboardManager?.showPanel()
             vibrate()
         }
+        tvClipboard.setOnClickListener { openClipboard() }
+        clipboardArea.setOnClickListener { openClipboard() }
+
+        btnOneHand.setOnClickListener { cycleOneHandedMode() }
+    }
+
+    private fun cycleOneHandedMode() {
+        oneHandedMode = when (oneHandedMode) {
+            GkeysSettings.ONE_HANDED_OFF -> GkeysSettings.ONE_HANDED_RIGHT
+            GkeysSettings.ONE_HANDED_RIGHT -> GkeysSettings.ONE_HANDED_LEFT
+            else -> GkeysSettings.ONE_HANDED_OFF
+        }
+        scope.launch { GkeysSettings.saveOneHandedMode(this@GkeysIME, oneHandedMode) }
+        applyOneHandedMode()
+        updateOneHandButton()
+        vibrate()
+    }
+
+    private fun updateOneHandButton() {
+        btnOneHand.text = when (oneHandedMode) {
+            GkeysSettings.ONE_HANDED_RIGHT -> "◧→"
+            GkeysSettings.ONE_HANDED_LEFT -> "←◧"
+            else -> "◧"
+        }
+        btnOneHand.setTextColor(
+            if (oneHandedMode == GkeysSettings.ONE_HANDED_OFF) 0xFF6B7280.toInt()
+            else 0xFF4A9EFF.toInt()
+        )
+    }
+
+    private fun applyOneHandedMode() {
+        val params = keyboardContent.layoutParams as FrameLayout.LayoutParams
+        val displayWidth = resources.displayMetrics.widthPixels
+        when (oneHandedMode) {
+            GkeysSettings.ONE_HANDED_RIGHT -> {
+                params.width = (displayWidth * 0.78f).toInt()
+                params.gravity = Gravity.END
+            }
+            GkeysSettings.ONE_HANDED_LEFT -> {
+                params.width = (displayWidth * 0.78f).toInt()
+                params.gravity = Gravity.START
+            }
+            else -> {
+                params.width = FrameLayout.LayoutParams.MATCH_PARENT
+                params.gravity = Gravity.CENTER_HORIZONTAL
+            }
+        }
+        keyboardContent.layoutParams = params
     }
 
     private fun buildKeyboard() {
         val container = keyboardView.findViewById<LinearLayout>(R.id.keyboard_rows) ?: return
         container.removeAllViews()
+        container.layoutDirection = View.LAYOUT_DIRECTION_LTR
+        swipeTyper.clearKeys()
+
         val rows = when { isSymbols -> symRows; isHebrew -> heRows; else -> enRows }
+        val swipeEnabled = !isHebrew && !isSymbols
 
         rows.forEach { keys ->
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
+                layoutDirection = View.LAYOUT_DIRECTION_LTR
                 layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f)
             }
-            keys.forEach { key -> row.addView(buildKey(key)) }
+            keys.forEach { key ->
+                val keyView = buildKey(key, swipeEnabled)
+                row.addView(keyView)
+            }
             container.addView(row)
         }
     }
 
-    private fun buildKey(label: String): View {
+    private fun buildKey(label: String, swipeEnabled: Boolean): View {
         val isSpace = label == "SPACE"
         val isSpecial = label in listOf("⇧","⌫","↵","?123","ABC","🌐")
         val displayLabel = when {
@@ -184,13 +267,21 @@ class GkeysIME : InputMethodService() {
             text = displayLabel
             textSize = if (isSpace) 11f else 15f
             gravity = Gravity.CENTER
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
+            textDirection = View.TEXT_DIRECTION_LTR
             setTextColor(0xFFFFFFFF.toInt())
             setBackgroundColor(when { isSpecial -> 0xFF2A2A3E.toInt(); isSpace -> 0xFF3A3A4E.toInt(); else -> 0xFF1E1E30.toInt() })
             val weight = when { isSpace -> 4f; label in listOf("⌫","↵","⇧") -> 1.5f; else -> 1f }
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, weight).apply { setMargins(2,2,2,2) }
         }
 
-        btn.setOnClickListener { vibrate(); handleKey(label) }
+        if (swipeEnabled) swipeTyper.registerKey(btn, label)
+
+        btn.setOnClickListener {
+            if (swipeTyper.shouldSuppressClick()) return@setOnClickListener
+            vibrate()
+            handleKey(label)
+        }
 
         if (label == "⌫") {
             btn.setOnLongClickListener { startDeleteRepeat(); true }
@@ -285,6 +376,7 @@ class GkeysIME : InputMethodService() {
         if (!::tvStatus.isInitialized) return
         tvStatus.text = msg
         tvStatus.visibility = if (msg.isBlank()) View.GONE else View.VISIBLE
+        if (msg.isNotBlank()) tvClipboard.visibility = View.GONE else tvClipboard.visibility = View.VISIBLE
     }
 
     private fun vibrate(ms: Long = 30) {

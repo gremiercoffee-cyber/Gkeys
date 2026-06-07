@@ -4,6 +4,7 @@ import android.content.Intent
 import android.os.Bundle
 import android.provider.Settings
 import android.view.inputmethod.InputMethodManager
+import android.widget.RadioGroup
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.gremier.gkeys.R
@@ -23,6 +24,7 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var switchVibration: SwitchMaterial
     private lateinit var switchAutoPolish: SwitchMaterial
     private lateinit var switchDefaultLang: SwitchMaterial
+    private lateinit var radioOneHanded: RadioGroup
     private lateinit var btnSave: MaterialButton
     private lateinit var btnEnableKeyboard: MaterialButton
 
@@ -43,6 +45,7 @@ class SettingsActivity : AppCompatActivity() {
         switchVibration = findViewById(R.id.switch_vibration)
         switchAutoPolish = findViewById(R.id.switch_auto_polish)
         switchDefaultLang = findViewById(R.id.switch_default_lang)
+        radioOneHanded = findViewById(R.id.radio_one_handed)
         btnSave = findViewById(R.id.btn_save)
         btnEnableKeyboard = findViewById(R.id.btn_enable_keyboard)
     }
@@ -56,6 +59,11 @@ class SettingsActivity : AppCompatActivity() {
             switchVibration.isChecked = GkeysSettings.vibrationEnabled(this@SettingsActivity).first()
             switchAutoPolish.isChecked = GkeysSettings.autoPolishEnabled(this@SettingsActivity).first()
             switchDefaultLang.isChecked = GkeysSettings.defaultLanguage(this@SettingsActivity).first() == "he"
+            when (GkeysSettings.oneHandedMode(this@SettingsActivity).first()) {
+                GkeysSettings.ONE_HANDED_LEFT -> radioOneHanded.check(R.id.radio_one_hand_left)
+                GkeysSettings.ONE_HANDED_RIGHT -> radioOneHanded.check(R.id.radio_one_hand_right)
+                else -> radioOneHanded.check(R.id.radio_one_hand_off)
+            }
         }
     }
 
@@ -70,6 +78,12 @@ class SettingsActivity : AppCompatActivity() {
                 GkeysSettings.saveAutoPolish(this@SettingsActivity, switchAutoPolish.isChecked)
                 GkeysSettings.saveDefaultLanguage(this@SettingsActivity,
                     if (switchDefaultLang.isChecked) "he" else "en")
+                val oneHanded = when (radioOneHanded.checkedRadioButtonId) {
+                    R.id.radio_one_hand_left -> GkeysSettings.ONE_HANDED_LEFT
+                    R.id.radio_one_hand_right -> GkeysSettings.ONE_HANDED_RIGHT
+                    else -> GkeysSettings.ONE_HANDED_OFF
+                }
+                GkeysSettings.saveOneHandedMode(this@SettingsActivity, oneHanded)
                 btnSave.text = "Saved ✓"
                 btnSave.postDelayed({ btnSave.text = "Save Settings" }, 2000)
             }

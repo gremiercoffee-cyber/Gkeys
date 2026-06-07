@@ -18,12 +18,16 @@ object GkeysSettings {
     val VIBRATION_ENABLED = booleanPreferencesKey("vibration_enabled")
     val AUTO_POLISH_ENABLED = booleanPreferencesKey("auto_polish_enabled")
     val DEFAULT_LANGUAGE = stringPreferencesKey("default_language")
+    val ONE_HANDED_MODE = stringPreferencesKey("one_handed_mode")
 
     const val DEFAULT_KEY_REPEAT_MS = 50
     const val DEFAULT_DELETE_SPEED_MS = 50
     const val DEFAULT_VIBRATION = true
     const val DEFAULT_AUTO_POLISH = true
     const val DEFAULT_LANGUAGE_VAL = "en"
+    const val ONE_HANDED_OFF = "off"
+    const val ONE_HANDED_LEFT = "left"
+    const val ONE_HANDED_RIGHT = "right"
 
     fun openAiKey(context: Context): Flow<String> =
         context.dataStore.data.map { it[OPENAI_KEY] ?: "" }
@@ -45,6 +49,9 @@ object GkeysSettings {
 
     fun defaultLanguage(context: Context): Flow<String> =
         context.dataStore.data.map { it[DEFAULT_LANGUAGE] ?: DEFAULT_LANGUAGE_VAL }
+
+    fun oneHandedMode(context: Context): Flow<String> =
+        context.dataStore.data.map { it[ONE_HANDED_MODE] ?: ONE_HANDED_OFF }
 
     suspend fun saveOpenAiKey(context: Context, key: String) {
         context.dataStore.edit { it[OPENAI_KEY] = key }
@@ -72,5 +79,9 @@ object GkeysSettings {
 
     suspend fun saveDefaultLanguage(context: Context, lang: String) {
         context.dataStore.edit { it[DEFAULT_LANGUAGE] = lang }
+    }
+
+    suspend fun saveOneHandedMode(context: Context, mode: String) {
+        context.dataStore.edit { it[ONE_HANDED_MODE] = mode }
     }
 }

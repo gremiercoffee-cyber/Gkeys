@@ -2,34 +2,28 @@
 <FrameLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="wrap_content">
+    android:layout_height="wrap_content"
+    android:layoutDirection="ltr">
 
     <LinearLayout
+        android:id="@+id/keyboard_content"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
         android:background="#0F0F1A"
+        android:layoutDirection="ltr"
         android:paddingBottom="4dp">
 
         <LinearLayout
+            android:id="@+id/ai_strip"
             android:layout_width="match_parent"
             android:layout_height="80dp"
             android:orientation="horizontal"
             android:background="#1A1A2E"
             android:paddingStart="8dp"
             android:paddingEnd="8dp"
-            android:gravity="center_vertical">
-
-            <ImageButton
-                android:id="@+id/btn_mic"
-                android:layout_width="68dp"
-                android:layout_height="68dp"
-                android:src="@drawable/ic_mic"
-                android:background="@drawable/btn_circle_bg"
-                android:contentDescription="Voice dictation"
-                android:scaleType="centerInside"
-                android:padding="14dp"
-                android:tint="#4A9EFF" />
+            android:gravity="center_vertical"
+            android:layoutDirection="ltr">
 
             <ImageButton
                 android:id="@+id/btn_polish"
@@ -37,16 +31,31 @@
                 android:layout_height="44dp"
                 android:src="@drawable/ic_polish"
                 android:background="@drawable/btn_circle_bg"
-                android:layout_marginStart="6dp"
                 android:contentDescription="Deep polish"
                 android:tint="#A78BFA" />
 
+            <TextView
+                android:id="@+id/btn_one_hand"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:layout_marginStart="4dp"
+                android:gravity="center"
+                android:text="◧"
+                android:textColor="#6B7280"
+                android:textSize="18sp"
+                android:background="@drawable/btn_circle_bg"
+                android:contentDescription="One-handed mode" />
+
             <FrameLayout
+                android:id="@+id/clipboard_area"
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
                 android:layout_weight="1"
                 android:layout_marginStart="8dp"
-                android:layout_marginEnd="8dp">
+                android:layout_marginEnd="8dp"
+                android:clickable="true"
+                android:focusable="true"
+                android:foreground="?android:attr/selectableItemBackground">
 
                 <TextView
                     android:id="@+id/tv_status"
@@ -64,13 +73,24 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_gravity="center_vertical"
+                    android:text="📋 Tap for clipboard"
                     android:textColor="#6B7280"
                     android:textSize="12sp"
                     android:singleLine="true"
-                    android:ellipsize="end"
-                    android:visibility="gone" />
+                    android:ellipsize="end" />
 
             </FrameLayout>
+
+            <ImageButton
+                android:id="@+id/btn_mic"
+                android:layout_width="68dp"
+                android:layout_height="68dp"
+                android:src="@drawable/ic_mic"
+                android:background="@drawable/btn_circle_bg"
+                android:contentDescription="Voice dictation"
+                android:scaleType="centerInside"
+                android:padding="14dp"
+                android:tint="#4A9EFF" />
 
         </LinearLayout>
 
@@ -84,6 +104,7 @@
             android:layout_width="match_parent"
             android:layout_height="220dp"
             android:orientation="vertical"
+            android:layoutDirection="ltr"
             android:padding="3dp" />
 
         <ImageButton
@@ -98,6 +119,8 @@
         android:id="@+id/clipboard_overlay_container"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:visibility="gone" />
+        android:visibility="gone"
+        android:clickable="true"
+        android:focusable="true" />
 
 </FrameLayout>
