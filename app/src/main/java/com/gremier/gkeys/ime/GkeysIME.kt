@@ -81,12 +81,37 @@ class GkeysIME : InputMethodService() {
         listOf("?123","🌐",",","SPACE",".","↵")
     )
 
-    private val heRows = listOf(
+    override fun onConfigureWindow(window: android.view.Window, isFullscreen: Boolean, isExtract: Boolean) {
+        super.onConfigureWindow(window, isFullscreen, isExtract)
+        window.decorView.layoutDirection = View.LAYOUT_DIRECTION_LTR
+    }
+
+    private fun forceLayoutLtr(view: View) {
+        view.layoutDirection = View.LAYOUT_DIRECTION_LTR
+        if (view is ViewGroup) {
+            for (i in 0 until view.childCount) {
+                forceLayoutLtr(view.getChildAt(i))
+            }
+        }
+    }
+
+    /** Gboard visual order: left edge of keyboard → right edge (see reference screenshot). */
+    private val heRowsGboard = listOf(
         listOf("'","-","ק","ר","א","ט","ו","ן","ם","פ"),
         listOf("ש","ד","ג","כ","ע","י","ח","ל","ך","ף"),
         listOf("ז","ס","ב","ה","נ","מ","צ","ת","ץ","⌫"),
         listOf("?123","🌐",",","SPACE",".","↵")
     )
+
+    private fun orderKeysForDisplay(keys: List<String>): List<String> {
+        if (!isHebrew || isSymbols) return keys
+        // If the system still mirrors rows (Hebrew locale), reverse to match Gboard visually.
+        return if (resources.configuration.layoutDirection == View.LAYOUT_DIRECTION_RTL) {
+            keys.reversed()
+        } else {
+            keys
+        }
+    }
 
     private val symRows = listOf(
         listOf("1","2","3","4","5","6","7","8","9","0"),
@@ -144,8 +169,12 @@ class GkeysIME : InputMethodService() {
             overlayContainer = overlayContainer,
             previewView = tvClipboard,
             onPaste = { text -> currentInputConnection?.commitText(text, 1) },
-            onVibrate = { vibrate() }
+            onVibrate = { vibrate() },
+            onPanelOpen = { keyboardContent.visibility = View.GONE },
+            onPanelClose = { keyboardContent.visibility = View.VISIBLE }
         )
+
+        forceLayoutLtr(keyboardView)
 
         setupAiStrip()
         buildKeyboard()
@@ -366,7 +395,11 @@ class GkeysIME : InputMethodService() {
         container.layoutDirection = View.LAYOUT_DIRECTION_LTR
         swipeTyper.clearKeys()
 
-        val rows = when { isSymbols -> symRows; isHebrew -> heRows; else -> enRows }
+        val rows = when {
+            isSymbols -> symRows
+            isHebrew -> heRowsGboard
+            else -> enRows
+        }
         val swipeEnabled = !isHebrew && !isSymbols
         swipeTyper.setEnabled(swipeEnabled)
 
@@ -374,14 +407,18 @@ class GkeysIME : InputMethodService() {
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 layoutDirection = View.LAYOUT_DIRECTION_LTR
+                textDirection = View.TEXT_DIRECTION_LTR
                 gravity = Gravity.CENTER
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
                 )
             }
-            keys.forEach { key -> row.addView(buildKey(key, swipeEnabled)) }
+            orderKeysForDisplay(keys).forEach { key ->
+                row.addView(buildKey(key, swipeEnabled))
+            }
             container.addView(row)
         }
+        forceLayoutLtr(container)
     }
 
     private fun buildKey(label: String, swipeEnabled: Boolean): View {
