@@ -66,19 +66,18 @@ object SwipeDecoder {
     )
 
     fun decode(path: List<Char>): String? {
-        if (path.isEmpty()) return null
+        if (path.size < 2) return null
         var bestWord: String? = null
         var bestScore = Int.MAX_VALUE
         for (word in dictionary) {
-            if (!matchesPath(word, path)) continue
-            val score = path.size - word.length * 2 + word.length
+            if (word.length < 2 || !matchesPath(word, path)) continue
+            val score = path.size - word.length * 3 + kotlin.math.abs(word.length - path.distinct().size)
             if (score < bestScore) {
                 bestScore = score
                 bestWord = word
             }
         }
-        if (bestWord != null) return bestWord
-        return path.joinToString("")
+        return bestWord
     }
 
     private fun matchesPath(word: String, path: List<Char>): Boolean {

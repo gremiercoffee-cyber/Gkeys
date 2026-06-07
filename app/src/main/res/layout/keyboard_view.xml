@@ -126,7 +126,7 @@
 
             </LinearLayout>
 
-            <LinearLayout
+            <com.gremier.gkeys.ime.SwipeKeyboardLayout
                 android:id="@+id/keyboard_rows"
                 android:layout_width="match_parent"
                 android:layout_height="220dp"

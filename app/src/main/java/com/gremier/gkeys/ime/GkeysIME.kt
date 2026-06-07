@@ -126,8 +126,8 @@ class GkeysIME : InputMethodService() {
         voiceActionViews[VoiceAction.DEEP_POLISH] = keyboardView.findViewById(R.id.action_deep)
         voiceActionViews[VoiceAction.RAW] = keyboardView.findViewById(R.id.action_raw)
 
-        val keyboardRows = keyboardView.findViewById<LinearLayout>(R.id.keyboard_rows)
-        swipeTyper = SwipeTyper(keyboardRows) { word ->
+        val keyboardRows = keyboardView.findViewById<SwipeKeyboardLayout>(R.id.keyboard_rows)
+        swipeTyper = SwipeTyper { word ->
             vibrate()
             val text = if (isShifted || capsLock) word.replaceFirstChar { it.uppercase() } else word
             currentInputConnection?.commitText("$text ", 1)
@@ -136,7 +136,7 @@ class GkeysIME : InputMethodService() {
                 buildKeyboard()
             }
         }
-        swipeTyper.attach()
+        keyboardRows.swipeTyper = swipeTyper
 
         val overlayContainer = keyboardView.findViewById<FrameLayout>(R.id.clipboard_overlay_container)
         clipboardManager = GkeysClipboardManager(
@@ -364,13 +364,14 @@ class GkeysIME : InputMethodService() {
         (value * resources.displayMetrics.density).toInt()
 
     private fun buildKeyboard() {
-        val container = keyboardView.findViewById<LinearLayout>(R.id.keyboard_rows) ?: return
+        val container = keyboardView.findViewById<SwipeKeyboardLayout>(R.id.keyboard_rows) ?: return
         container.removeAllViews()
         container.layoutDirection = View.LAYOUT_DIRECTION_LTR
         swipeTyper.clearKeys()
 
         val rows = when { isSymbols -> symRows; isHebrew -> heRows; else -> enRows }
         val swipeEnabled = !isHebrew && !isSymbols
+        swipeTyper.setEnabled(swipeEnabled)
 
         rows.forEach { keys ->
             val row = LinearLayout(this).apply {

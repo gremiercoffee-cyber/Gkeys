@@ -1,24 +1,26 @@
 package com.gremier.gkeys.ime
 
 import android.graphics.Rect
-import android.view.MotionEvent
 import android.view.View
-import android.view.ViewGroup
 import kotlin.math.hypot
+import kotlin.math.max
 
 class SwipeTyper(
-    private val container: ViewGroup,
     private val onWordCommitted: (String) -> Unit
 ) {
     private val keyViews = mutableListOf<Pair<View, Char>>()
     private val path = mutableListOf<Char>()
-    private var startX = 0f
-    private var startY = 0f
     private var isSwiping = false
     private var suppressNextClick = false
+    private var enabled = true
 
     companion object {
-        private const val SWIPE_START_THRESHOLD = 24f
+        const val SWIPE_START_THRESHOLD = 20f
+    }
+
+    fun setEnabled(value: Boolean) {
+        enabled = value
+        if (!value) reset()
     }
 
     fun registerKey(view: View, label: String) {
@@ -37,57 +39,61 @@ class SwipeTyper(
         return suppress
     }
 
-    fun attach() {
-        container.setOnTouchListener { _, event ->
-            when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN -> {
-                    startX = event.rawX
-                    startY = event.rawY
-                    isSwiping = false
-                    path.clear()
-                    false
-                }
-                MotionEvent.ACTION_MOVE -> {
-                    if (!isSwiping && hypot(event.rawX - startX, event.rawY - startY) > SWIPE_START_THRESHOLD) {
-                        isSwiping = true
-                        path.clear()
-                    }
-                    if (isSwiping) {
-                        keyAt(event.rawX, event.rawY)?.let { c ->
-                            if (path.isEmpty() || path.last() != c) path.add(c)
-                        }
-                        true
-                    } else {
-                        false
-                    }
-                }
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    if (isSwiping && path.isNotEmpty()) {
-                        SwipeDecoder.decode(path)?.let { word ->
-                            onWordCommitted(word)
-                            suppressNextClick = true
-                        }
-                        isSwiping = false
-                        path.clear()
-                        true
-                    } else {
-                        isSwiping = false
-                        false
-                    }
-                }
-                else -> false
-            }
+    fun onTouchDown(rawX: Float, rawY: Float) {
+        if (!enabled) return
+        isSwiping = false
+        path.clear()
+        keyAt(rawX, rawY)?.let { path.add(it) }
+    }
+
+    fun onTouchMove(rawX: Float, rawY: Float) {
+        if (!enabled) return
+        isSwiping = true
+        keyAt(rawX, rawY)?.let { c ->
+            if (path.isEmpty() || path.last() != c) path.add(c)
         }
     }
 
+    fun onTouchUp() {
+        if (!enabled) {
+            reset()
+            return
+        }
+        if (isSwiping && path.size >= 2) {
+            SwipeDecoder.decode(path)?.let { word ->
+                if (word.length >= 2) {
+                    onWordCommitted(word)
+                    suppressNextClick = true
+                }
+            }
+        }
+        reset()
+    }
+
+    private fun reset() {
+        isSwiping = false
+        path.clear()
+    }
+
     private fun keyAt(rawX: Float, rawY: Float): Char? {
+        var best: Char? = null
+        var bestDist = Float.MAX_VALUE
         for ((view, char) in keyViews) {
             if (!view.isShown) continue
             val rect = Rect()
-            if (view.getGlobalVisibleRect(rect) && rect.contains(rawX.toInt(), rawY.toInt())) {
+            if (!view.getGlobalVisibleRect(rect)) continue
+            if (rect.contains(rawX.toInt(), rawY.toInt())) {
                 return char
             }
+            val cx = rect.exactCenterX()
+            val cy = rect.exactCenterY()
+            val dist = hypot(rawX - cx, rawY - cy)
+            val radius = max(rect.width(), rect.height()) * 0.65f
+            if (dist < radius && dist < bestDist) {
+                bestDist = dist
+                best = char
+            }
         }
-        return null
+        return best
     }
 }
