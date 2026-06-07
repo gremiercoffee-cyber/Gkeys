@@ -1,6 +1,9 @@
 package com.gremier.gkeys.ime
 
+import android.Manifest
 import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Rect
 import android.inputmethodservice.InputMethodService
 import android.os.*
@@ -16,7 +19,11 @@ import com.gremier.gkeys.ime.layout.KeyboardLayoutMetrics
 import com.gremier.gkeys.ime.layout.KeyboardLayoutMetrics.Profile
 import com.gremier.gkeys.ime.touch.TouchInputResolver
 import com.gremier.gkeys.ime.touch.TouchPersonalization
+import com.gremier.gkeys.settings.AppVersionTracker
 import com.gremier.gkeys.settings.GkeysSettings
+import com.gremier.gkeys.settings.SecureApiKeyStore
+import com.gremier.gkeys.settings.SettingsActivity
+import androidx.core.content.ContextCompat
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
 
@@ -203,6 +210,10 @@ class GkeysIME : InputMethodService() {
 
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
+        if (AppVersionTracker.noteCurrentVersion(this)) {
+            showErrorToast("Gkeys updated — pick Gkeys again in your keyboard switcher")
+        }
+        refreshApiKeys()
         loadSettings()
         clipboardManager?.startListening()
     }
@@ -242,6 +253,11 @@ class GkeysIME : InputMethodService() {
     }
 
     private fun setupAiStrip() {
+        btnMic.isClickable = false
+        btnMic.isFocusable = false
+        btnMicContainer.isClickable = true
+        btnMicContainer.isFocusable = true
+
         btnMicContainer.setOnTouchListener { _, event ->
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
@@ -291,7 +307,18 @@ class GkeysIME : InputMethodService() {
     }
 
     private fun handleMicTap() {
+        refreshApiKeys()
         vibrate()
+        if (!hasMicPermission()) {
+            showErrorToast("Allow microphone for Gkeys")
+            openAppForMicPermission()
+            return
+        }
+        if (openAiKey.isBlank()) {
+            showErrorToast("Add OpenAI API key in Gkeys settings")
+            openAppSettings()
+            return
+        }
         if (isRecording) {
             stopRecordingAndProcess(VoiceAction.DEFAULT)
         } else {
@@ -301,9 +328,42 @@ class GkeysIME : InputMethodService() {
         }
     }
 
+    private fun refreshApiKeys() {
+        openAiKey = SecureApiKeyStore.getOpenAiKey(this)
+        anthropicKey = SecureApiKeyStore.getAnthropicKey(this)
+    }
+
+    private fun hasMicPermission(): Boolean =
+        ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) ==
+            PackageManager.PERMISSION_GRANTED
+
+    private fun openAppSettings() {
+        startActivity(Intent(this, SettingsActivity::class.java).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        })
+    }
+
+    private fun openAppForMicPermission() {
+        startActivity(Intent(this, SettingsActivity::class.java).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            putExtra(SettingsActivity.EXTRA_REQUEST_MIC_PERMISSION, true)
+        })
+    }
+
     private fun onMicLongPress() {
+        refreshApiKeys()
         longPressTriggered = true
         vibrate(12)
+        if (!hasMicPermission()) {
+            showErrorToast("Allow microphone for Gkeys")
+            openAppForMicPermission()
+            return
+        }
+        if (openAiKey.isBlank()) {
+            showErrorToast("Add OpenAI API key in Gkeys settings")
+            openAppSettings()
+            return
+        }
         pendingVoiceAction = VoiceAction.DEFAULT
         showVoiceOverlay()
         if (!isRecording) {
@@ -704,15 +764,21 @@ class GkeysIME : InputMethodService() {
     }
 
     private fun startRecording() {
+        refreshApiKeys()
         if (openAiKey.isBlank()) {
-            toastStatus("⚠ Add OpenAI key in Gkeys settings")
+            showErrorToast("Add OpenAI API key in Gkeys settings")
+            return
+        }
+        if (!hasMicPermission()) {
+            showErrorToast("Allow microphone for Gkeys")
+            openAppForMicPermission()
             return
         }
         try {
             audioRecorder.startRecording()
             isRecording = true
         } catch (_: Exception) {
-            toastStatus("⚠ Microphone error")
+            showErrorToast("Microphone error — check permission in Gkeys app")
         }
     }
 
@@ -799,8 +865,10 @@ class GkeysIME : InputMethodService() {
 
     private fun polishFieldText() {
         if (isPolishing) return
+        refreshApiKeys()
         if (openAiKey.isBlank()) {
             showErrorToast("Add OpenAI API key in Gkeys settings")
+            openAppSettings()
             return
         }
         val ic = currentInputConnection ?: return

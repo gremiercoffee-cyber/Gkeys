@@ -66,6 +66,15 @@
                     android:text="Keys are stored securely on this device using encrypted storage."
                     android:textColor="#6B7280"
                     android:textSize="12sp"
+                    android:layout_marginBottom="12dp" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_mic_permission"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:text="Allow microphone access"
+                    android:textSize="14sp"
+                    app:backgroundTint="#2A2A3E"
                     android:layout_marginBottom="16dp" />
 
                 <com.google.android.material.textfield.TextInputLayout
@@ -431,6 +440,16 @@
             app:backgroundTint="#1A1A2E"
             app:strokeColor="#4A9EFF"
             app:strokeWidth="1dp" />
+
+        <TextView
+            android:id="@+id/tv_app_version"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Version"
+            android:textColor="#6B7280"
+            android:textSize="12sp"
+            android:gravity="center"
+            android:layout_marginTop="12dp" />
 
     </LinearLayout>
 </ScrollView>

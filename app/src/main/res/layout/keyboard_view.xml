@@ -84,7 +84,9 @@
                 android:layout_width="44dp"
                 android:layout_height="44dp"
                 android:layout_marginStart="4dp"
-                android:background="@drawable/ai_mic_bg">
+                android:background="@drawable/ai_mic_bg"
+                android:clickable="true"
+                android:focusable="true">
 
                 <ImageView
                     android:id="@+id/btn_mic"
@@ -93,8 +95,9 @@
                     android:layout_gravity="center"
                     android:src="@drawable/ic_mic_white"
                     android:contentDescription="Voice dictation"
-                    android:clickable="true"
-                    android:focusable="true" />
+                    android:clickable="false"
+                    android:focusable="false"
+                    android:importantForAccessibility="no" />
 
             </FrameLayout>
 

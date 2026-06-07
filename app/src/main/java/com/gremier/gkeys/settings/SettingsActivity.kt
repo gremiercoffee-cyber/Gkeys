@@ -1,13 +1,19 @@
 package com.gremier.gkeys.settings
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Bundle
 import android.provider.Settings
 import android.view.inputmethod.InputMethodManager
 import android.widget.RadioGroup
 import android.widget.TextView
+import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
+import com.gremier.gkeys.BuildConfig
 import com.gremier.gkeys.R
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.slider.Slider
@@ -17,6 +23,10 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 class SettingsActivity : AppCompatActivity() {
+
+    companion object {
+        const val EXTRA_REQUEST_MIC_PERMISSION = "request_mic_permission"
+    }
 
     private lateinit var etOpenAiKey: TextInputEditText
     private lateinit var etAnthropicKey: TextInputEditText
@@ -29,9 +39,22 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var switchRightHanded: SwitchMaterial
     private lateinit var sliderKeySize: Slider
     private lateinit var tvKeySizeLabel: TextView
+    private lateinit var tvAppVersion: TextView
+    private lateinit var btnMicPermission: MaterialButton
     private lateinit var radioOneHanded: RadioGroup
     private lateinit var btnSave: MaterialButton
     private lateinit var btnEnableKeyboard: MaterialButton
+
+    private val micPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        updateMicPermissionButton()
+        if (granted) {
+            Toast.makeText(this, "Microphone enabled for Gkeys", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(this, "Microphone permission is required for voice dictation", Toast.LENGTH_LONG).show()
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -39,6 +62,17 @@ class SettingsActivity : AppCompatActivity() {
         bindViews()
         loadSettings()
         setupListeners()
+        checkKeyboardEnabled()
+        updateMicPermissionButton()
+        tvAppVersion.text = "Version ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})"
+        if (intent.getBooleanExtra(EXTRA_REQUEST_MIC_PERMISSION, false)) {
+            requestMicPermissionIfNeeded()
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        updateMicPermissionButton()
         checkKeyboardEnabled()
     }
 
@@ -54,6 +88,8 @@ class SettingsActivity : AppCompatActivity() {
         switchRightHanded = findViewById(R.id.switch_right_handed)
         sliderKeySize = findViewById(R.id.slider_key_size)
         tvKeySizeLabel = findViewById(R.id.tv_key_size_label)
+        tvAppVersion = findViewById(R.id.tv_app_version)
+        btnMicPermission = findViewById(R.id.btn_mic_permission)
         radioOneHanded = findViewById(R.id.radio_one_handed)
         btnSave = findViewById(R.id.btn_save)
         btnEnableKeyboard = findViewById(R.id.btn_enable_keyboard)
@@ -94,6 +130,7 @@ class SettingsActivity : AppCompatActivity() {
         sliderKeySize.addOnChangeListener { _, value, _ ->
             updateKeySizeLabel(value.toInt())
         }
+        btnMicPermission.setOnClickListener { requestMicPermissionIfNeeded() }
         btnSave.setOnClickListener {
             lifecycleScope.launch {
                 GkeysSettings.saveOpenAiKey(this@SettingsActivity, etOpenAiKey.text.toString().trim())
@@ -113,12 +150,38 @@ class SettingsActivity : AppCompatActivity() {
                     else -> GkeysSettings.ONE_HANDED_OFF
                 }
                 GkeysSettings.saveOneHandedMode(this@SettingsActivity, oneHanded)
+                AppVersionTracker.noteCurrentVersion(this@SettingsActivity)
                 btnSave.text = "Saved ✓"
+                Toast.makeText(
+                    this@SettingsActivity,
+                    "Saved. Switch to another keyboard and back to Gkeys to apply updates.",
+                    Toast.LENGTH_LONG
+                ).show()
                 btnSave.postDelayed({ btnSave.text = "Save Settings" }, 2000)
             }
         }
         btnEnableKeyboard.setOnClickListener {
             startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
+        }
+    }
+
+    private fun hasMicPermission(): Boolean =
+        ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) ==
+            PackageManager.PERMISSION_GRANTED
+
+    private fun requestMicPermissionIfNeeded() {
+        if (hasMicPermission()) {
+            Toast.makeText(this, "Microphone already allowed", Toast.LENGTH_SHORT).show()
+            return
+        }
+        micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+    }
+
+    private fun updateMicPermissionButton() {
+        btnMicPermission.text = if (hasMicPermission()) {
+            "✓ Microphone allowed"
+        } else {
+            "Allow microphone access"
         }
     }
 
