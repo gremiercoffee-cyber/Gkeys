@@ -5,6 +5,8 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 
 val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "gkeys_settings")
@@ -20,6 +22,17 @@ object GkeysSettings {
     val AUTO_POLISH_ENABLED = booleanPreferencesKey("auto_polish_enabled")
     val DEFAULT_LANGUAGE = stringPreferencesKey("default_language")
     val ONE_HANDED_MODE = stringPreferencesKey("one_handed_mode")
+    val TOUCH_OFFSET_X = floatPreferencesKey("touch_offset_x")
+    val TOUCH_OFFSET_Y = floatPreferencesKey("touch_offset_y")
+    val TOUCH_OFFSET_SAMPLES = intPreferencesKey("touch_offset_samples")
+    val RIGHT_HANDED_MODE = booleanPreferencesKey("right_handed_mode")
+    val KEY_SIZE_PRESET = stringPreferencesKey("key_size_preset")
+
+    const val KEY_SIZE_SMALL = "small"
+    const val KEY_SIZE_DEFAULT = "default"
+    const val KEY_SIZE_LARGE = "large"
+    const val KEY_SIZE_EXTRA_LARGE = "extra_large"
+    const val DEFAULT_KEY_SIZE_PRESET = KEY_SIZE_LARGE
 
     const val DEFAULT_KEY_REPEAT_MS = 50
     const val DEFAULT_DELETE_SPEED_MS = 50
@@ -31,11 +44,15 @@ object GkeysSettings {
     const val ONE_HANDED_LEFT = "left"
     const val ONE_HANDED_RIGHT = "right"
 
-    fun openAiKey(context: Context): Flow<String> =
-        context.dataStore.data.map { it[OPENAI_KEY] ?: "" }
+    fun openAiKey(context: Context): Flow<String> = flow {
+        migrateOpenAiKeyIfNeeded(context)
+        emit(SecureApiKeyStore.getOpenAiKey(context))
+    }
 
-    fun anthropicKey(context: Context): Flow<String> =
-        context.dataStore.data.map { it[ANTHROPIC_KEY] ?: "" }
+    fun anthropicKey(context: Context): Flow<String> = flow {
+        migrateAnthropicKeyIfNeeded(context)
+        emit(SecureApiKeyStore.getAnthropicKey(context))
+    }
 
     fun keyRepeatSpeed(context: Context): Flow<Int> =
         context.dataStore.data.map { it[KEY_REPEAT_SPEED] ?: DEFAULT_KEY_REPEAT_MS }
@@ -58,12 +75,38 @@ object GkeysSettings {
     fun oneHandedMode(context: Context): Flow<String> =
         context.dataStore.data.map { it[ONE_HANDED_MODE] ?: ONE_HANDED_OFF }
 
+    fun rightHandedMode(context: Context): Flow<Boolean> =
+        context.dataStore.data.map { it[RIGHT_HANDED_MODE] ?: false }
+
+    fun keySizePreset(context: Context): Flow<String> =
+        context.dataStore.data.map { it[KEY_SIZE_PRESET] ?: KEY_SIZE_DEFAULT }
+
     suspend fun saveOpenAiKey(context: Context, key: String) {
-        context.dataStore.edit { it[OPENAI_KEY] = key }
+        SecureApiKeyStore.saveOpenAiKey(context, key)
+        context.dataStore.edit { it.remove(OPENAI_KEY) }
     }
 
     suspend fun saveAnthropicKey(context: Context, key: String) {
-        context.dataStore.edit { it[ANTHROPIC_KEY] = key }
+        SecureApiKeyStore.saveAnthropicKey(context, key)
+        context.dataStore.edit { it.remove(ANTHROPIC_KEY) }
+    }
+
+    private suspend fun migrateOpenAiKeyIfNeeded(context: Context) {
+        if (SecureApiKeyStore.getOpenAiKey(context).isNotBlank()) return
+        val legacy = context.dataStore.data.first()[OPENAI_KEY] ?: ""
+        if (legacy.isNotBlank()) {
+            SecureApiKeyStore.saveOpenAiKey(context, legacy)
+            context.dataStore.edit { it.remove(OPENAI_KEY) }
+        }
+    }
+
+    private suspend fun migrateAnthropicKeyIfNeeded(context: Context) {
+        if (SecureApiKeyStore.getAnthropicKey(context).isNotBlank()) return
+        val legacy = context.dataStore.data.first()[ANTHROPIC_KEY] ?: ""
+        if (legacy.isNotBlank()) {
+            SecureApiKeyStore.saveAnthropicKey(context, legacy)
+            context.dataStore.edit { it.remove(ANTHROPIC_KEY) }
+        }
     }
 
     suspend fun saveKeyRepeatSpeed(context: Context, ms: Int) {
@@ -92,5 +135,21 @@ object GkeysSettings {
 
     suspend fun saveOneHandedMode(context: Context, mode: String) {
         context.dataStore.edit { it[ONE_HANDED_MODE] = mode }
+    }
+
+    suspend fun saveRightHandedMode(context: Context, enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[RIGHT_HANDED_MODE] = enabled
+            if (enabled) {
+                val current = prefs[KEY_SIZE_PRESET] ?: KEY_SIZE_DEFAULT
+                if (current == KEY_SIZE_DEFAULT) {
+                    prefs[KEY_SIZE_PRESET] = DEFAULT_KEY_SIZE_PRESET
+                }
+            }
+        }
+    }
+
+    suspend fun saveKeySizePreset(context: Context, preset: String) {
+        context.dataStore.edit { it[KEY_SIZE_PRESET] = preset }
     }
 }

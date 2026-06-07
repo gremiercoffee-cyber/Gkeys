@@ -5,6 +5,7 @@ import android.os.Bundle
 import android.provider.Settings
 import android.view.inputmethod.InputMethodManager
 import android.widget.RadioGroup
+import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.gremier.gkeys.R
@@ -25,6 +26,9 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var sliderVibration: Slider
     private lateinit var switchAutoPolish: SwitchMaterial
     private lateinit var switchDefaultLang: SwitchMaterial
+    private lateinit var switchRightHanded: SwitchMaterial
+    private lateinit var sliderKeySize: Slider
+    private lateinit var tvKeySizeLabel: TextView
     private lateinit var radioOneHanded: RadioGroup
     private lateinit var btnSave: MaterialButton
     private lateinit var btnEnableKeyboard: MaterialButton
@@ -47,6 +51,9 @@ class SettingsActivity : AppCompatActivity() {
         sliderVibration = findViewById(R.id.slider_vibration)
         switchAutoPolish = findViewById(R.id.switch_auto_polish)
         switchDefaultLang = findViewById(R.id.switch_default_lang)
+        switchRightHanded = findViewById(R.id.switch_right_handed)
+        sliderKeySize = findViewById(R.id.slider_key_size)
+        tvKeySizeLabel = findViewById(R.id.tv_key_size_label)
         radioOneHanded = findViewById(R.id.radio_one_handed)
         btnSave = findViewById(R.id.btn_save)
         btnEnableKeyboard = findViewById(R.id.btn_enable_keyboard)
@@ -63,6 +70,9 @@ class SettingsActivity : AppCompatActivity() {
             sliderVibration.isEnabled = switchVibration.isChecked
             switchAutoPolish.isChecked = GkeysSettings.autoPolishEnabled(this@SettingsActivity).first()
             switchDefaultLang.isChecked = GkeysSettings.defaultLanguage(this@SettingsActivity).first() == "he"
+            switchRightHanded.isChecked = GkeysSettings.rightHandedMode(this@SettingsActivity).first()
+            sliderKeySize.value = presetToSlider(GkeysSettings.keySizePreset(this@SettingsActivity).first())
+            updateKeySizeLabel(sliderKeySize.value.toInt())
             when (GkeysSettings.oneHandedMode(this@SettingsActivity).first()) {
                 GkeysSettings.ONE_HANDED_LEFT -> radioOneHanded.check(R.id.radio_one_hand_left)
                 GkeysSettings.ONE_HANDED_RIGHT -> radioOneHanded.check(R.id.radio_one_hand_right)
@@ -75,6 +85,15 @@ class SettingsActivity : AppCompatActivity() {
         switchVibration.setOnCheckedChangeListener { _, checked ->
             sliderVibration.isEnabled = checked
         }
+        switchRightHanded.setOnCheckedChangeListener { _, checked ->
+            if (checked && sliderKeySize.value < 2f) {
+                sliderKeySize.value = 2f
+                updateKeySizeLabel(2)
+            }
+        }
+        sliderKeySize.addOnChangeListener { _, value, _ ->
+            updateKeySizeLabel(value.toInt())
+        }
         btnSave.setOnClickListener {
             lifecycleScope.launch {
                 GkeysSettings.saveOpenAiKey(this@SettingsActivity, etOpenAiKey.text.toString().trim())
@@ -86,6 +105,8 @@ class SettingsActivity : AppCompatActivity() {
                 GkeysSettings.saveAutoPolish(this@SettingsActivity, switchAutoPolish.isChecked)
                 GkeysSettings.saveDefaultLanguage(this@SettingsActivity,
                     if (switchDefaultLang.isChecked) "he" else "en")
+                GkeysSettings.saveRightHandedMode(this@SettingsActivity, switchRightHanded.isChecked)
+                GkeysSettings.saveKeySizePreset(this@SettingsActivity, sliderToPreset(sliderKeySize.value.toInt()))
                 val oneHanded = when (radioOneHanded.checkedRadioButtonId) {
                     R.id.radio_one_hand_left -> GkeysSettings.ONE_HANDED_LEFT
                     R.id.radio_one_hand_right -> GkeysSettings.ONE_HANDED_RIGHT
@@ -98,6 +119,29 @@ class SettingsActivity : AppCompatActivity() {
         }
         btnEnableKeyboard.setOnClickListener {
             startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
+        }
+    }
+
+    private fun presetToSlider(preset: String): Float = when (preset) {
+        GkeysSettings.KEY_SIZE_SMALL -> 0f
+        GkeysSettings.KEY_SIZE_LARGE -> 2f
+        GkeysSettings.KEY_SIZE_EXTRA_LARGE -> 3f
+        else -> 1f
+    }
+
+    private fun sliderToPreset(step: Int): String = when (step) {
+        0 -> GkeysSettings.KEY_SIZE_SMALL
+        2 -> GkeysSettings.KEY_SIZE_LARGE
+        3 -> GkeysSettings.KEY_SIZE_EXTRA_LARGE
+        else -> GkeysSettings.KEY_SIZE_DEFAULT
+    }
+
+    private fun updateKeySizeLabel(step: Int) {
+        tvKeySizeLabel.text = when (step) {
+            0 -> "Small"
+            2 -> "Large"
+            3 -> "Extra Large"
+            else -> "Default"
         }
     }
 

@@ -83,6 +83,7 @@
                 android:id="@+id/btn_mic_container"
                 android:layout_width="44dp"
                 android:layout_height="44dp"
+                android:layout_marginStart="4dp"
                 android:background="@drawable/ai_mic_bg">
 
                 <ImageView
@@ -96,6 +97,17 @@
                     android:focusable="true" />
 
             </FrameLayout>
+
+            <ImageButton
+                android:id="@+id/btn_polish"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:layout_marginStart="4dp"
+                android:src="@drawable/ic_polish"
+                android:background="@drawable/btn_circle_bg"
+                android:contentDescription="Polish text"
+                android:scaleType="centerInside"
+                android:padding="7dp" />
 
             <ImageButton
                 android:id="@+id/btn_keyboard"
@@ -122,6 +134,54 @@
             android:orientation="vertical"
             android:layoutDirection="ltr">
 
+            <LinearLayout
+                android:id="@+id/swipe_suggestion_bar"
+                android:layout_width="match_parent"
+                android:layout_height="36dp"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingStart="6dp"
+                android:paddingEnd="6dp"
+                android:visibility="gone"
+                android:layoutDirection="ltr">
+
+                <TextView
+                    android:id="@+id/swipe_suggestion_0"
+                    android:layout_width="0dp"
+                    android:layout_height="28dp"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="4dp"
+                    android:gravity="center"
+                    android:textSize="14sp"
+                    android:textColor="#E8EAF0"
+                    android:background="@drawable/swipe_suggestion_chip"
+                    android:visibility="invisible" />
+
+                <TextView
+                    android:id="@+id/swipe_suggestion_1"
+                    android:layout_width="0dp"
+                    android:layout_height="28dp"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="4dp"
+                    android:gravity="center"
+                    android:textSize="14sp"
+                    android:textColor="#E8EAF0"
+                    android:background="@drawable/swipe_suggestion_chip"
+                    android:visibility="invisible" />
+
+                <TextView
+                    android:id="@+id/swipe_suggestion_2"
+                    android:layout_width="0dp"
+                    android:layout_height="28dp"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:textSize="14sp"
+                    android:textColor="#E8EAF0"
+                    android:background="@drawable/swipe_suggestion_chip"
+                    android:visibility="invisible" />
+
+            </LinearLayout>
+
             <com.gremier.gkeys.ime.SwipeKeyboardLayout
                 android:id="@+id/keyboard_rows"
                 android:layout_width="match_parent"
@@ -144,6 +204,40 @@
     </LinearLayout>
 
     <include layout="@layout/voice_overlay" />
+
+    <FrameLayout
+        android:id="@+id/polish_loading_overlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#990F0F1A"
+        android:visibility="gone"
+        android:clickable="true"
+        android:focusable="true">
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:orientation="vertical"
+            android:gravity="center">
+
+            <ProgressBar
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:indeterminate="true"
+                android:layout_marginBottom="12dp" />
+
+            <TextView
+                android:id="@+id/polish_loading_text"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Polishing…"
+                android:textColor="#E5E7EB"
+                android:textSize="14sp" />
+
+        </LinearLayout>
+
+    </FrameLayout>
 
     <FrameLayout
         android:id="@+id/clipboard_overlay_container"

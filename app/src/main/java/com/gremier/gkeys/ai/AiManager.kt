@@ -13,6 +13,11 @@ import java.io.File
 
 class AiManager(private val context: Context) {
 
+    companion object {
+        const val POLISH_SYSTEM_PROMPT = """
+You are a text polishing assistant. The user has typed or dictated the following text on a mobile keyboard. Rewrite it to be clear, natural, and well-structured while preserving the original meaning, tone, and intent. Do not add extra information. Do not make it formal unless it already is. Keep it concise. Return only the rewritten text, nothing else."""
+    }
+
     private val client = OkHttpClient.Builder()
         .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
         .readTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
@@ -35,6 +40,9 @@ class AiManager(private val context: Context) {
                     .build()
 
                 val response = client.newCall(request).execute()
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(Exception("Transcription failed (${response.code})"))
+                }
                 val json = JSONObject(response.body?.string() ?: "{}")
                 Result.success(json.optString("text", ""))
             } catch (e: Exception) {
@@ -42,20 +50,26 @@ class AiManager(private val context: Context) {
             }
         }
 
-    suspend fun autoPolish(text: String, openAiKey: String): Result<String> =
+    /** Typless-style polish with a dedicated system prompt. */
+    suspend fun polishText(text: String, openAiKey: String): Result<String> =
         withContext(Dispatchers.IO) {
             callGpt(
-                prompt = "Clean up this voice dictation. Fix grammar, punctuation, remove filler words. Preserve meaning exactly. Return ONLY the cleaned text.\n\nText: $text",
+                systemPrompt = POLISH_SYSTEM_PROMPT.trim(),
+                userContent = text,
                 model = "gpt-4o-mini",
                 authHeader = "Bearer $openAiKey",
                 url = "https://api.openai.com/v1/chat/completions"
             )
         }
 
+    suspend fun autoPolish(text: String, openAiKey: String): Result<String> =
+        polishText(text, openAiKey)
+
     suspend fun polishAndTranslateToHebrew(text: String, openAiKey: String): Result<String> =
         withContext(Dispatchers.IO) {
             callGpt(
-                prompt = "Clean up this voice dictation and translate to Hebrew. Return ONLY the final Hebrew text.\n\nText: $text",
+                systemPrompt = "You translate text to Hebrew. Return ONLY the final Hebrew text.",
+                userContent = "Clean up this voice dictation and translate to Hebrew.\n\nText: $text",
                 model = "gpt-4o-mini",
                 authHeader = "Bearer $openAiKey",
                 url = "https://api.openai.com/v1/chat/completions"
@@ -85,6 +99,9 @@ class AiManager(private val context: Context) {
                     .build()
 
                 val response = client.newCall(request).execute()
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(Exception("Deep polish failed (${response.code})"))
+                }
                 val json = JSONObject(response.body?.string() ?: "{}")
                 val content = json.optJSONArray("content")?.optJSONObject(0)?.optString("text", "") ?: ""
                 Result.success(content.trim())
@@ -93,15 +110,25 @@ class AiManager(private val context: Context) {
             }
         }
 
-    private fun callGpt(prompt: String, model: String, authHeader: String, url: String): Result<String> {
+    private fun callGpt(
+        systemPrompt: String,
+        userContent: String,
+        model: String,
+        authHeader: String,
+        url: String
+    ): Result<String> {
         return try {
             val bodyJson = JSONObject().apply {
                 put("model", model)
                 put("max_tokens", 1024)
                 put("messages", JSONArray().apply {
                     put(JSONObject().apply {
+                        put("role", "system")
+                        put("content", systemPrompt)
+                    })
+                    put(JSONObject().apply {
                         put("role", "user")
-                        put("content", prompt)
+                        put("content", userContent)
                     })
                 })
             }
@@ -114,9 +141,15 @@ class AiManager(private val context: Context) {
                 .build()
 
             val response = client.newCall(request).execute()
+            if (!response.isSuccessful) {
+                return Result.failure(Exception("Polish failed (${response.code})"))
+            }
             val json = JSONObject(response.body?.string() ?: "{}")
             val text = json.optJSONArray("choices")?.optJSONObject(0)
                 ?.optJSONObject("message")?.optString("content", "") ?: ""
+            if (text.isBlank()) {
+                return Result.failure(Exception("Empty response from API"))
+            }
             Result.success(text.trim())
         } catch (e: Exception) {
             Result.failure(e)
