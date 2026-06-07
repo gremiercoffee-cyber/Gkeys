@@ -1,6 +1,5 @@
 package com.gremier.gkeys.ime
 
-import android.content.ClipboardManager
 import android.content.Context
 import android.inputmethodservice.InputMethodService
 import android.os.*
@@ -10,6 +9,7 @@ import android.widget.*
 import com.gremier.gkeys.R
 import com.gremier.gkeys.ai.AiManager
 import com.gremier.gkeys.ai.AudioRecorder
+import com.gremier.gkeys.clipboard.GkeysClipboardManager
 import com.gremier.gkeys.settings.GkeysSettings
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
@@ -45,7 +45,7 @@ class GkeysIME : InputMethodService() {
     private lateinit var tvClipboard: TextView
     private lateinit var btnMic: ImageButton
     private lateinit var btnPolish: ImageButton
-    private lateinit var btnLang: TextView
+    private var clipboardManager: GkeysClipboardManager? = null
 
     private val enRows = listOf(
         listOf("1","2","3","4","5","6","7","8","9","0"),
@@ -56,10 +56,9 @@ class GkeysIME : InputMethodService() {
     )
 
     private val heRows = listOf(
-        listOf("1","2","3","4","5","6","7","8","9","0"),
-        listOf("'","פ","ם","מ","ע","נ","ת","צ","ק","ף"),
-        listOf("ז","ס","ב","ה","נ","מ","צ","ת","ש"),
-        listOf("⇧","ג","ד","כ","ל","ח","ו","א","⌫"),
+        listOf("פ","ם","ן","ו","ט","א","ר","ק","-","'"),
+        listOf("ף","ך","ל","ח","י","ע","כ","ג","ד","ש"),
+        listOf("⇧","ץ","ת","צ","מ","נ","ה","ב","ס","ז","⌫"),
         listOf("?123","🌐",",","SPACE",".","↵")
     )
 
@@ -86,17 +85,31 @@ class GkeysIME : InputMethodService() {
         tvClipboard = keyboardView.findViewById(R.id.tv_clipboard)
         btnMic = keyboardView.findViewById(R.id.btn_mic)
         btnPolish = keyboardView.findViewById(R.id.btn_polish)
-        btnLang = keyboardView.findViewById(R.id.btn_lang)
+
+        val overlayContainer = keyboardView.findViewById<FrameLayout>(R.id.clipboard_overlay_container)
+        clipboardManager = GkeysClipboardManager(
+            context = this,
+            overlayContainer = overlayContainer,
+            previewView = tvClipboard,
+            onPaste = { text -> currentInputConnection?.commitText(text, 1) },
+            onVibrate = { vibrate() }
+        )
+
         setupAiStrip()
         buildKeyboard()
-        updateClipboard()
         return keyboardView
     }
 
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
         loadSettings()
-        updateClipboard()
+        clipboardManager?.startListening()
+    }
+
+    override fun onFinishInputView(finishingInput: Boolean) {
+        clipboardManager?.stopListening()
+        clipboardManager?.hidePanel()
+        super.onFinishInputView(finishingInput)
     }
 
     private fun loadSettings() {
@@ -108,7 +121,7 @@ class GkeysIME : InputMethodService() {
             vibrationEnabled = GkeysSettings.vibrationEnabled(this@GkeysIME).first()
             autoPolishEnabled = GkeysSettings.autoPolishEnabled(this@GkeysIME).first()
             isHebrew = GkeysSettings.defaultLanguage(this@GkeysIME).first() == "he"
-            if (::btnLang.isInitialized) buildKeyboard()
+            if (::keyboardView.isInitialized) buildKeyboard()
         }
     }
 
@@ -138,15 +151,8 @@ class GkeysIME : InputMethodService() {
         }
 
         tvClipboard.setOnClickListener {
-            val text = tvClipboard.tag as? String ?: return@setOnClickListener
-            currentInputConnection?.commitText(text, 1)
+            clipboardManager?.showPanel()
             vibrate()
-        }
-
-        btnLang.setOnClickListener {
-            isHebrew = !isHebrew
-            isSymbols = false
-            buildKeyboard()
         }
     }
 
@@ -154,7 +160,6 @@ class GkeysIME : InputMethodService() {
         val container = keyboardView.findViewById<LinearLayout>(R.id.keyboard_rows) ?: return
         container.removeAllViews()
         val rows = when { isSymbols -> symRows; isHebrew -> heRows; else -> enRows }
-        btnLang.text = if (isHebrew) "EN" else "עב"
 
         rows.forEach { keys ->
             val row = LinearLayout(this).apply {
@@ -200,7 +205,14 @@ class GkeysIME : InputMethodService() {
     private fun handleKey(key: String) {
         val ic = currentInputConnection ?: return
         when (key) {
-            "⌫" -> ic.deleteSurroundingText(1, 0)
+            "⌫" -> {
+                val selected = ic.getSelectedText(0)
+                if (!selected.isNullOrEmpty()) {
+                    ic.commitText("", 1)
+                } else {
+                    ic.deleteSurroundingText(1, 0)
+                }
+            }
             "↵" -> { ic.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER)); ic.sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER)) }
             "⇧" -> { if (isShifted && !capsLock) capsLock = true else if (capsLock) { capsLock = false; isShifted = false } else isShifted = true; buildKeyboard() }
             "?123" -> { isSymbols = true; buildKeyboard() }
@@ -222,22 +234,6 @@ class GkeysIME : InputMethodService() {
     }
 
     private fun stopDeleteRepeat() { deleteRunnable?.let { handler.removeCallbacks(it) }; deleteRunnable = null }
-
-    private fun updateClipboard() {
-        if (!::tvClipboard.isInitialized) return
-        val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        val clip = cm.primaryClip
-        if (clip != null && clip.itemCount > 0) {
-            val text = clip.getItemAt(0).coerceToText(this).toString()
-            if (text.isNotBlank()) {
-                tvClipboard.text = "📋 ${if (text.length > 40) text.take(40) + "…" else text}"
-                tvClipboard.tag = text
-                tvClipboard.visibility = View.VISIBLE
-                return
-            }
-        }
-        tvClipboard.visibility = View.GONE
-    }
 
     private fun startRecording() {
         if (openAiKey.isBlank()) { setStatus("⚠ Add OpenAI key in Gkeys settings"); return }
@@ -299,6 +295,7 @@ class GkeysIME : InputMethodService() {
 
     override fun onDestroy() {
         super.onDestroy()
+        clipboardManager?.destroy()
         scope.cancel()
         stopDeleteRepeat()
         audioRecorder.cancelRecording()

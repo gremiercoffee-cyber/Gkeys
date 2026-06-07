@@ -1,100 +1,103 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout
+<FrameLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="wrap_content"
-    android:orientation="vertical"
-    android:background="#0F0F1A"
-    android:paddingBottom="4dp">
+    android:layout_height="wrap_content">
 
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="48dp"
-        android:orientation="horizontal"
-        android:background="#1A1A2E"
-        android:paddingStart="8dp"
-        android:paddingEnd="8dp"
-        android:gravity="center_vertical">
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:background="#0F0F1A"
+        android:paddingBottom="4dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="80dp"
+            android:orientation="horizontal"
+            android:background="#1A1A2E"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:gravity="center_vertical">
+
+            <ImageButton
+                android:id="@+id/btn_mic"
+                android:layout_width="68dp"
+                android:layout_height="68dp"
+                android:src="@drawable/ic_mic"
+                android:background="@drawable/btn_circle_bg"
+                android:contentDescription="Voice dictation"
+                android:scaleType="centerInside"
+                android:padding="14dp"
+                android:tint="#4A9EFF" />
+
+            <ImageButton
+                android:id="@+id/btn_polish"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:src="@drawable/ic_polish"
+                android:background="@drawable/btn_circle_bg"
+                android:layout_marginStart="6dp"
+                android:contentDescription="Deep polish"
+                android:tint="#A78BFA" />
+
+            <FrameLayout
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:layout_marginStart="8dp"
+                android:layout_marginEnd="8dp">
+
+                <TextView
+                    android:id="@+id/tv_status"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center_vertical"
+                    android:textColor="#9CA3AF"
+                    android:textSize="12sp"
+                    android:singleLine="true"
+                    android:ellipsize="end"
+                    android:visibility="gone" />
+
+                <TextView
+                    android:id="@+id/tv_clipboard"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center_vertical"
+                    android:textColor="#6B7280"
+                    android:textSize="12sp"
+                    android:singleLine="true"
+                    android:ellipsize="end"
+                    android:visibility="gone" />
+
+            </FrameLayout>
+
+        </LinearLayout>
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="#2A2A3E" />
+
+        <LinearLayout
+            android:id="@+id/keyboard_rows"
+            android:layout_width="match_parent"
+            android:layout_height="220dp"
+            android:orientation="vertical"
+            android:padding="3dp" />
 
         <ImageButton
-            android:id="@+id/btn_mic"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
-            android:src="@drawable/ic_mic"
-            android:background="@drawable/btn_circle_bg"
-            android:contentDescription="Voice dictation"
-            android:tint="#4A9EFF" />
-
-        <ImageButton
-            android:id="@+id/btn_polish"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
-            android:src="@drawable/ic_polish"
-            android:background="@drawable/btn_circle_bg"
-            android:layout_marginStart="6dp"
-            android:contentDescription="Deep polish"
-            android:tint="#A78BFA" />
-
-        <FrameLayout
+            android:id="@+id/btn_shift"
             android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:layout_marginStart="8dp"
-            android:layout_marginEnd="8dp">
-
-            <TextView
-                android:id="@+id/tv_status"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_gravity="center_vertical"
-                android:textColor="#9CA3AF"
-                android:textSize="12sp"
-                android:singleLine="true"
-                android:ellipsize="end"
-                android:visibility="gone" />
-
-            <TextView
-                android:id="@+id/tv_clipboard"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_gravity="center_vertical"
-                android:textColor="#6B7280"
-                android:textSize="12sp"
-                android:singleLine="true"
-                android:ellipsize="end"
-                android:visibility="gone" />
-
-        </FrameLayout>
-
-        <TextView
-            android:id="@+id/btn_lang"
-            android:layout_width="44dp"
-            android:layout_height="36dp"
-            android:text="עב"
-            android:textColor="#4A9EFF"
-            android:textSize="14sp"
-            android:textStyle="bold"
-            android:gravity="center"
-            android:background="@drawable/btn_pill_bg" />
+            android:layout_height="0dp"
+            android:visibility="gone" />
 
     </LinearLayout>
 
-    <View
+    <FrameLayout
+        android:id="@+id/clipboard_overlay_container"
         android:layout_width="match_parent"
-        android:layout_height="1dp"
-        android:background="#2A2A3E" />
-
-    <LinearLayout
-        android:id="@+id/keyboard_rows"
-        android:layout_width="match_parent"
-        android:layout_height="220dp"
-        android:orientation="vertical"
-        android:padding="3dp" />
-
-    <ImageButton
-        android:id="@+id/btn_shift"
-        android:layout_width="0dp"
-        android:layout_height="0dp"
+        android:layout_height="match_parent"
         android:visibility="gone" />
 
-</LinearLayout>
+</FrameLayout>
