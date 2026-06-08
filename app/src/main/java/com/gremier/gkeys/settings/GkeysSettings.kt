@@ -29,7 +29,14 @@ object GkeysSettings {
     val TOUCH_OFFSET_Y = floatPreferencesKey("touch_offset_y")
     val TOUCH_OFFSET_SAMPLES = intPreferencesKey("touch_offset_samples")
     val RIGHT_HANDED_MODE = booleanPreferencesKey("right_handed_mode")
+    val VOICE_TRANSLATE_FROM = stringPreferencesKey("voice_translate_from")
+    val VOICE_TRANSLATE_TO = stringPreferencesKey("voice_translate_to")
     val KEY_SIZE_PRESET = stringPreferencesKey("key_size_preset")
+
+    const val LANG_EN = "en"
+    const val LANG_HE = "he"
+    const val DEFAULT_VOICE_TRANSLATE_FROM = LANG_EN
+    const val DEFAULT_VOICE_TRANSLATE_TO = LANG_HE
 
     const val KEY_SIZE_SMALL = "small"
     const val KEY_SIZE_DEFAULT = "default"
@@ -83,6 +90,20 @@ object GkeysSettings {
 
     fun keySizePreset(context: Context): Flow<String> =
         settingsStore(context).data.map { it[KEY_SIZE_PRESET] ?: KEY_SIZE_DEFAULT }
+
+    fun voiceTranslateFrom(context: Context): Flow<String> =
+        settingsStore(context).data.map { it[VOICE_TRANSLATE_FROM] ?: DEFAULT_VOICE_TRANSLATE_FROM }
+
+    fun voiceTranslateTo(context: Context): Flow<String> =
+        settingsStore(context).data.map { it[VOICE_TRANSLATE_TO] ?: DEFAULT_VOICE_TRANSLATE_TO }
+
+    fun languageDisplayName(code: String): String = when (code) {
+        LANG_HE -> "Hebrew"
+        LANG_EN -> "English"
+        else -> code
+    }
+
+    val voiceLanguageCodes: List<String> = listOf(LANG_EN, LANG_HE)
 
     suspend fun saveOpenAiKey(context: Context, key: String) {
         SecureApiKeyStore.saveOpenAiKey(context, key)
@@ -154,5 +175,13 @@ object GkeysSettings {
 
     suspend fun saveKeySizePreset(context: Context, preset: String) {
         settingsStore(context).edit { it[KEY_SIZE_PRESET] = preset }
+    }
+
+    suspend fun saveVoiceTranslateFrom(context: Context, lang: String) {
+        settingsStore(context).edit { it[VOICE_TRANSLATE_FROM] = lang }
+    }
+
+    suspend fun saveVoiceTranslateTo(context: Context, lang: String) {
+        settingsStore(context).edit { it[VOICE_TRANSLATE_TO] = lang }
     }
 }

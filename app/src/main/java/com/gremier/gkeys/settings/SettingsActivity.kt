@@ -7,7 +7,9 @@ import android.os.Bundle
 import android.provider.Settings
 import android.view.inputmethod.InputMethodManager
 import android.widget.RadioGroup
+import android.widget.Spinner
 import android.widget.TextView
+import android.widget.ArrayAdapter
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -35,6 +37,8 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var switchVibration: SwitchMaterial
     private lateinit var sliderVibration: Slider
     private lateinit var switchAutoPolish: SwitchMaterial
+    private lateinit var spinnerVoiceFrom: Spinner
+    private lateinit var spinnerVoiceTo: Spinner
     private lateinit var switchDefaultLang: SwitchMaterial
     private lateinit var switchRightHanded: SwitchMaterial
     private lateinit var sliderKeySize: Slider
@@ -181,6 +185,9 @@ class SettingsActivity : AppCompatActivity() {
         switchVibration = findViewById(R.id.switch_vibration)
         sliderVibration = findViewById(R.id.slider_vibration)
         switchAutoPolish = findViewById(R.id.switch_auto_polish)
+        spinnerVoiceFrom = findViewById(R.id.spinner_voice_from)
+        spinnerVoiceTo = findViewById(R.id.spinner_voice_to)
+        setupVoiceLanguageSpinners()
         switchDefaultLang = findViewById(R.id.switch_default_lang)
         switchRightHanded = findViewById(R.id.switch_right_handed)
         sliderKeySize = findViewById(R.id.slider_key_size)
@@ -217,6 +224,8 @@ class SettingsActivity : AppCompatActivity() {
             sliderVibration.value = clampToSlider(sliderVibration, GkeysSettings.vibrationStrength(this@SettingsActivity).first().toFloat())
             sliderVibration.isEnabled = switchVibration.isChecked
             switchAutoPolish.isChecked = GkeysSettings.autoPolishEnabled(this@SettingsActivity).first()
+            selectSpinnerLanguage(spinnerVoiceFrom, GkeysSettings.voiceTranslateFrom(this@SettingsActivity).first())
+            selectSpinnerLanguage(spinnerVoiceTo, GkeysSettings.voiceTranslateTo(this@SettingsActivity).first())
             switchDefaultLang.isChecked = GkeysSettings.defaultLanguage(this@SettingsActivity).first() == "he"
             switchRightHanded.isChecked = GkeysSettings.rightHandedMode(this@SettingsActivity).first()
             sliderKeySize.value = clampToSlider(sliderKeySize, presetToSlider(GkeysSettings.keySizePreset(this@SettingsActivity).first()))
@@ -262,6 +271,8 @@ class SettingsActivity : AppCompatActivity() {
                 GkeysSettings.saveVibration(this@SettingsActivity, switchVibration.isChecked)
                 GkeysSettings.saveVibrationStrength(this@SettingsActivity, sliderVibration.value.toInt())
                 GkeysSettings.saveAutoPolish(this@SettingsActivity, switchAutoPolish.isChecked)
+                GkeysSettings.saveVoiceTranslateFrom(this@SettingsActivity, spinnerLanguageCode(spinnerVoiceFrom))
+                GkeysSettings.saveVoiceTranslateTo(this@SettingsActivity, spinnerLanguageCode(spinnerVoiceTo))
                 GkeysSettings.saveDefaultLanguage(this@SettingsActivity,
                     if (switchDefaultLang.isChecked) "he" else "en")
                 GkeysSettings.saveRightHandedMode(this@SettingsActivity, switchRightHanded.isChecked)
@@ -305,6 +316,23 @@ class SettingsActivity : AppCompatActivity() {
         } else {
             "Allow microphone access"
         }
+    }
+
+    private fun setupVoiceLanguageSpinners() {
+        val names = resources.getStringArray(R.array.voice_translate_language_names)
+        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, names)
+        spinnerVoiceFrom.adapter = adapter
+        spinnerVoiceTo.adapter = adapter
+    }
+
+    private fun selectSpinnerLanguage(spinner: Spinner, code: String) {
+        val index = GkeysSettings.voiceLanguageCodes.indexOf(code).coerceAtLeast(0)
+        spinner.setSelection(index)
+    }
+
+    private fun spinnerLanguageCode(spinner: Spinner): String {
+        val index = spinner.selectedItemPosition.coerceIn(0, GkeysSettings.voiceLanguageCodes.lastIndex)
+        return GkeysSettings.voiceLanguageCodes[index]
     }
 
     private fun presetToSlider(preset: String): Float = when (preset) {

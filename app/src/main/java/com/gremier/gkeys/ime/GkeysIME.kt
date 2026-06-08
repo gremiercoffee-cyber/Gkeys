@@ -4,7 +4,6 @@ import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.graphics.Rect
 import android.inputmethodservice.InputMethodService
 import android.os.*
 import android.view.*
@@ -29,7 +28,7 @@ import kotlinx.coroutines.flow.first
 
 class GkeysIME : InputMethodService() {
 
-    private enum class VoiceAction { DEFAULT, TRANSLATE, POLISH, DEEP_POLISH, RAW }
+    private enum class VoiceAction { DEFAULT, TRANSLATE, POLISH, RAW }
 
     private var isHebrew = false
     private var isSymbols = false
@@ -49,6 +48,8 @@ class GkeysIME : InputMethodService() {
     private var vibrationEnabled = true
     private var vibrationStrength = GkeysSettings.DEFAULT_VIBRATION_STRENGTH
     private var autoPolishEnabled = true
+    private var voiceTranslateFrom = GkeysSettings.DEFAULT_VOICE_TRANSLATE_FROM
+    private var voiceTranslateTo = GkeysSettings.DEFAULT_VOICE_TRANSLATE_TO
     private var openAiKey = ""
     private var anthropicKey = ""
 
@@ -79,6 +80,7 @@ class GkeysIME : InputMethodService() {
     private lateinit var btnOneHand: TextView
     private lateinit var voiceOverlay: View
     private lateinit var voiceStatus: TextView
+    private lateinit var voiceTranslateHint: TextView
     private var isPolishing = false
     private var clipboardManager: GkeysClipboardManager? = null
     private var isDeleteRepeating = false
@@ -88,7 +90,7 @@ class GkeysIME : InputMethodService() {
     private val touchKeyViews = mutableListOf<Triple<View, String, Int>>()
     private var lastTypedChar: Char? = null
 
-    private val voiceActionViews = mutableMapOf<VoiceAction, TextView>()
+    private var numpadEmojiVisible = false
 
     companion object {
         private const val LONG_PRESS_MS = 380L
@@ -97,20 +99,41 @@ class GkeysIME : InputMethodService() {
             "q" to "1", "w" to "2", "e" to "3", "r" to "4", "t" to "5",
             "y" to "6", "u" to "7", "i" to "8", "o" to "9", "p" to "0"
         )
+
+        private val numpadEmojis = listOf(
+            "😀", "😂", "🥹", "😍", "😭", "🤔",
+            "👍", "👎", "👏", "🙏", "💪", "✌️",
+            "❤️", "🔥", "✨", "🎉", "💯", "⭐",
+            "😊", "😉", "😮", "🙄", "😴", "💀",
+            "🫶", "🥳", "😎", "🤣", "😢", "💕"
+        )
     }
+
+    /** Symbols on the left; digits on the right for right-thumb reach. */
+    private val numpadRows = listOf(
+        listOf("-", "1", "2", "3"),
+        listOf("+", "4", "5", "6", ","),
+        listOf("*", "7", "8", "9", "/"),
+        listOf("#", "(", ")", "0", ":"),
+        listOf("ABC", "SPACE", "⌫", ".", "?", "↵")
+    )
+
+    private fun emojiKeyboardRows(): List<List<String>> {
+        return listOf(listOf("NUMPAD_BACK")) + numpadEmojis.chunked(6) + listOf(listOf(","))
+    }
+
+    private fun toggleNumpadEmojiPanel(show: Boolean? = null) {
+        numpadEmojiVisible = show ?: !numpadEmojiVisible
+        buildKeyboard()
+    }
+
+    private fun isEmojiKey(label: String): Boolean = label in numpadEmojis
 
     private val enRows = listOf(
         listOf("q","w","e","r","t","y","u","i","o","p"),
         listOf("a","s","d","f","g","h","j","k","l"),
         listOf("⇧","z","x","c","v","b","n","m","⌫"),
         listOf("?123","🌐",",","SPACE",".","↵")
-    )
-
-    private val numpadRows = listOf(
-        listOf("1","2","3"),
-        listOf("4","5","6"),
-        listOf("7","8","9"),
-        listOf("ABC","0","⌫")
     )
 
     override fun onConfigureWindow(window: android.view.Window, isFullscreen: Boolean, isExtract: Boolean) {
@@ -208,11 +231,7 @@ class GkeysIME : InputMethodService() {
         btnOneHand = keyboardView.findViewById(R.id.btn_one_hand)
         voiceOverlay = keyboardView.findViewById(R.id.voice_overlay)
         voiceStatus = keyboardView.findViewById(R.id.voice_status)
-
-        voiceActionViews[VoiceAction.TRANSLATE] = keyboardView.findViewById(R.id.action_translate)
-        voiceActionViews[VoiceAction.POLISH] = keyboardView.findViewById(R.id.action_polish)
-        voiceActionViews[VoiceAction.DEEP_POLISH] = keyboardView.findViewById(R.id.action_deep)
-        voiceActionViews[VoiceAction.RAW] = keyboardView.findViewById(R.id.action_raw)
+        voiceTranslateHint = keyboardView.findViewById(R.id.voice_translate_hint)
 
         val keyboardRows = keyboardView.findViewById<KeyboardTouchLayout>(R.id.keyboard_rows)
 
@@ -287,6 +306,8 @@ class GkeysIME : InputMethodService() {
                 vibrationEnabled = GkeysSettings.vibrationEnabled(this@GkeysIME).first()
                 vibrationStrength = GkeysSettings.vibrationStrength(this@GkeysIME).first()
                 autoPolishEnabled = GkeysSettings.autoPolishEnabled(this@GkeysIME).first()
+                voiceTranslateFrom = GkeysSettings.voiceTranslateFrom(this@GkeysIME).first()
+                voiceTranslateTo = GkeysSettings.voiceTranslateTo(this@GkeysIME).first()
                 isHebrew = GkeysSettings.defaultLanguage(this@GkeysIME).first() == "he"
                 oneHandedMode = GkeysSettings.oneHandedMode(this@GkeysIME).first()
                 rightHandedMode = GkeysSettings.rightHandedMode(this@GkeysIME).first()
@@ -324,25 +345,15 @@ class GkeysIME : InputMethodService() {
                         handler.postDelayed(longPressRunnable, LONG_PRESS_MS)
                         true
                     }
-                    MotionEvent.ACTION_MOVE -> {
-                        if (longPressTriggered || isVoiceOverlay) {
-                            highlightVoiceAction(event.rawX, event.rawY)
-                        }
-                        true
-                    }
                     MotionEvent.ACTION_UP -> {
                         finishMicGesture()
                         true
                     }
                     MotionEvent.ACTION_CANCEL -> {
-                        if (longPressTriggered && isVoiceOverlay) {
-                            keyboardView.setOnTouchListener(rootMicTouchListener)
-                        } else {
-                            finishMicGesture(cancelled = true)
-                        }
+                        finishMicGesture(cancelled = true)
                         true
                     }
-                    else -> false
+                    else -> true
                 }
             } catch (e: Exception) {
                 android.util.Log.e("GkeysIME", "mic touch failed", e)
@@ -356,9 +367,13 @@ class GkeysIME : InputMethodService() {
                 cancelRecording()
                 hideVoiceOverlay()
             }
-            isNumpad = !isNumpad
-            if (isNumpad) {
-                isSymbols = false
+            if (numpadEmojiVisible) {
+                numpadEmojiVisible = false
+            } else {
+                isNumpad = !isNumpad
+                if (isNumpad) {
+                    isSymbols = false
+                }
             }
             buildKeyboard()
             updateNumpadButton()
@@ -374,24 +389,8 @@ class GkeysIME : InputMethodService() {
         updateNumpadButton()
     }
 
-    private val rootMicTouchListener = View.OnTouchListener { _, event ->
-        if (!micGestureTracking) return@OnTouchListener false
-        when (event.actionMasked) {
-            MotionEvent.ACTION_MOVE -> {
-                highlightVoiceAction(event.rawX, event.rawY)
-                true
-            }
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                finishMicGesture()
-                true
-            }
-            else -> true
-        }
-    }
-
     private fun finishMicGesture(cancelled: Boolean = false) {
         handler.removeCallbacks(longPressRunnable)
-        keyboardView.setOnTouchListener(null)
         micGestureTracking = false
         if (longPressTriggered) {
             hideVoiceOverlay()
@@ -469,7 +468,7 @@ class GkeysIME : InputMethodService() {
             return
         }
         longPressTriggered = true
-        pendingVoiceAction = VoiceAction.DEFAULT
+        pendingVoiceAction = VoiceAction.TRANSLATE
         vibrate(12)
         showVoiceOverlay()
         if (!isRecording) {
@@ -489,8 +488,10 @@ class GkeysIME : InputMethodService() {
         isVoiceOverlay = true
         keyboardPanel.visibility = View.GONE
         voiceOverlay.visibility = View.VISIBLE
-        voiceStatus.text = "Listening…"
-        highlightVoiceAction(-1f, -1f)
+        val fromName = GkeysSettings.languageDisplayName(voiceTranslateFrom)
+        val toName = GkeysSettings.languageDisplayName(voiceTranslateTo)
+        voiceStatus.text = "Speak in $fromName…"
+        voiceTranslateHint.text = "Release to translate → $toName"
     }
 
     private fun hideVoiceOverlay() {
@@ -498,45 +499,11 @@ class GkeysIME : InputMethodService() {
         voiceOverlay.visibility = View.GONE
         if (keyboardVisible) keyboardPanel.visibility = View.VISIBLE
         updateMicVisuals(recording = isRecording)
-        clearVoiceActionHighlight()
     }
 
     private fun showKeyboardPanel() {
         keyboardVisible = true
         keyboardPanel.visibility = View.VISIBLE
-    }
-
-    private fun highlightVoiceAction(rawX: Float, rawY: Float) {
-        var selected = VoiceAction.DEFAULT
-        if (rawX >= 0) {
-            for ((action, view) in voiceActionViews) {
-                val rect = Rect()
-                if (view.getGlobalVisibleRect(rect) && rect.contains(rawX.toInt(), rawY.toInt())) {
-                    selected = action
-                    break
-                }
-            }
-        }
-        pendingVoiceAction = selected
-        for ((action, view) in voiceActionViews) {
-            view.setBackgroundResource(
-                if (action == selected && selected != VoiceAction.DEFAULT)
-                    R.drawable.voice_action_pill_selected
-                else
-                    R.drawable.voice_action_pill
-            )
-            view.setTextColor(
-                if (action == selected && selected != VoiceAction.DEFAULT) 0xFFFFFFFF.toInt()
-                else 0xFFE5E7EB.toInt()
-            )
-        }
-    }
-
-    private fun clearVoiceActionHighlight() {
-        for ((_, view) in voiceActionViews) {
-            view.setBackgroundResource(R.drawable.voice_action_pill)
-            view.setTextColor(0xFFE5E7EB.toInt())
-        }
     }
 
     private fun updateMicVisuals(recording: Boolean) {
@@ -573,12 +540,31 @@ class GkeysIME : InputMethodService() {
 
     private fun applyOneHandedMode() {
         val params = keyboardContent.layoutParams as FrameLayout.LayoutParams
-        params.width = FrameLayout.LayoutParams.MATCH_PARENT
-        params.gravity = Gravity.CENTER_HORIZONTAL
+        val screenWidth = resources.displayMetrics.widthPixels
+        when (oneHandedMode) {
+            GkeysSettings.ONE_HANDED_RIGHT -> {
+                params.width = (screenWidth * KeyboardLayoutMetrics.ONE_HANDED_WIDTH_FRACTION).toInt()
+                params.gravity = Gravity.END or Gravity.BOTTOM
+            }
+            GkeysSettings.ONE_HANDED_LEFT -> {
+                params.width = (screenWidth * KeyboardLayoutMetrics.ONE_HANDED_WIDTH_FRACTION).toInt()
+                params.gravity = Gravity.START or Gravity.BOTTOM
+            }
+            else -> {
+                params.width = FrameLayout.LayoutParams.MATCH_PARENT
+                params.gravity = Gravity.CENTER_HORIZONTAL or Gravity.BOTTOM
+            }
+        }
         keyboardContent.layoutParams = params
         keyboardContent.requestLayout()
+        if (::keyboardView.isInitialized) {
+            keyboardView.findViewById<KeyboardTouchLayout>(R.id.keyboard_rows)?.let { scheduleCircularKeySizing(it) }
+        }
         refreshTouchTargetsAfterLayout()
     }
+
+    private fun isOneHandedActive(): Boolean =
+        oneHandedMode != GkeysSettings.ONE_HANDED_OFF
 
     private fun isLayoutRightBiased(): Boolean =
         rightHandedMode || oneHandedMode == GkeysSettings.ONE_HANDED_RIGHT
@@ -601,6 +587,7 @@ class GkeysIME : InputMethodService() {
             object : ViewTreeObserver.OnGlobalLayoutListener {
                 override fun onGlobalLayout() {
                     targetContainer.viewTreeObserver.removeOnGlobalLayoutListener(this)
+                    applyCircularKeySizes(targetContainer)
                     if (touchKeyViews.isEmpty() || !touchResolver.enabled) return
                     touchResolver.rightHandedMode = isLayoutRightBiased()
                     touchResolver.refreshFromViews(targetContainer, touchKeyViews)
@@ -624,6 +611,7 @@ class GkeysIME : InputMethodService() {
     private val touchTargetRefreshRunnable = Runnable {
         if (!::keyboardView.isInitialized || !::touchResolver.isInitialized) return@Runnable
         val container = keyboardView.findViewById<KeyboardTouchLayout>(R.id.keyboard_rows) ?: return@Runnable
+        applyCircularKeySizes(container)
         if (touchKeyViews.isEmpty() || !touchResolver.enabled) return@Runnable
         touchResolver.rightHandedMode = isLayoutRightBiased()
         touchResolver.refreshFromViews(container, touchKeyViews)
@@ -652,25 +640,32 @@ class GkeysIME : InputMethodService() {
         val profile = layoutProfile.copy(rightHanded = isLayoutRightBiased())
         val layoutRight = isLayoutRightBiased()
         val layoutLeft = isLayoutLeftBiased()
-        container.setPadding(
-            dp(
-                if (layoutLeft) KeyboardLayoutMetrics.keyboardPaddingEndDp(true)
-                else KeyboardLayoutMetrics.keyboardPaddingStartDp(layoutRight)
-            ),
-            container.paddingTop,
-            dp(
-                if (layoutLeft) KeyboardLayoutMetrics.keyboardPaddingStartDp(true)
-                else KeyboardLayoutMetrics.keyboardPaddingEndDp(layoutRight)
-            ),
-            container.paddingBottom
-        )
-        container.translationX = when {
-            layoutLeft -> -dp(KeyboardLayoutMetrics.keyboardShiftRightDp(true)).toFloat()
-            layoutRight -> dp(KeyboardLayoutMetrics.keyboardShiftRightDp(true)).toFloat()
-            else -> 0f
+        val oneHandedActive = isOneHandedActive()
+        if (oneHandedActive) {
+            container.setPadding(dp(4), container.paddingTop, dp(4), container.paddingBottom)
+            container.translationX = 0f
+        } else {
+            container.setPadding(
+                dp(
+                    if (layoutLeft) KeyboardLayoutMetrics.keyboardPaddingEndDp(true)
+                    else KeyboardLayoutMetrics.keyboardPaddingStartDp(layoutRight)
+                ),
+                container.paddingTop,
+                dp(
+                    if (layoutLeft) KeyboardLayoutMetrics.keyboardPaddingStartDp(true)
+                    else KeyboardLayoutMetrics.keyboardPaddingEndDp(layoutRight)
+                ),
+                container.paddingBottom
+            )
+            container.translationX = when {
+                layoutLeft -> -dp(KeyboardLayoutMetrics.keyboardShiftRightDp(true)).toFloat()
+                layoutRight -> dp(KeyboardLayoutMetrics.keyboardShiftRightDp(true)).toFloat()
+                else -> 0f
+            }
         }
 
         val rows = when {
+            isNumpad && numpadEmojiVisible -> emojiKeyboardRows()
             isNumpad && !isHebrew -> numpadRows
             isSymbols -> symRows
             isHebrew -> heRowsGboard
@@ -683,6 +678,7 @@ class GkeysIME : InputMethodService() {
         touchResolver.setPreviousChar(lastTypedChar)
 
         val totalRows = rows.size
+        val numpadMode = isNumpad && !isHebrew
         rows.forEachIndexed { rowIndex, keys ->
             val orderedKeys = orderKeysForDisplay(keys)
             val row = LinearLayout(this).apply {
@@ -690,6 +686,9 @@ class GkeysIME : InputMethodService() {
                 layoutDirection = View.LAYOUT_DIRECTION_LTR
                 textDirection = View.TEXT_DIRECTION_LTR
                 gravity = when {
+                    numpadMode && oneHandedActive && layoutLeft -> Gravity.START
+                    numpadMode && oneHandedActive && layoutRight -> Gravity.END
+                    numpadMode -> Gravity.CENTER
                     layoutLeft -> Gravity.START
                     layoutRight -> Gravity.END
                     else -> Gravity.CENTER
@@ -705,15 +704,44 @@ class GkeysIME : InputMethodService() {
                         touchCorrectionEnabled = touchCorrectionEnabled,
                         rowIndex = rowIndex,
                         totalRows = totalRows,
-                        profile = profile
+                        profile = profile,
+                        isNumpadMode = numpadMode
                     )
                 )
             }
             container.addView(row)
         }
         forceLayoutLtr(container)
+        scheduleCircularKeySizing(container)
         refreshTouchTargetsAfterLayout(container)
         updateNumpadButton()
+    }
+
+    private fun scheduleCircularKeySizing(container: KeyboardTouchLayout) {
+        container.viewTreeObserver.addOnGlobalLayoutListener(object : ViewTreeObserver.OnGlobalLayoutListener {
+            override fun onGlobalLayout() {
+                container.viewTreeObserver.removeOnGlobalLayoutListener(this)
+                applyCircularKeySizes(container)
+            }
+        })
+        container.requestLayout()
+    }
+
+    /** Sizes each key label to a centered circle that fits its cell without overlapping neighbors. */
+    private fun applyCircularKeySizes(container: ViewGroup) {
+        val inset = dp(KeyboardLayoutMetrics.KEY_CIRCLE_INSET_DP)
+        for (rowIndex in 0 until container.childCount) {
+            val row = container.getChildAt(rowIndex) as? ViewGroup ?: continue
+            for (keyIndex in 0 until row.childCount) {
+                val cell = row.getChildAt(keyIndex) as? FrameLayout ?: continue
+                val pebble = cell.getChildAt(0) as? TextView ?: continue
+                val diameter = minOf(cell.width, cell.height) - inset * 2
+                if (diameter <= 0) continue
+                val lp = pebble.layoutParams as? FrameLayout.LayoutParams ?: continue
+                if (lp.width == diameter && lp.height == diameter) continue
+                pebble.layoutParams = FrameLayout.LayoutParams(diameter, diameter, Gravity.CENTER)
+            }
+        }
     }
 
     private fun applyStableKeyboardHeight(container: View, rowCount: Int) {
@@ -725,8 +753,9 @@ class GkeysIME : InputMethodService() {
 
     private fun displayLabelFor(label: String): String {
         val isSpace = label == "SPACE"
-        val isSpecial = label in listOf("⇧", "⌫", "↵", "?123", "ABC", "🌐")
+        val isSpecial = label in listOf("⇧", "⌫", "↵", "?123", "ABC", "🌐", "NUMPAD_BACK")
         return when {
+            label == "NUMPAD_BACK" -> "123"
             isSpace && isHebrew -> "עברית"
             isSpace -> "space"
             isShifted && !isHebrew && !isSpecial && label.length == 1 && label[0].isLetter() ->
@@ -753,56 +782,44 @@ class GkeysIME : InputMethodService() {
         touchCorrectionEnabled: Boolean,
         rowIndex: Int,
         totalRows: Int,
-        profile: Profile
+        profile: Profile,
+        isNumpadMode: Boolean = false
     ): View {
         val isSpace = label == "SPACE"
-        val isSpecial = label in listOf("⇧", "⌫", "↵", "?123", "ABC", "🌐")
+        val isSpecial = label in listOf("⇧", "⌫", "↵", "?123", "ABC", "🌐", "NUMPAD_BACK")
         val displayLabel = displayLabelFor(label)
-
-        val baseWeight = if (KeyboardLayoutMetrics.isBottomRowSpecialRow(rowIndex, totalRows)) {
-            KeyboardLayoutMetrics.bottomRowWeight(label, profile.rightHanded)
-        } else {
-            when {
-                isSpace -> 4.9f
-                label == "⌫" -> 1.85f
-                label in listOf("↵", "⇧") -> 1.5f
-                else -> 1f
-            }
-        }
-        val weight = baseWeight * KeyboardLayoutMetrics.weightMultiplier(label, profile.rightHanded)
-
         val gap = profile.keyGapDp
+
         val cell = FrameLayout(this).apply {
             layoutDirection = View.LAYOUT_DIRECTION_LTR
             tag = label
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, weight).apply {
-                setMargins(dp(gap / 2), dp(1), dp(gap / 2), dp(1))
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f).apply {
+                setMargins(dp(gap / 2), dp(gap / 2), dp(gap / 2), dp(gap / 2))
             }
         }
 
-        val (pebbleW, pebbleH, bgRes) = when {
-            isSpace -> Triple(
-                if (isHebrew) dp(150) else dp(profile.spaceWidthDp),
-                dp(profile.spaceHeightDp),
-                R.drawable.key_pebble_space
-            )
-            isSpecial -> Triple(dp(profile.specialDp), dp(profile.specialDp), R.drawable.key_pebble_special_ripple)
-            else -> Triple(dp(profile.pebbleWidthDp), dp(profile.pebbleHeightDp), R.drawable.key_pebble_ripple)
+        val bgRes = if (isSpecial || (isNumpadMode && label in listOf("ABC", "⌫", "↵", "NUMPAD_BACK"))) {
+            R.drawable.key_pebble_special_ripple
+        } else {
+            R.drawable.key_pebble_ripple
         }
 
         val pebble = TextView(this).apply {
             text = displayLabel
             textSize = when {
-                isSpace -> 10f
-                isSpecial -> 14f
-                else -> 15f
+                isNumpadMode && isEmojiKey(label) -> 22f
+                isSpace -> 9f
+                isNumpadMode && label in listOf("ABC", "⌫", "↵", "NUMPAD_BACK") -> 13f
+                isSpecial -> 13f
+                isNumpadMode -> 17f
+                else -> 14f
             }
             gravity = Gravity.CENTER
             layoutDirection = View.LAYOUT_DIRECTION_LTR
             textDirection = View.TEXT_DIRECTION_LTR
             setTextColor(0xFFE8EAF0.toInt())
             setBackgroundResource(bgRes)
-            layoutParams = FrameLayout.LayoutParams(pebbleW, pebbleH, Gravity.CENTER)
+            layoutParams = FrameLayout.LayoutParams(0, 0, Gravity.CENTER)
         }
 
         cell.addView(pebble)
@@ -813,11 +830,30 @@ class GkeysIME : InputMethodService() {
             cell.isFocusable = false
             pebble.isClickable = false
         } else {
+            attachNumpadKeyHandler(cell, label, isNumpadMode)
+        }
+
+        return cell
+    }
+
+    private fun attachNumpadKeyHandler(cell: View, label: String, isNumpadMode: Boolean) {
+        if (!isNumpadMode) {
             cell.setOnClickListener {
                 vibrate()
                 handleKey(label)
             }
-            if (label == "⌫") {
+            return
+        }
+        when (label) {
+            "," -> attachNumpadLongPressHandler(cell, label) {
+                vibrate()
+                toggleNumpadEmojiPanel()
+            }
+            "?" -> attachNumpadLongPressHandler(cell, label) {
+                vibrate()
+                handleKey("!")
+            }
+            "⌫" -> {
                 cell.setOnLongClickListener { startDeleteRepeat(); true }
                 cell.setOnTouchListener { _, event ->
                     when (event.action) {
@@ -825,10 +861,49 @@ class GkeysIME : InputMethodService() {
                     }
                     false
                 }
+                cell.setOnClickListener {
+                    vibrate()
+                    handleKey(label)
+                }
+            }
+            else -> {
+                cell.setOnClickListener {
+                    vibrate()
+                    handleKey(label)
+                }
             }
         }
+    }
 
-        return cell
+    private fun attachNumpadLongPressHandler(
+        cell: View,
+        label: String,
+        onLongPress: () -> Unit
+    ) {
+        var longPressFired = false
+        val runnable = Runnable {
+            longPressFired = true
+            onLongPress()
+        }
+        cell.setOnTouchListener { _, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    longPressFired = false
+                    cell.postDelayed(runnable, LONG_PRESS_MS)
+                    true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    cell.removeCallbacks(runnable)
+                    if (!longPressFired) {
+                        vibrate()
+                        handleKey(label)
+                    }
+                    longPressFired = false
+                    true
+                }
+                else -> true
+            }
+        }
     }
 
     private fun handleKey(key: String) {
@@ -857,9 +932,10 @@ class GkeysIME : InputMethodService() {
                 else isShifted = true
                 refreshLetterCaseOnKeys()
             }
-            "?123" -> { isSymbols = true; isNumpad = false; buildKeyboard() }
-            "ABC" -> { isSymbols = false; isNumpad = false; buildKeyboard() }
-            "🌐" -> { isHebrew = !isHebrew; isSymbols = false; isNumpad = false; buildKeyboard() }
+            "?123" -> { isSymbols = true; isNumpad = false; numpadEmojiVisible = false; buildKeyboard() }
+            "ABC" -> { isSymbols = false; isNumpad = false; numpadEmojiVisible = false; buildKeyboard() }
+            "NUMPAD_BACK" -> { numpadEmojiVisible = false; buildKeyboard() }
+            "🌐" -> { isHebrew = !isHebrew; isSymbols = false; isNumpad = false; numpadEmojiVisible = false; buildKeyboard() }
             else -> {
                 val toInsert = if (key == "SPACE") " "
                 else if (isShifted && !isHebrew && key.length == 1 && key[0].isLetter()) key.uppercase()
@@ -947,22 +1023,21 @@ class GkeysIME : InputMethodService() {
         }
 
         val effectiveAction = when (action) {
-            VoiceAction.DEFAULT -> VoiceAction.POLISH
-            VoiceAction.RAW -> VoiceAction.RAW
+            VoiceAction.DEFAULT -> if (autoPolishEnabled) VoiceAction.POLISH else VoiceAction.RAW
             else -> action
         }
 
         scope.launch {
             toastStatus(
                 when (effectiveAction) {
-                    VoiceAction.TRANSLATE -> "Transcribing…"
-                    VoiceAction.DEEP_POLISH -> "Transcribing…"
+                    VoiceAction.TRANSLATE -> "Translating…"
                     VoiceAction.POLISH -> "Transcribing…"
                     else -> "Transcribing…"
                 }
             )
             val durationMs = audioRecorder.lastRecordingDurationMs()
-            val transcriptResult = aiManager.transcribe(file, openAiKey, durationMs)
+            val transcribeLang = if (effectiveAction == VoiceAction.TRANSLATE) voiceTranslateFrom else null
+            val transcriptResult = aiManager.transcribe(file, openAiKey, durationMs, transcribeLang)
             file.delete()
             transcriptResult.onFailure { error ->
                 toastStatus("")
@@ -984,17 +1059,9 @@ class GkeysIME : InputMethodService() {
 
             val finalText = when (effectiveAction) {
                 VoiceAction.TRANSLATE ->
-                    aiManager.polishAndTranslateToHebrew(transcript, openAiKey)
+                    aiManager.translateText(transcript, voiceTranslateFrom, voiceTranslateTo, openAiKey)
                 VoiceAction.POLISH ->
                     aiManager.polishText(transcript, openAiKey)
-                VoiceAction.DEEP_POLISH -> {
-                    if (anthropicKey.isBlank()) {
-                        toastStatus("")
-                        showErrorToast("Add Anthropic key for deep polish")
-                        return@launch
-                    }
-                    aiManager.deepPolish(transcript, anthropicKey)
-                }
                 else -> Result.success(transcript)
             }
 
@@ -1002,7 +1069,10 @@ class GkeysIME : InputMethodService() {
                 currentInputConnection?.commitText(polished, 1)
                 toastStatus("")
             }.onFailure {
-                showErrorToast("Polish failed — text unchanged")
+                showErrorToast(
+                    if (effectiveAction == VoiceAction.TRANSLATE) "Translation failed — text unchanged"
+                    else "Polish failed — text unchanged"
+                )
                 toastStatus("")
             }
         }

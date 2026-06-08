@@ -11,14 +11,18 @@ object KeyboardLayoutMetrics {
     const val KEY_SIZE_LARGE = "large"
     const val KEY_SIZE_EXTRA_LARGE = "extra_large"
 
-    /** Default row pebble height in dp at 1.0 scale. */
-    const val BASE_PEBBLE_HEIGHT_DP = 52
-    const val BASE_PEBBLE_WIDTH_DP = 54
+    const val BASE_PEBBLE_DP = 52
     const val BASE_SPECIAL_DP = 56
-    const val BASE_SPACE_HEIGHT_DP = 44
-    const val BASE_SPACE_WIDTH_DP = 152
-    const val BASE_KEY_GAP_DP = 2
+    const val BASE_KEY_GAP_DP = 4
+    const val KEY_CIRCLE_INSET_DP = 3
     const val BASE_ROW_COUNT = 5
+
+    /** @deprecated Use [BASE_PEBBLE_DP] — keys are circles with equal width and height. */
+    const val BASE_PEBBLE_HEIGHT_DP = BASE_PEBBLE_DP
+    /** @deprecated Use [BASE_PEBBLE_DP] */
+    const val BASE_PEBBLE_WIDTH_DP = BASE_PEBBLE_DP
+    const val BASE_SPACE_HEIGHT_DP = BASE_PEBBLE_DP
+    const val BASE_SPACE_WIDTH_DP = BASE_PEBBLE_DP
 
     data class Profile(
         val pebbleWidthDp: Int,
@@ -40,16 +44,15 @@ object KeyboardLayoutMetrics {
 
     fun profile(preset: String, rightHanded: Boolean, rowCount: Int = BASE_ROW_COUNT): Profile {
         val scale = scaleForPreset(preset)
-        val pebbleH = (BASE_PEBBLE_HEIGHT_DP * scale).toInt()
-        val pebbleW = (BASE_PEBBLE_WIDTH_DP * scale).toInt()
-        val gap = if (rightHanded) BASE_KEY_GAP_DP + 1 else BASE_KEY_GAP_DP
-        val rowHeight = pebbleH + gap * 2 + 4
+        val pebble = (BASE_PEBBLE_DP * scale).toInt()
+        val gap = BASE_KEY_GAP_DP
+        val rowHeight = pebble + gap * 2 + 6
         return Profile(
-            pebbleWidthDp = pebbleW,
-            pebbleHeightDp = pebbleH,
+            pebbleWidthDp = pebble,
+            pebbleHeightDp = pebble,
             specialDp = (BASE_SPECIAL_DP * scale).toInt(),
-            spaceWidthDp = (BASE_SPACE_WIDTH_DP * scale).toInt(),
-            spaceHeightDp = (BASE_SPACE_HEIGHT_DP * scale).toInt(),
+            spaceWidthDp = pebble,
+            spaceHeightDp = pebble,
             keyGapDp = gap,
             keyboardHeightDp = rowHeight * rowCount,
             rightHanded = rightHanded
@@ -106,4 +109,7 @@ object KeyboardLayoutMetrics {
 
     fun keyboardPaddingStartDp(rightHanded: Boolean): Int = if (rightHanded) 6 else 4
     fun keyboardPaddingEndDp(rightHanded: Boolean): Int = if (rightHanded) 2 else 4
+
+    /** One-handed mode: keyboard width as a fraction of screen width. */
+    const val ONE_HANDED_WIDTH_FRACTION = 0.70f
 }
