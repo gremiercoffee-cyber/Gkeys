@@ -44,6 +44,10 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var radioOneHanded: RadioGroup
     private lateinit var btnSave: MaterialButton
     private lateinit var btnEnableKeyboard: MaterialButton
+    private lateinit var cardCrash: com.google.android.material.card.MaterialCardView
+    private lateinit var tvCrashLog: TextView
+    private lateinit var btnCopyCrash: MaterialButton
+    private lateinit var btnClearCrash: MaterialButton
 
     private val micPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -65,8 +69,25 @@ class SettingsActivity : AppCompatActivity() {
         checkKeyboardEnabled()
         updateMicPermissionButton()
         tvAppVersion.text = "Version ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})"
+        setupCrashCardListeners()
+        refreshCrashCard()
         if (intent.getBooleanExtra(EXTRA_REQUEST_MIC_PERMISSION, false)) {
             requestMicPermissionIfNeeded()
+        }
+    }
+
+    private fun setupCrashCardListeners() {
+        btnCopyCrash.setOnClickListener {
+            val crash = tvCrashLog.text?.toString().orEmpty()
+            if (crash.isNotBlank()) {
+                val clip = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                clip.setPrimaryClip(android.content.ClipData.newPlainText("Gkeys crash", crash))
+                Toast.makeText(this, "Crash log copied", Toast.LENGTH_SHORT).show()
+            }
+        }
+        btnClearCrash.setOnClickListener {
+            com.gremier.gkeys.diag.CrashLogger.clear(this)
+            refreshCrashCard()
         }
     }
 
@@ -74,6 +95,7 @@ class SettingsActivity : AppCompatActivity() {
         super.onResume()
         updateMicPermissionButton()
         checkKeyboardEnabled()
+        refreshCrashCard()
     }
 
     private fun bindViews() {
@@ -93,6 +115,20 @@ class SettingsActivity : AppCompatActivity() {
         radioOneHanded = findViewById(R.id.radio_one_handed)
         btnSave = findViewById(R.id.btn_save)
         btnEnableKeyboard = findViewById(R.id.btn_enable_keyboard)
+        cardCrash = findViewById(R.id.card_crash)
+        tvCrashLog = findViewById(R.id.tv_crash_log)
+        btnCopyCrash = findViewById(R.id.btn_copy_crash)
+        btnClearCrash = findViewById(R.id.btn_clear_crash)
+    }
+
+    private fun refreshCrashCard() {
+        val crash = com.gremier.gkeys.diag.CrashLogger.lastCrash(this)
+        if (crash.isNullOrBlank()) {
+            cardCrash.visibility = android.view.View.GONE
+        } else {
+            cardCrash.visibility = android.view.View.VISIBLE
+            tvCrashLog.text = crash
+        }
     }
 
     private fun loadSettings() {

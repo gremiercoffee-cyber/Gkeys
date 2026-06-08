@@ -5,9 +5,14 @@ import android.content.SharedPreferences
 import android.util.Log
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import java.io.File
 
 /**
  * Stores sensitive API keys in Android EncryptedSharedPreferences.
+ *
+ * Hardened so that a corrupted keyset (which can happen after the app signing
+ * key changes or the Android keystore is reset) self-heals instead of crashing
+ * the keyboard process.
  */
 object SecureApiKeyStore {
 
@@ -19,37 +24,71 @@ object SecureApiKeyStore {
     @Volatile
     private var cachedPrefs: SharedPreferences? = null
 
+    private fun buildPrefs(context: Context): SharedPreferences {
+        val appContext = context.applicationContext
+        val masterKey = MasterKey.Builder(appContext)
+            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+            .build()
+        return EncryptedSharedPreferences.create(
+            appContext,
+            PREFS_NAME,
+            masterKey,
+            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+        )
+    }
+
     private fun prefs(context: Context): SharedPreferences? {
         cachedPrefs?.let { return it }
+        val appContext = context.applicationContext
         return try {
-            val appContext = context.applicationContext
-            val masterKey = MasterKey.Builder(appContext)
-                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-                .build()
-            EncryptedSharedPreferences.create(
-                appContext,
-                PREFS_NAME,
-                masterKey,
-                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-            ).also { cachedPrefs = it }
+            buildPrefs(appContext).also { cachedPrefs = it }
         } catch (e: Exception) {
-            Log.e(TAG, "Unable to open encrypted key store", e)
-            null
+            Log.e(TAG, "Encrypted key store unreadable — resetting", e)
+            resetCorruptedStore(appContext)
+            try {
+                buildPrefs(appContext).also { cachedPrefs = it }
+            } catch (e2: Exception) {
+                Log.e(TAG, "Encrypted key store still unreadable after reset", e2)
+                null
+            }
         }
     }
 
-    fun getOpenAiKey(context: Context): String =
-        prefs(context)?.getString(KEY_OPENAI, "") ?: ""
-
-    fun getAnthropicKey(context: Context): String =
-        prefs(context)?.getString(KEY_ANTHROPIC, "") ?: ""
-
-    fun saveOpenAiKey(context: Context, key: String) {
-        prefs(context)?.edit()?.putString(KEY_OPENAI, key.trim())?.apply()
+    /** Deletes the encrypted prefs file so it can be recreated from scratch. */
+    private fun resetCorruptedStore(context: Context) {
+        try {
+            cachedPrefs = null
+            val prefsDir = File(context.applicationInfo.dataDir, "shared_prefs")
+            File(prefsDir, "$PREFS_NAME.xml").delete()
+        } catch (e: Exception) {
+            Log.w(TAG, "Unable to delete corrupted key store", e)
+        }
     }
 
-    fun saveAnthropicKey(context: Context, key: String) {
-        prefs(context)?.edit()?.putString(KEY_ANTHROPIC, key.trim())?.apply()
+    fun getOpenAiKey(context: Context): String = readKey(context, KEY_OPENAI)
+
+    fun getAnthropicKey(context: Context): String = readKey(context, KEY_ANTHROPIC)
+
+    private fun readKey(context: Context, key: String): String {
+        return try {
+            prefs(context)?.getString(key, "") ?: ""
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to read key $key — resetting store", e)
+            resetCorruptedStore(context)
+            ""
+        }
+    }
+
+    fun saveOpenAiKey(context: Context, key: String) = writeKey(context, KEY_OPENAI, key)
+
+    fun saveAnthropicKey(context: Context, key: String) = writeKey(context, KEY_ANTHROPIC, key)
+
+    private fun writeKey(context: Context, key: String, value: String) {
+        try {
+            prefs(context)?.edit()?.putString(key, value.trim())?.apply()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to write key $key", e)
+        }
     }
 }
