@@ -22,11 +22,14 @@ object KeyboardLayoutMetrics {
 
 
 
-    /** Hairline gap between tiles; keyboard background shows through. */
+    /** Inset on each side of a key cell; gap between adjacent keys is 2× this value. */
 
-    const val TILE_GAP_DP = 1
+    const val KEY_TILE_MARGIN_DP = 2
 
-    const val NUMPAD_TILE_GAP_DP = 0
+    /** @deprecated Use [KEY_TILE_MARGIN_DP]; kept for callers that reference total inter-key gap. */
+    const val TILE_GAP_DP = KEY_TILE_MARGIN_DP * 2
+
+    const val NUMPAD_TILE_GAP_DP = TILE_GAP_DP
 
 
 
@@ -38,7 +41,7 @@ object KeyboardLayoutMetrics {
 
 
 
-    const val AI_STRIP_HEIGHT_DP = 40
+    const val AI_STRIP_HEIGHT_DP = 46
 
     const val SHELL_DIVIDER_DP = 1
 
@@ -78,7 +81,7 @@ object KeyboardLayoutMetrics {
 
     fun profile(preset: String, rightHanded: Boolean): Profile = Profile(
 
-        keyGapDp = TILE_GAP_DP,
+        keyGapDp = KEY_TILE_MARGIN_DP,
 
         textScale = scaleForPreset(preset),
 
@@ -102,7 +105,7 @@ object KeyboardLayoutMetrics {
 
 
 
-    /** Bottom row: space dominates; punctuation and globe are clearly secondary. */
+    /** Bottom row: wide space bar; punctuation and globe sized for comfortable taps. */
 
     fun bottomRowWeight(label: String, rightHanded: Boolean): Float {
 
@@ -110,13 +113,13 @@ object KeyboardLayoutMetrics {
 
             return when (label) {
 
-                "SPACE" -> 6.8f
+                "SPACE" -> 5.2f
 
-                "🌐" -> 0.55f
+                "🌐" -> 0.78f
 
-                ",", ".", "?" -> 0.72f
+                ",", ".", "?" -> 0.88f
 
-                "?123", "ABC", "NUMPAD_BACK" -> 0.85f
+                "?123", "ABC", "NUMPAD_BACK" -> 0.92f
 
                 "↵" -> 1.2f
 
@@ -128,13 +131,13 @@ object KeyboardLayoutMetrics {
 
         return when (label) {
 
-            "SPACE" -> 7.0f
+            "SPACE" -> 5.4f
 
-            "🌐" -> 0.5f
+            "🌐" -> 0.72f
 
-            ",", ".", "?" -> 0.68f
+            ",", ".", "?" -> 0.85f
 
-            "?123", "ABC", "NUMPAD_BACK" -> 0.82f
+            "?123", "ABC", "NUMPAD_BACK" -> 0.88f
 
             "↵" -> 1.15f
 
@@ -212,13 +215,13 @@ object KeyboardLayoutMetrics {
 
     const val ONE_HANDED_KEY_AREA_FRACTION = 0.92f
 
-    const val ONE_HANDED_KEY_GAP_DP = TILE_GAP_DP
+    const val ONE_HANDED_KEY_GAP_DP = KEY_TILE_MARGIN_DP
 
     const val EMOJI_COLUMNS = 9
-    const val EMOJI_ROW_HEIGHT_DP = 30
+    const val EMOJI_ROW_HEIGHT_DP = 36
     const val EMOJI_HEADER_ROW_DP = 36
     const val EMOJI_CATEGORY_HEADER_DP = 22
-    const val EMOJI_TEXT_SP = 15f
+    const val EMOJI_TEXT_SP = 18f
 
 }
 

@@ -37,6 +37,7 @@ import com.gremier.gkeys.ime.touch.TouchInputResolver
 import com.gremier.gkeys.ime.touch.TouchPersonalization
 import com.gremier.gkeys.settings.AppVersionTracker
 import com.gremier.gkeys.settings.GkeysSettings
+import com.gremier.gkeys.settings.OverlayPermissionHelper
 import com.gremier.gkeys.settings.SecureApiKeyStore
 import com.gremier.gkeys.settings.SettingsActivity
 import androidx.core.content.ContextCompat
@@ -116,9 +117,7 @@ class GkeysIME : InputMethodService() {
     private lateinit var btnVoiceBubble: ImageButton
     private lateinit var btnSettings: ImageButton
     private lateinit var btnWand: ImageButton
-    private lateinit var btnPolishFormal: TextView
-    private lateinit var btnPolishNatural: TextView
-    private lateinit var btnPolishRaw: TextView
+    private lateinit var btnPolishLevel: TextView
     private lateinit var voiceOverlay: View
     private lateinit var voiceStatus: TextView
     private lateinit var voiceTranslateHint: TextView
@@ -160,6 +159,11 @@ class GkeysIME : InputMethodService() {
             "," to KEY_EMOJI_PANEL,
             "?" to "!"
         )
+
+        private fun longPressAltFor(label: String): String? {
+            val lower = label.lowercase()
+            return letterLongPressAlts[lower] ?: punctuationLongPressAlts[label]
+        }
     }
 
     /** Fixed 5-column grid: digits always in columns 1–3 so 1/4/7, 2/5/8, 3/6/9 align. */
@@ -308,9 +312,7 @@ class GkeysIME : InputMethodService() {
         btnVoiceBubble = keyboardView.findViewById(R.id.btn_voice_bubble)
         btnSettings = keyboardView.findViewById(R.id.btn_settings)
         btnWand = keyboardView.findViewById(R.id.btn_wand)
-        btnPolishFormal = keyboardView.findViewById(R.id.btn_polish_formal)
-        btnPolishNatural = keyboardView.findViewById(R.id.btn_polish_natural)
-        btnPolishRaw = keyboardView.findViewById(R.id.btn_polish_raw)
+        btnPolishLevel = keyboardView.findViewById(R.id.btn_polish_level)
         voiceOverlay = keyboardView.findViewById(R.id.voice_overlay)
         voiceStatus = keyboardView.findViewById(R.id.voice_status)
         voiceTranslateHint = keyboardView.findViewById(R.id.voice_translate_hint)
@@ -333,6 +335,7 @@ class GkeysIME : InputMethodService() {
         touchPersonalization.load()
         adaptiveTouch = AdaptiveTouchIntelligence(this, scope)
         adaptiveTouch.load()
+        adaptiveTouch.setEnabled(adaptiveTouchEnabled)
         touchResolver = TouchInputResolver(touchPersonalization, adaptiveTouch)
         keyboardRows.touchResolver = touchResolver
         keyboardRows.onKeyTap = { key ->
@@ -481,7 +484,9 @@ class GkeysIME : InputMethodService() {
                 universalKeyboardHeightDp = GkeysSettings.keyboardHeightDp(this@GkeysIME).first()
                 voiceBubbleModeActive = GkeysSettings.voiceBubbleModeActive(this@GkeysIME).first()
                 adaptiveTouchEnabled = GkeysSettings.adaptiveTouchEnabled(this@GkeysIME).first()
-                adaptiveTouch.setEnabled(adaptiveTouchEnabled)
+                if (::adaptiveTouch.isInitialized) {
+                    adaptiveTouch.setEnabled(adaptiveTouchEnabled)
+                }
                 layoutProfile = KeyboardLayoutMetrics.profile(keySizePreset, rightHandedMode)
                 keyboardHeightPx = 0
                 if (::touchResolver.isInitialized) {
@@ -490,7 +495,7 @@ class GkeysIME : InputMethodService() {
                 if (::keyboardView.isInitialized) {
                     applyUniversalShellHeight()
                     applyOneHandedMode()
-                    updatePolishLevelToggle()
+                    updatePolishLevelButton()
                     buildKeyboard()
                 }
             } catch (e: Throwable) {
@@ -590,39 +595,30 @@ class GkeysIME : InputMethodService() {
                 true
             }
         }
-        btnPolishFormal.setOnClickListener { setPolishLevel(GkeysSettings.POLISH_FORMAL) }
-        btnPolishNatural.setOnClickListener { setPolishLevel(GkeysSettings.POLISH_NATURAL) }
-        btnPolishRaw.setOnClickListener { setPolishLevel(GkeysSettings.POLISH_RAW) }
-        updatePolishLevelToggle()
+        btnPolishLevel.setOnClickListener { cyclePolishLevel() }
+        updatePolishLevelButton()
         updateNumpadButton()
+    }
+
+    private fun cyclePolishLevel() {
+        setPolishLevel(GkeysSettings.nextPolishLevel(polishLevel))
     }
 
     private fun setPolishLevel(level: String) {
         if (polishLevel == level) return
         polishLevel = level
         scope.launch { GkeysSettings.savePolishLevel(this@GkeysIME, polishLevel) }
-        updatePolishLevelToggle()
+        updatePolishLevelButton()
         vibrate()
         toastStatus("${GkeysSettings.polishLevelLabel(polishLevel)} dictation")
         handler.postDelayed({ toastStatus("") }, 1000)
     }
 
-    private fun updatePolishLevelToggle() {
-        if (!::btnPolishFormal.isInitialized) return
-        val activeColor = 0xFFFFFFFF.toInt()
-        val inactiveColor = 0xFF9CA3AF.toInt()
-        val segments = listOf(
-            btnPolishFormal to GkeysSettings.POLISH_FORMAL,
-            btnPolishNatural to GkeysSettings.POLISH_NATURAL,
-            btnPolishRaw to GkeysSettings.POLISH_RAW
-        )
-        for ((view, level) in segments) {
-            val selected = polishLevel == level
-            view.setTextColor(if (selected) activeColor else inactiveColor)
-            view.setBackgroundResource(
-                if (selected) R.drawable.polish_toggle_segment_active else 0
-            )
-        }
+    private fun updatePolishLevelButton() {
+        if (!::btnPolishLevel.isInitialized) return
+        btnPolishLevel.text = GkeysSettings.polishLevelLetter(polishLevel)
+        btnPolishLevel.contentDescription =
+            "${GkeysSettings.polishLevelLabel(polishLevel)} dictation — tap to change polish mode"
     }
 
     private fun finishWandGesture(cancelled: Boolean = false) {
@@ -883,10 +879,7 @@ class GkeysIME : InputMethodService() {
     }
 
     private fun openAppForOverlayPermission() {
-        startActivity(Intent(this, SettingsActivity::class.java).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            putExtra(SettingsActivity.EXTRA_REQUEST_OVERLAY_PERMISSION, true)
-        })
+        OverlayPermissionHelper.requestOverlayPermission(this)
     }
 
     private fun enterVoiceBubbleMode(fromKeyboard: Boolean) {
@@ -1388,7 +1381,7 @@ class GkeysIME : InputMethodService() {
                             profile = profile,
                             isNumpadMode = true,
                             columnWeight = weight,
-                            tightSpacing = true
+                            useDirectTouchHandlers = false
                         )
                     }
                 )
@@ -1500,12 +1493,12 @@ class GkeysIME : InputMethodService() {
         }
 
     private fun buildEmojiKey(emoji: String, profile: Profile): View {
-        val gap = KeyboardLayoutMetrics.TILE_GAP_DP
+        val margin = dp(KeyboardLayoutMetrics.KEY_TILE_MARGIN_DP)
         val cell = FrameLayout(this).apply {
             layoutDirection = View.LAYOUT_DIRECTION_LTR
             tag = emoji
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f).apply {
-                setMargins(dp(gap / 2), dp(gap / 2), dp(gap / 2), dp(gap / 2))
+                setMargins(margin, margin, margin, margin)
             }
             setOnClickListener {
                 vibrate()
@@ -1547,6 +1540,42 @@ class GkeysIME : InputMethodService() {
         }
     }
 
+    private fun addLongPressIndicator(cell: FrameLayout, label: String) {
+        val alt = longPressAltFor(label) ?: return
+        val indicatorColor = 0xFF9CA3AF.toInt()
+        val params = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+            Gravity.TOP or Gravity.END
+        ).apply {
+            setMargins(0, dp(2), dp(4), 0)
+        }
+
+        when (alt) {
+            KEY_EMOJI_PANEL -> {
+                val iconSize = dp(9)
+                cell.addView(ImageView(this).apply {
+                    setImageResource(R.drawable.ic_longpress_emoji)
+                    scaleType = ImageView.ScaleType.FIT_CENTER
+                    importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                    layoutParams = FrameLayout.LayoutParams(iconSize, iconSize, Gravity.TOP or Gravity.END).apply {
+                        setMargins(0, dp(3), dp(4), 0)
+                    }
+                })
+            }
+            else -> {
+                cell.addView(TextView(this).apply {
+                    text = alt
+                    textSize = 8f
+                    setTextColor(indicatorColor)
+                    includeFontPadding = false
+                    importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                    layoutParams = params
+                })
+            }
+        }
+    }
+
     private fun refreshLetterCaseOnKeys() {
         val container = keyboardView.findViewById<KeyboardTouchLayout>(R.id.keyboard_rows) ?: return
         for (rowIndex in 0 until container.childCount) {
@@ -1569,17 +1598,12 @@ class GkeysIME : InputMethodService() {
         profile: Profile,
         isNumpadMode: Boolean = false,
         columnWeight: Float = 1f,
-        tightSpacing: Boolean = false,
         useDirectTouchHandlers: Boolean = false
     ): View {
         val isSpace = label == "SPACE"
         val isSpecial = label in listOf("⇧", "⌫", "↵", "?123", "ABC", "🌐", "NUMPAD_BACK")
         val displayLabel = displayLabelFor(label)
-        val gap = when {
-            tightSpacing -> KeyboardLayoutMetrics.NUMPAD_TILE_GAP_DP
-            isOneHandedActive() -> KeyboardLayoutMetrics.ONE_HANDED_KEY_GAP_DP
-            else -> profile.keyGapDp
-        }
+        val margin = dp(KeyboardLayoutMetrics.KEY_TILE_MARGIN_DP)
         val weight = if (isNumpadMode || KeyboardLayoutMetrics.isBottomRowSpecialRow(rowIndex, totalRows)) {
             KeyboardLayoutMetrics.rowKeyWeight(label, rowIndex, totalRows, profile.rightHanded, isNumpadMode)
         } else {
@@ -1591,7 +1615,7 @@ class GkeysIME : InputMethodService() {
             layoutDirection = View.LAYOUT_DIRECTION_LTR
             tag = label
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, weight).apply {
-                setMargins(dp(gap / 2), dp(gap / 2), dp(gap / 2), dp(gap / 2))
+                setMargins(margin, margin, margin, margin)
             }
         }
 
@@ -1640,6 +1664,8 @@ class GkeysIME : InputMethodService() {
             }
             cell.addView(keyTile)
         }
+
+        addLongPressIndicator(cell, label)
 
         if (touchCorrectionEnabled && !useDirectTouchHandlers) {
             touchKeyViews.add(Triple(cell, label, rowIndex))

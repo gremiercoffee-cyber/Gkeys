@@ -120,6 +120,21 @@ object GkeysSettings {
         else -> "Nat"
     }
 
+    fun polishLevelLetter(level: String): String = when (level) {
+        POLISH_FORMAL -> "F"
+        POLISH_RAW -> "R"
+        else -> "N"
+    }
+
+    /** Tap order for the toolbar polish-mode button (default first). */
+    val polishLevelCycle: List<String> = listOf(POLISH_NATURAL, POLISH_FORMAL, POLISH_RAW)
+
+    fun nextPolishLevel(level: String): String {
+        val cycle = polishLevelCycle
+        val idx = cycle.indexOf(level).takeIf { it >= 0 } ?: 0
+        return cycle[(idx + 1) % cycle.size]
+    }
+
     val polishLevels: List<String> = listOf(POLISH_FORMAL, POLISH_NATURAL, POLISH_RAW)
 
     fun defaultLanguage(context: Context): Flow<String> =

@@ -366,23 +366,10 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun hasOverlayPermission(): Boolean =
-        Settings.canDrawOverlays(this)
+        OverlayPermissionHelper.hasOverlayPermission(this)
 
     private fun requestOverlayPermissionIfNeeded() {
-        if (hasOverlayPermission()) {
-            Toast.makeText(this, "Overlay permission already allowed", Toast.LENGTH_SHORT).show()
-            return
-        }
-        try {
-            startActivity(
-                Intent(
-                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                    Uri.parse("package:$packageName")
-                )
-            )
-        } catch (e: Exception) {
-            Toast.makeText(this, "Open Settings → Apps → Gkeys → Display over other apps", Toast.LENGTH_LONG).show()
-        }
+        OverlayPermissionHelper.requestOverlayPermission(this)
     }
 
     private fun refreshAdaptiveTouchStats() {
