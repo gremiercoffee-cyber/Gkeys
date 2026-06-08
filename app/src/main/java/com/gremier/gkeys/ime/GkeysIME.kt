@@ -71,6 +71,8 @@ class GkeysIME : InputMethodService() {
     private lateinit var keyboardView: View
     private lateinit var keyboardContent: LinearLayout
     private lateinit var keyboardPanel: LinearLayout
+    private lateinit var keyboardKeysHost: FrameLayout
+    private lateinit var keyboardRows: KeyboardTouchLayout
     private lateinit var tvStatus: TextView
     private lateinit var tvClipboard: TextView
     private lateinit var clipboardArea: View
@@ -90,10 +92,12 @@ class GkeysIME : InputMethodService() {
     private val touchKeyViews = mutableListOf<Triple<View, String, Int>>()
     private var lastTypedChar: Char? = null
 
-    private var numpadEmojiVisible = false
+    private var emojiPanelVisible = false
+    private var emojiOpenedFromNumpad = false
 
     companion object {
         private const val LONG_PRESS_MS = 380L
+        private const val KEY_EMOJI_PANEL = "\uE000"
 
         private val letterLongPressAlts = mapOf(
             "q" to "1", "w" to "2", "e" to "3", "r" to "4", "t" to "5",
@@ -107,24 +111,44 @@ class GkeysIME : InputMethodService() {
             "😊", "😉", "😮", "🙄", "😴", "💀",
             "🫶", "🥳", "😎", "🤣", "😢", "💕"
         )
+
+        private val punctuationLongPressAlts = mapOf(
+            "," to KEY_EMOJI_PANEL,
+            "?" to "!"
+        )
     }
 
-    /** Symbols on the left; digits on the right for right-thumb reach. */
+    /** Fixed 5-column grid: digits always in columns 1–3 so 1/4/7, 2/5/8, 3/6/9 align. */
     private val numpadRows = listOf(
-        listOf("-", "1", "2", "3"),
+        listOf("-", "1", "2", "3", "."),
         listOf("+", "4", "5", "6", ","),
         listOf("*", "7", "8", "9", "/"),
-        listOf("#", "(", ")", "0", ":"),
-        listOf("ABC", "SPACE", "⌫", ".", "?", "↵")
+        listOf("#", "(", ")", "0", "?"),
+        listOf("ABC", "SPACE", "⌫", ".", "↵")
     )
+
+    private fun isNumpadDigit(label: String): Boolean =
+        label.length == 1 && label[0].isDigit()
 
     private fun emojiKeyboardRows(): List<List<String>> {
         return listOf(listOf("NUMPAD_BACK")) + numpadEmojis.chunked(6) + listOf(listOf(","))
     }
 
-    private fun toggleNumpadEmojiPanel(show: Boolean? = null) {
-        numpadEmojiVisible = show ?: !numpadEmojiVisible
+    private fun openEmojiPanel() {
+        if (!emojiPanelVisible) {
+            emojiOpenedFromNumpad = isNumpad
+        }
+        emojiPanelVisible = true
         buildKeyboard()
+    }
+
+    private fun closeEmojiPanel() {
+        emojiPanelVisible = false
+        buildKeyboard()
+    }
+
+    private fun toggleEmojiPanel() {
+        if (emojiPanelVisible) closeEmojiPanel() else openEmojiPanel()
     }
 
     private fun isEmojiKey(label: String): Boolean = label in numpadEmojis
@@ -133,7 +157,7 @@ class GkeysIME : InputMethodService() {
         listOf("q","w","e","r","t","y","u","i","o","p"),
         listOf("a","s","d","f","g","h","j","k","l"),
         listOf("⇧","z","x","c","v","b","n","m","⌫"),
-        listOf("?123","🌐",",","SPACE",".","↵")
+        listOf("?123","🌐",",","SPACE",".","?","↵")
     )
 
     override fun onConfigureWindow(window: android.view.Window, isFullscreen: Boolean, isExtract: Boolean) {
@@ -155,7 +179,7 @@ class GkeysIME : InputMethodService() {
         listOf("'","-","ק","ר","א","ט","ו","ן","ם","פ"),
         listOf("ש","ד","ג","כ","ע","י","ח","ל","ך","ף"),
         listOf("ז","ס","ב","ה","נ","מ","צ","ת","ץ","⌫"),
-        listOf("?123","🌐",",","SPACE",".","↵")
+        listOf("?123","🌐",",","SPACE",".","?","↵")
     )
 
     private fun orderKeysForDisplay(keys: List<String>): List<String> {
@@ -173,7 +197,7 @@ class GkeysIME : InputMethodService() {
         listOf("!","@","#","$","%","^","&","*","(",")"),
         listOf("-","_","=","+","[","]","{","}","\\"),
         listOf(";","'","\"","<",">","?","/","⌫"),
-        listOf("ABC","🌐",",","SPACE",".","↵")
+        listOf("ABC","🌐",",","SPACE",".","?","↵")
     )
 
     override fun onCreate() {
@@ -222,6 +246,8 @@ class GkeysIME : InputMethodService() {
 
         keyboardContent = keyboardView.findViewById(R.id.keyboard_content)
         keyboardPanel = keyboardView.findViewById(R.id.keyboard_panel)
+        keyboardKeysHost = keyboardView.findViewById(R.id.keyboard_keys_host)
+        keyboardRows = keyboardView.findViewById(R.id.keyboard_rows)
         tvStatus = keyboardView.findViewById(R.id.tv_status)
         tvClipboard = keyboardView.findViewById(R.id.tv_clipboard)
         clipboardArea = keyboardView.findViewById(R.id.clipboard_area)
@@ -233,8 +259,6 @@ class GkeysIME : InputMethodService() {
         voiceStatus = keyboardView.findViewById(R.id.voice_status)
         voiceTranslateHint = keyboardView.findViewById(R.id.voice_translate_hint)
 
-        val keyboardRows = keyboardView.findViewById<KeyboardTouchLayout>(R.id.keyboard_rows)
-
         touchPersonalization = TouchPersonalization(this, scope)
         touchPersonalization.load()
         touchResolver = TouchInputResolver(touchPersonalization)
@@ -245,10 +269,13 @@ class GkeysIME : InputMethodService() {
         }
         keyboardRows.onBackspaceDown = { startDeleteRepeat() }
         keyboardRows.onBackspaceUp = { stopDeleteRepeat() }
-        keyboardRows.keyLongPressAlts = letterLongPressAlts
+        keyboardRows.keyLongPressAlts = letterLongPressAlts + punctuationLongPressAlts
         keyboardRows.onKeyLongPress = { alt ->
             vibrate()
-            handleKey(alt)
+            when (alt) {
+                KEY_EMOJI_PANEL -> openEmojiPanel()
+                else -> handleKey(alt)
+            }
         }
 
         val overlayContainer = keyboardView.findViewById<FrameLayout>(R.id.clipboard_overlay_container)
@@ -367,8 +394,8 @@ class GkeysIME : InputMethodService() {
                 cancelRecording()
                 hideVoiceOverlay()
             }
-            if (numpadEmojiVisible) {
-                numpadEmojiVisible = false
+            if (emojiPanelVisible) {
+                emojiPanelVisible = false
             } else {
                 isNumpad = !isNumpad
                 if (isNumpad) {
@@ -539,26 +566,35 @@ class GkeysIME : InputMethodService() {
     }
 
     private fun applyOneHandedMode() {
-        val params = keyboardContent.layoutParams as FrameLayout.LayoutParams
+        val contentParams = keyboardContent.layoutParams as FrameLayout.LayoutParams
+        contentParams.width = FrameLayout.LayoutParams.MATCH_PARENT
+        contentParams.gravity = Gravity.BOTTOM
+        keyboardContent.layoutParams = contentParams
+
         val screenWidth = resources.displayMetrics.widthPixels
+        val rowsHeight = keyboardRows.layoutParams.height
+        val rowsParams = (keyboardRows.layoutParams as? FrameLayout.LayoutParams)
+            ?: FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, rowsHeight)
+
         when (oneHandedMode) {
             GkeysSettings.ONE_HANDED_RIGHT -> {
-                params.width = (screenWidth * KeyboardLayoutMetrics.ONE_HANDED_WIDTH_FRACTION).toInt()
-                params.gravity = Gravity.END or Gravity.BOTTOM
+                rowsParams.width = (screenWidth * KeyboardLayoutMetrics.ONE_HANDED_KEY_AREA_FRACTION).toInt()
+                rowsParams.gravity = Gravity.END or Gravity.BOTTOM
             }
             GkeysSettings.ONE_HANDED_LEFT -> {
-                params.width = (screenWidth * KeyboardLayoutMetrics.ONE_HANDED_WIDTH_FRACTION).toInt()
-                params.gravity = Gravity.START or Gravity.BOTTOM
+                rowsParams.width = (screenWidth * KeyboardLayoutMetrics.ONE_HANDED_KEY_AREA_FRACTION).toInt()
+                rowsParams.gravity = Gravity.START or Gravity.BOTTOM
             }
             else -> {
-                params.width = FrameLayout.LayoutParams.MATCH_PARENT
-                params.gravity = Gravity.CENTER_HORIZONTAL or Gravity.BOTTOM
+                rowsParams.width = FrameLayout.LayoutParams.MATCH_PARENT
+                rowsParams.gravity = Gravity.CENTER_HORIZONTAL or Gravity.BOTTOM
             }
         }
-        keyboardContent.layoutParams = params
-        keyboardContent.requestLayout()
-        if (::keyboardView.isInitialized) {
-            keyboardView.findViewById<KeyboardTouchLayout>(R.id.keyboard_rows)?.let { scheduleCircularKeySizing(it) }
+        rowsParams.height = rowsHeight
+        keyboardRows.layoutParams = rowsParams
+        keyboardRows.requestLayout()
+        if (::keyboardRows.isInitialized) {
+            scheduleCircularKeySizing(keyboardRows)
         }
         refreshTouchTargetsAfterLayout()
     }
@@ -665,7 +701,7 @@ class GkeysIME : InputMethodService() {
         }
 
         val rows = when {
-            isNumpad && numpadEmojiVisible -> emojiKeyboardRows()
+            emojiPanelVisible && !isHebrew -> emojiKeyboardRows()
             isNumpad && !isHebrew -> numpadRows
             isSymbols -> symRows
             isHebrew -> heRowsGboard
@@ -677,44 +713,120 @@ class GkeysIME : InputMethodService() {
         touchResolver.rightHandedMode = layoutRight
         touchResolver.setPreviousChar(lastTypedChar)
 
-        val totalRows = rows.size
         val numpadMode = isNumpad && !isHebrew
-        rows.forEachIndexed { rowIndex, keys ->
-            val orderedKeys = orderKeysForDisplay(keys)
-            val row = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                layoutDirection = View.LAYOUT_DIRECTION_LTR
-                textDirection = View.TEXT_DIRECTION_LTR
-                gravity = when {
-                    numpadMode && oneHandedActive && layoutLeft -> Gravity.START
-                    numpadMode && oneHandedActive && layoutRight -> Gravity.END
-                    numpadMode -> Gravity.CENTER
-                    layoutLeft -> Gravity.START
-                    layoutRight -> Gravity.END
-                    else -> Gravity.CENTER
-                }
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
-                )
-            }
-            orderedKeys.forEach { key ->
-                row.addView(
-                    buildKey(
-                        label = key,
-                        touchCorrectionEnabled = touchCorrectionEnabled,
-                        rowIndex = rowIndex,
-                        totalRows = totalRows,
-                        profile = profile,
-                        isNumpadMode = numpadMode
+        val emojiMode = emojiPanelVisible && !isHebrew
+        container.tag = when {
+            emojiMode -> "emoji"
+            numpadMode -> "numpad"
+            oneHandedActive -> "onehanded"
+            else -> null
+        }
+
+        if (numpadMode && !emojiMode) {
+            buildNumpadGrid(
+                container = container,
+                profile = profile,
+                oneHandedActive = oneHandedActive,
+                layoutLeft = layoutLeft,
+                layoutRight = layoutRight
+            )
+        } else {
+            val totalRows = rows.size
+            rows.forEachIndexed { rowIndex, keys ->
+                val orderedKeys = orderKeysForDisplay(keys)
+                val row = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    layoutDirection = View.LAYOUT_DIRECTION_LTR
+                    textDirection = View.TEXT_DIRECTION_LTR
+                    gravity = when {
+                        layoutLeft -> Gravity.START
+                        layoutRight -> Gravity.END
+                        else -> Gravity.CENTER
+                    }
+                    layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
                     )
-                )
+                }
+                orderedKeys.forEach { key ->
+                    row.addView(
+                        buildKey(
+                            label = key,
+                            touchCorrectionEnabled = touchCorrectionEnabled,
+                            rowIndex = rowIndex,
+                            totalRows = totalRows,
+                            profile = profile,
+                            isNumpadMode = numpadMode || emojiMode,
+                            useDirectTouchHandlers = emojiMode
+                        )
+                    )
+                }
+                container.addView(row)
             }
-            container.addView(row)
         }
         forceLayoutLtr(container)
         scheduleCircularKeySizing(container)
         refreshTouchTargetsAfterLayout(container)
         updateNumpadButton()
+        if (::keyboardRows.isInitialized) {
+            applyOneHandedMode()
+        }
+    }
+
+    /** Builds a fixed-width column numpad so digit keys stack in vertical columns. */
+    private fun buildNumpadGrid(
+        container: KeyboardTouchLayout,
+        profile: Profile,
+        oneHandedActive: Boolean,
+        layoutLeft: Boolean,
+        layoutRight: Boolean
+    ) {
+        val colWeights = KeyboardLayoutMetrics.NUMPAD_COLUMN_WEIGHTS
+        val totalRows = numpadRows.size
+        numpadRows.forEachIndexed { rowIndex, keys ->
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                layoutDirection = View.LAYOUT_DIRECTION_LTR
+                textDirection = View.TEXT_DIRECTION_LTR
+                gravity = when {
+                    oneHandedActive && layoutLeft -> Gravity.START
+                    oneHandedActive && layoutRight -> Gravity.END
+                    else -> Gravity.CENTER_HORIZONTAL
+                }
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
+                )
+            }
+            for (colIndex in 0 until KeyboardLayoutMetrics.NUMPAD_COLUMN_COUNT) {
+                val label = keys.getOrNull(colIndex).orEmpty()
+                val weight = colWeights[colIndex]
+                row.addView(
+                    if (label.isEmpty()) {
+                        buildNumpadSpacer(weight)
+                    } else {
+                        buildKey(
+                            label = label,
+                            touchCorrectionEnabled = false,
+                            rowIndex = rowIndex,
+                            totalRows = totalRows,
+                            profile = profile,
+                            isNumpadMode = true,
+                            columnWeight = weight,
+                            tightSpacing = true
+                        )
+                    }
+                )
+            }
+            container.addView(row)
+        }
+    }
+
+    private fun buildNumpadSpacer(weight: Float): View {
+        val gap = KeyboardLayoutMetrics.NUMPAD_KEY_GAP_DP
+        return Space(this).apply {
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, weight).apply {
+                setMargins(dp(gap / 2), dp(gap / 2), dp(gap / 2), dp(gap / 2))
+            }
+        }
     }
 
     private fun scheduleCircularKeySizing(container: KeyboardTouchLayout) {
@@ -729,13 +841,24 @@ class GkeysIME : InputMethodService() {
 
     /** Sizes each key label to a centered circle that fits its cell without overlapping neighbors. */
     private fun applyCircularKeySizes(container: ViewGroup) {
-        val inset = dp(KeyboardLayoutMetrics.KEY_CIRCLE_INSET_DP)
+        val inset = when (container.tag as? String) {
+            "numpad" -> dp(KeyboardLayoutMetrics.NUMPAD_KEY_CIRCLE_INSET_DP)
+            "onehanded" -> dp(KeyboardLayoutMetrics.ONE_HANDED_KEY_CIRCLE_INSET_DP)
+            else -> dp(KeyboardLayoutMetrics.KEY_CIRCLE_INSET_DP)
+        }
+        val oneHanded = container.tag == "onehanded"
         for (rowIndex in 0 until container.childCount) {
             val row = container.getChildAt(rowIndex) as? ViewGroup ?: continue
             for (keyIndex in 0 until row.childCount) {
                 val cell = row.getChildAt(keyIndex) as? FrameLayout ?: continue
                 val pebble = cell.getChildAt(0) as? TextView ?: continue
-                val diameter = minOf(cell.width, cell.height) - inset * 2
+                val maxDiameter = minOf(cell.width, cell.height) - inset * 2
+                if (maxDiameter <= 0) continue
+                val diameter = if (oneHanded) {
+                    (cell.height * 0.90f).toInt().coerceAtMost(maxDiameter)
+                } else {
+                    maxDiameter
+                }
                 if (diameter <= 0) continue
                 val lp = pebble.layoutParams as? FrameLayout.LayoutParams ?: continue
                 if (lp.width == diameter && lp.height == diameter) continue
@@ -755,7 +878,7 @@ class GkeysIME : InputMethodService() {
         val isSpace = label == "SPACE"
         val isSpecial = label in listOf("⇧", "⌫", "↵", "?123", "ABC", "🌐", "NUMPAD_BACK")
         return when {
-            label == "NUMPAD_BACK" -> "123"
+            label == "NUMPAD_BACK" -> if (emojiOpenedFromNumpad || isNumpad) "123" else "ABC"
             isSpace && isHebrew -> "עברית"
             isSpace -> "space"
             isShifted && !isHebrew && !isSpecial && label.length == 1 && label[0].isLetter() ->
@@ -783,17 +906,24 @@ class GkeysIME : InputMethodService() {
         rowIndex: Int,
         totalRows: Int,
         profile: Profile,
-        isNumpadMode: Boolean = false
+        isNumpadMode: Boolean = false,
+        columnWeight: Float = 1f,
+        tightSpacing: Boolean = false,
+        useDirectTouchHandlers: Boolean = false
     ): View {
         val isSpace = label == "SPACE"
         val isSpecial = label in listOf("⇧", "⌫", "↵", "?123", "ABC", "🌐", "NUMPAD_BACK")
         val displayLabel = displayLabelFor(label)
-        val gap = profile.keyGapDp
+        val gap = when {
+            tightSpacing -> KeyboardLayoutMetrics.NUMPAD_KEY_GAP_DP
+            isOneHandedActive() -> KeyboardLayoutMetrics.ONE_HANDED_KEY_GAP_DP
+            else -> profile.keyGapDp
+        }
 
         val cell = FrameLayout(this).apply {
             layoutDirection = View.LAYOUT_DIRECTION_LTR
             tag = label
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f).apply {
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, columnWeight).apply {
                 setMargins(dp(gap / 2), dp(gap / 2), dp(gap / 2), dp(gap / 2))
             }
         }
@@ -811,7 +941,8 @@ class GkeysIME : InputMethodService() {
                 isSpace -> 9f
                 isNumpadMode && label in listOf("ABC", "⌫", "↵", "NUMPAD_BACK") -> 13f
                 isSpecial -> 13f
-                isNumpadMode -> 17f
+                isNumpadMode && isNumpadDigit(label) -> 19f
+                isNumpadMode -> 16f
                 else -> 14f
             }
             gravity = Gravity.CENTER
@@ -824,20 +955,20 @@ class GkeysIME : InputMethodService() {
 
         cell.addView(pebble)
 
-        if (touchCorrectionEnabled) {
+        if (touchCorrectionEnabled && !useDirectTouchHandlers) {
             touchKeyViews.add(Triple(cell, label, rowIndex))
             cell.isClickable = false
             cell.isFocusable = false
             pebble.isClickable = false
         } else {
-            attachNumpadKeyHandler(cell, label, isNumpadMode)
+            attachNumpadKeyHandler(cell, label, isNumpadMode || useDirectTouchHandlers)
         }
 
         return cell
     }
 
-    private fun attachNumpadKeyHandler(cell: View, label: String, isNumpadMode: Boolean) {
-        if (!isNumpadMode) {
+    private fun attachNumpadKeyHandler(cell: View, label: String, useDirectHandlers: Boolean) {
+        if (!useDirectHandlers) {
             cell.setOnClickListener {
                 vibrate()
                 handleKey(label)
@@ -847,7 +978,7 @@ class GkeysIME : InputMethodService() {
         when (label) {
             "," -> attachNumpadLongPressHandler(cell, label) {
                 vibrate()
-                toggleNumpadEmojiPanel()
+                toggleEmojiPanel()
             }
             "?" -> attachNumpadLongPressHandler(cell, label) {
                 vibrate()
@@ -932,10 +1063,10 @@ class GkeysIME : InputMethodService() {
                 else isShifted = true
                 refreshLetterCaseOnKeys()
             }
-            "?123" -> { isSymbols = true; isNumpad = false; numpadEmojiVisible = false; buildKeyboard() }
-            "ABC" -> { isSymbols = false; isNumpad = false; numpadEmojiVisible = false; buildKeyboard() }
-            "NUMPAD_BACK" -> { numpadEmojiVisible = false; buildKeyboard() }
-            "🌐" -> { isHebrew = !isHebrew; isSymbols = false; isNumpad = false; numpadEmojiVisible = false; buildKeyboard() }
+            "?123" -> { isSymbols = true; isNumpad = false; emojiPanelVisible = false; buildKeyboard() }
+            "ABC" -> { isSymbols = false; isNumpad = false; emojiPanelVisible = false; buildKeyboard() }
+            "NUMPAD_BACK" -> { closeEmojiPanel() }
+            "🌐" -> { isHebrew = !isHebrew; isSymbols = false; isNumpad = false; emojiPanelVisible = false; buildKeyboard() }
             else -> {
                 val toInsert = if (key == "SPACE") " "
                 else if (isShifted && !isHebrew && key.length == 1 && key[0].isLetter()) key.uppercase()

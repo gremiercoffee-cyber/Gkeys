@@ -3,6 +3,7 @@
     xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
+    android:background="#0F0F1A"
     android:layoutDirection="ltr">
 
     <LinearLayout
@@ -124,18 +125,28 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:layoutDirection="ltr">
+            android:layoutDirection="ltr"
+            android:background="#0F0F1A">
 
-            <com.gremier.gkeys.ime.KeyboardTouchLayout
-                android:id="@+id/keyboard_rows"
+            <FrameLayout
+                android:id="@+id/keyboard_keys_host"
                 android:layout_width="match_parent"
-                android:layout_height="280dp"
-                android:orientation="vertical"
-                android:layoutDirection="ltr"
-                android:paddingStart="4dp"
-                android:paddingEnd="4dp"
-                android:paddingTop="2dp"
-                android:paddingBottom="2dp" />
+                android:layout_height="wrap_content"
+                android:background="#0F0F1A">
+
+                <com.gremier.gkeys.ime.KeyboardTouchLayout
+                    android:id="@+id/keyboard_rows"
+                    android:layout_width="match_parent"
+                    android:layout_height="280dp"
+                    android:layout_gravity="bottom|center_horizontal"
+                    android:orientation="vertical"
+                    android:layoutDirection="ltr"
+                    android:paddingStart="4dp"
+                    android:paddingEnd="4dp"
+                    android:paddingTop="2dp"
+                    android:paddingBottom="2dp" />
+
+            </FrameLayout>
 
         </LinearLayout>
 

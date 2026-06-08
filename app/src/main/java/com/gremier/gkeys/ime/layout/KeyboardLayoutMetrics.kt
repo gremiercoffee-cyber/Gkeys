@@ -15,6 +15,11 @@ object KeyboardLayoutMetrics {
     const val BASE_SPECIAL_DP = 56
     const val BASE_KEY_GAP_DP = 4
     const val KEY_CIRCLE_INSET_DP = 3
+    const val NUMPAD_KEY_GAP_DP = 1
+    const val NUMPAD_KEY_CIRCLE_INSET_DP = 1
+    const val NUMPAD_COLUMN_COUNT = 5
+    /** Side symbol columns narrower so digit columns 1–3 stack tightly. */
+    val NUMPAD_COLUMN_WEIGHTS = floatArrayOf(0.5f, 1f, 1f, 1f, 0.5f)
     const val BASE_ROW_COUNT = 5
 
     /** @deprecated Use [BASE_PEBBLE_DP] — keys are circles with equal width and height. */
@@ -110,6 +115,10 @@ object KeyboardLayoutMetrics {
     fun keyboardPaddingStartDp(rightHanded: Boolean): Int = if (rightHanded) 6 else 4
     fun keyboardPaddingEndDp(rightHanded: Boolean): Int = if (rightHanded) 2 else 4
 
-    /** One-handed mode: keyboard width as a fraction of screen width. */
-    const val ONE_HANDED_WIDTH_FRACTION = 0.70f
+    /** One-handed: key cluster width; background stays full screen. */
+    const val ONE_HANDED_KEY_AREA_FRACTION = 0.92f
+    const val ONE_HANDED_KEY_GAP_DP = 2
+    const val ONE_HANDED_KEY_CIRCLE_INSET_DP = 0
+    /** @deprecated Keys area uses [ONE_HANDED_KEY_AREA_FRACTION]; shell is always full width. */
+    const val ONE_HANDED_WIDTH_FRACTION = ONE_HANDED_KEY_AREA_FRACTION
 }
