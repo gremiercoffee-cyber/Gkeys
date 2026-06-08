@@ -46,7 +46,9 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var switchDefaultLang: SwitchMaterial
     private lateinit var switchRightHanded: SwitchMaterial
     private lateinit var sliderKeySize: Slider
+    private lateinit var sliderKeyboardHeight: Slider
     private lateinit var tvKeySizeLabel: TextView
+    private lateinit var tvKeyboardHeightLabel: TextView
     private lateinit var tvAppVersion: TextView
     private lateinit var btnMicPermission: MaterialButton
     private lateinit var btnOverlayPermission: MaterialButton
@@ -212,7 +214,9 @@ class SettingsActivity : AppCompatActivity() {
         switchDefaultLang = findViewById(R.id.switch_default_lang)
         switchRightHanded = findViewById(R.id.switch_right_handed)
         sliderKeySize = findViewById(R.id.slider_key_size)
+        sliderKeyboardHeight = findViewById(R.id.slider_keyboard_height)
         tvKeySizeLabel = findViewById(R.id.tv_key_size_label)
+        tvKeyboardHeightLabel = findViewById(R.id.tv_keyboard_height_label)
         tvAppVersion = findViewById(R.id.tv_app_version)
         btnMicPermission = findViewById(R.id.btn_mic_permission)
         btnOverlayPermission = findViewById(R.id.btn_overlay_permission)
@@ -261,6 +265,11 @@ class SettingsActivity : AppCompatActivity() {
             switchRightHanded.isChecked = GkeysSettings.rightHandedMode(this@SettingsActivity).first()
             sliderKeySize.value = clampToSlider(sliderKeySize, presetToSlider(GkeysSettings.keySizePreset(this@SettingsActivity).first()))
             updateKeySizeLabel(sliderKeySize.value.toInt())
+            sliderKeyboardHeight.value = clampToSlider(
+                sliderKeyboardHeight,
+                GkeysSettings.keyboardHeightDp(this@SettingsActivity).first().toFloat()
+            )
+            updateKeyboardHeightLabel(sliderKeyboardHeight.value.toInt())
             switchDefaultVoiceBubble.isChecked =
                 GkeysSettings.defaultToVoiceBubble(this@SettingsActivity).first()
             switchAdaptiveTouch.isChecked =
@@ -297,6 +306,9 @@ class SettingsActivity : AppCompatActivity() {
         sliderKeySize.addOnChangeListener { _, value, _ ->
             updateKeySizeLabel(value.toInt())
         }
+        sliderKeyboardHeight.addOnChangeListener { _, value, _ ->
+            updateKeyboardHeightLabel(value.toInt())
+        }
         btnMicPermission.setOnClickListener { requestMicPermissionIfNeeded() }
         btnOverlayPermission.setOnClickListener { requestOverlayPermissionIfNeeded() }
         btnResetAdaptiveTouch.setOnClickListener {
@@ -320,6 +332,7 @@ class SettingsActivity : AppCompatActivity() {
                     if (switchDefaultLang.isChecked) "he" else "en")
                 GkeysSettings.saveRightHandedMode(this@SettingsActivity, switchRightHanded.isChecked)
                 GkeysSettings.saveKeySizePreset(this@SettingsActivity, sliderToPreset(sliderKeySize.value.toInt()))
+                GkeysSettings.saveKeyboardHeightDp(this@SettingsActivity, sliderKeyboardHeight.value.toInt())
                 val oneHanded = when (radioOneHanded.checkedRadioButtonId) {
                     R.id.radio_one_hand_left -> GkeysSettings.ONE_HANDED_LEFT
                     R.id.radio_one_hand_right -> GkeysSettings.ONE_HANDED_RIGHT
@@ -455,6 +468,10 @@ class SettingsActivity : AppCompatActivity() {
             3 -> "Extra Large"
             else -> "Default"
         }
+    }
+
+    private fun updateKeyboardHeightLabel(heightDp: Int) {
+        tvKeyboardHeightLabel.text = "$heightDp dp"
     }
 
     private fun checkKeyboardEnabled() {

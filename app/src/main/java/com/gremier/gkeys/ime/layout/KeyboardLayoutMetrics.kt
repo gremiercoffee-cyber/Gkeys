@@ -51,6 +51,9 @@ object KeyboardLayoutMetrics {
 
     const val NUMPAD_COLUMN_COUNT = 5
 
+    /** Numpad cluster width as a fraction of screen width (thumb reach). */
+    const val NUMPAD_KEY_AREA_FRACTION = 0.68f
+
 
 
     data class Profile(
@@ -76,6 +79,9 @@ object KeyboardLayoutMetrics {
         else -> 1.0f
 
     }
+
+    fun effectiveKeyboardHeightDp(baseHeightDp: Int, keySizePreset: String): Int =
+        clampKeyboardHeightDp(kotlin.math.round(baseHeightDp * scaleForPreset(keySizePreset)).toInt())
 
 
 
@@ -153,18 +159,29 @@ object KeyboardLayoutMetrics {
 
     fun numpadBottomRowWeight(label: String): Float = when (label) {
 
-        "SPACE" -> 3.6f
+        "SPACE" -> 3.2f
 
-        "ABC", "NUMPAD_BACK" -> 0.9f
+        "ABC", "NUMPAD_BACK" -> 0.85f
 
-        "⌫" -> 1.1f
+        "⌫" -> 1.28f
 
-        ".", "?" -> 0.75f
+        ".", "?" -> 0.7f
 
-        "↵" -> 1.05f
+        "↵" -> 0.95f
 
         else -> 1f
 
+    }
+
+    /** Per-column weight for numpad rows (digits vs operator columns). */
+    fun numpadColumnWeight(colIndex: Int, label: String, rowIndex: Int, totalRows: Int): Float {
+        if (isBottomRowSpecialRow(rowIndex, totalRows)) {
+            return numpadBottomRowWeight(label)
+        }
+        return when (colIndex) {
+            0, 4 -> 0.72f
+            else -> 0.88f
+        }
     }
 
 
@@ -193,8 +210,14 @@ object KeyboardLayoutMetrics {
 
 
 
-    fun isBottomRowSpecialRow(rowIndex: Int, totalRows: Int): Boolean =
+    /** Letter/symbol rows: backspace and shift get extra width for easier hits. */
+    fun standardRowKeyWeight(label: String): Float = when (label) {
+        "⌫" -> 1.42f
+        "⇧" -> 1.12f
+        else -> 1f
+    }
 
+    fun isBottomRowSpecialRow(rowIndex: Int, totalRows: Int): Boolean =
         rowIndex == totalRows - 1
 
 
@@ -213,7 +236,14 @@ object KeyboardLayoutMetrics {
 
     /** One-handed: key cluster width; background stays full screen. */
 
-    const val ONE_HANDED_KEY_AREA_FRACTION = 0.92f
+    const val DEFAULT_ONE_HANDED_KEY_AREA_FRACTION = 0.61f
+
+    const val MIN_ONE_HANDED_KEY_AREA_FRACTION = 0.45f
+
+    const val MAX_ONE_HANDED_KEY_AREA_FRACTION = 0.78f
+
+    /** @deprecated Use [DEFAULT_ONE_HANDED_KEY_AREA_FRACTION] */
+    const val ONE_HANDED_KEY_AREA_FRACTION = DEFAULT_ONE_HANDED_KEY_AREA_FRACTION
 
     const val ONE_HANDED_KEY_GAP_DP = KEY_TILE_MARGIN_DP
 

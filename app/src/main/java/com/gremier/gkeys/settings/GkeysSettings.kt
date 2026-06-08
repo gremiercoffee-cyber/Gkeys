@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
+import com.gremier.gkeys.ime.layout.KeyboardLayoutMetrics
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
@@ -35,6 +36,7 @@ object GkeysSettings {
     val VOICE_TRANSLATE_TO = stringPreferencesKey("voice_translate_to")
     val KEY_SIZE_PRESET = stringPreferencesKey("key_size_preset")
     val KEYBOARD_HEIGHT_DP = intPreferencesKey("keyboard_height_dp")
+    val ONE_HANDED_WIDTH_FRACTION = floatPreferencesKey("one_handed_width_fraction")
     val GOOGLE_STT_KEY = stringPreferencesKey("google_stt_key")
     val VOICE_BUBBLE_MODE_ACTIVE = booleanPreferencesKey("voice_bubble_mode_active")
     val DEFAULT_TO_VOICE_BUBBLE = booleanPreferencesKey("default_to_voice_bubble")
@@ -153,6 +155,15 @@ object GkeysSettings {
         settingsStore(context).data.map {
             (it[KEYBOARD_HEIGHT_DP] ?: DEFAULT_KEYBOARD_HEIGHT_DP)
                 .coerceIn(MIN_KEYBOARD_HEIGHT_DP, MAX_KEYBOARD_HEIGHT_DP)
+        }
+
+    fun oneHandedWidthFraction(context: Context): Flow<Float> =
+        settingsStore(context).data.map { prefs ->
+            (prefs[ONE_HANDED_WIDTH_FRACTION] ?: KeyboardLayoutMetrics.DEFAULT_ONE_HANDED_KEY_AREA_FRACTION)
+                .coerceIn(
+                    KeyboardLayoutMetrics.MIN_ONE_HANDED_KEY_AREA_FRACTION,
+                    KeyboardLayoutMetrics.MAX_ONE_HANDED_KEY_AREA_FRACTION
+                )
         }
 
     fun voiceBubbleModeActive(context: Context): Flow<Boolean> =
@@ -277,6 +288,15 @@ object GkeysSettings {
     suspend fun saveKeyboardHeightDp(context: Context, heightDp: Int) {
         settingsStore(context).edit {
             it[KEYBOARD_HEIGHT_DP] = heightDp.coerceIn(MIN_KEYBOARD_HEIGHT_DP, MAX_KEYBOARD_HEIGHT_DP)
+        }
+    }
+
+    suspend fun saveOneHandedWidthFraction(context: Context, fraction: Float) {
+        settingsStore(context).edit {
+            it[ONE_HANDED_WIDTH_FRACTION] = fraction.coerceIn(
+                KeyboardLayoutMetrics.MIN_ONE_HANDED_KEY_AREA_FRACTION,
+                KeyboardLayoutMetrics.MAX_ONE_HANDED_KEY_AREA_FRACTION
+            )
         }
     }
 

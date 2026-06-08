@@ -22,7 +22,7 @@ import kotlinx.coroutines.flow.collectLatest
 class GkeysClipboardManager(
     private val context: Context,
     private val overlayContainer: ViewGroup,
-    private val previewContainer: View,
+    private val previewTapTarget: View,
     private val previewView: TextView,
     private val previewImage: ImageView,
     private val previewHint: TextView,
@@ -81,8 +81,8 @@ class GkeysClipboardManager(
     }
 
     fun setupPreviewInteractions() {
-        previewContainer.setOnClickListener { onPreviewTap() }
-        previewContainer.setOnLongClickListener {
+        previewTapTarget.setOnClickListener { onPreviewTap() }
+        previewTapTarget.setOnLongClickListener {
             showPanel()
             onVibrate()
             true
@@ -332,13 +332,13 @@ class GkeysClipboardManager(
             previewImage.visibility = View.GONE
             previewHint.visibility = View.VISIBLE
             previewHint.text = "Clipboard"
-            previewContainer.isClickable = false
-            previewContainer.isLongClickable = true
+            previewTapTarget.isClickable = false
+            previewTapTarget.isLongClickable = true
             return
         }
 
-        previewContainer.isClickable = true
-        previewContainer.isLongClickable = true
+        previewTapTarget.isClickable = true
+        previewTapTarget.isLongClickable = true
         previewHint.visibility = View.GONE
 
         if (latest.isImage) {
@@ -349,7 +349,7 @@ class GkeysClipboardManager(
             previewImage.visibility = View.GONE
             previewView.visibility = View.VISIBLE
             val text = latest.text
-            previewView.text = if (text.length > 22) text.take(22) + "…" else text
+            previewView.text = if (text.length > 14) text.take(14) + "…" else text
         }
     }
 

@@ -13,10 +13,8 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.view.animation.AccelerateDecelerateInterpolator
-import android.view.animation.LinearInterpolator
 import android.widget.FrameLayout
 import android.widget.ImageView
-import android.widget.PopupMenu
 import com.gremier.gkeys.R
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -24,7 +22,9 @@ import kotlin.math.roundToInt
 interface VoiceBubbleListener {
     fun onBubbleTap()
     fun onBubbleSwipeUp()
-    fun onShowKeyboardRequested()
+    /** Long-press and hold — same as keyboard mic long-press (translate on release). */
+    fun onBubbleTranslateHoldStart()
+    fun onBubbleTranslateHoldEnd(cancelled: Boolean)
     fun onVibrate()
 }
 
@@ -42,7 +42,7 @@ class VoiceBubbleController(
         private const val EDGE_MARGIN_DP = 16
         private const val DRAG_THRESHOLD_PX = 8
         private const val SWIPE_UP_THRESHOLD_PX = 80
-        private const val LONG_PRESS_MS = 450L
+        private const val TRANSLATE_HOLD_MS = 380L
     }
 
     private val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
@@ -54,7 +54,6 @@ class VoiceBubbleController(
     private var bubbleBody: FrameLayout? = null
     private var bubbleIcon: ImageView? = null
     private var pulseRing: View? = null
-    private var shimmer: View? = null
     private var layoutParams: WindowManager.LayoutParams? = null
     private var isAttached = false
     private var state = VoiceBubbleState.IDLE
@@ -66,14 +65,15 @@ class VoiceBubbleController(
     private var touchStartX = 0f
     private var touchStartY = 0f
     private var isDragging = false
-    private var longPressTriggered = false
-    private val longPressRunnable = Runnable {
-        longPressTriggered = true
-        showContextMenu()
+    private var translateHoldActive = false
+    private val translateHoldRunnable = Runnable {
+        translateHoldActive = true
+        listener.onVibrate()
+        listener.onBubbleTranslateHoldStart()
+        applyStateVisuals()
     }
 
     private var pulseAnimator: AnimatorSet? = null
-    private var shimmerRotateAnimator: ObjectAnimator? = null
     private var ringPulseAnimator: ObjectAnimator? = null
 
     fun canDrawOverlay(): Boolean =
@@ -89,7 +89,6 @@ class VoiceBubbleController(
         bubbleBody = view.findViewById(R.id.bubble_body)
         bubbleIcon = view.findViewById(R.id.bubble_icon)
         pulseRing = view.findViewById(R.id.bubble_pulse_ring)
-        shimmer = view.findViewById(R.id.bubble_shimmer)
 
         val params = WindowManager.LayoutParams(
             bubbleSizePx,
@@ -203,7 +202,6 @@ class VoiceBubbleController(
         bubbleBody = null
         bubbleIcon = null
         pulseRing = null
-        shimmer = null
         layoutParams = null
     }
 
@@ -230,13 +228,13 @@ class VoiceBubbleController(
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 isDragging = false
-                longPressTriggered = false
+                translateHoldActive = false
                 touchStartX = event.rawX
                 touchStartY = event.rawY
                 dragStartX = params.x.toFloat()
                 dragStartY = params.y.toFloat()
-                rootView?.removeCallbacks(longPressRunnable)
-                rootView?.postDelayed(longPressRunnable, LONG_PRESS_MS)
+                rootView?.removeCallbacks(translateHoldRunnable)
+                rootView?.postDelayed(translateHoldRunnable, TRANSLATE_HOLD_MS)
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
@@ -244,7 +242,12 @@ class VoiceBubbleController(
                 val dy = event.rawY - touchStartY
                 if (!isDragging && (abs(dx) > DRAG_THRESHOLD_PX || abs(dy) > DRAG_THRESHOLD_PX)) {
                     isDragging = true
-                    rootView?.removeCallbacks(longPressRunnable)
+                    rootView?.removeCallbacks(translateHoldRunnable)
+                    if (translateHoldActive) {
+                        translateHoldActive = false
+                        listener.onBubbleTranslateHoldEnd(cancelled = true)
+                        applyStateVisuals()
+                    }
                 }
                 if (isDragging) {
                     params.x = (dragStartX + dx).roundToInt()
@@ -260,8 +263,13 @@ class VoiceBubbleController(
                 return true
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                rootView?.removeCallbacks(longPressRunnable)
-                if (longPressTriggered) return true
+                rootView?.removeCallbacks(translateHoldRunnable)
+                val cancelled = event.actionMasked == MotionEvent.ACTION_CANCEL
+                if (translateHoldActive) {
+                    translateHoldActive = false
+                    listener.onBubbleTranslateHoldEnd(cancelled)
+                    return true
+                }
                 if (isDragging) {
                     snapToNearestEdge(params)
                     posX = params.x
@@ -287,18 +295,6 @@ class VoiceBubbleController(
         return true
     }
 
-    private fun showContextMenu() {
-        val anchor = rootView ?: return
-        listener.onVibrate()
-        val menu = PopupMenu(context, anchor)
-        menu.menu.add(0, 1, 0, "Show Keyboard")
-        menu.setOnMenuItemClickListener {
-            listener.onShowKeyboardRequested()
-            true
-        }
-        menu.show()
-    }
-
     private fun clampToScreen(params: WindowManager.LayoutParams) {
         val metrics = context.resources.displayMetrics
         val maxX = metrics.widthPixels - bubbleSizePx - edgeMarginPx / 2
@@ -322,106 +318,66 @@ class VoiceBubbleController(
     private fun applyStateVisuals() {
         val body = bubbleBody ?: return
         stopAnimators()
+        bubbleIcon?.alpha = 1f
+        body.setBackgroundResource(R.drawable.voice_bubble_icon_bg)
         when (state) {
             VoiceBubbleState.IDLE -> {
                 pulseRing?.visibility = View.GONE
-                shimmer?.visibility = View.GONE
-                body.setBackgroundResource(R.drawable.voice_bubble_bg)
                 rootView?.contentDescription =
-                    "Voice dictation bubble. Tap to record. Swipe up for keyboard."
+                    "Gkeys voice bubble. Tap to dictate. Hold to translate. Swipe up for keyboard."
                 body.scaleX = 1f
                 body.scaleY = 1f
             }
             VoiceBubbleState.RECORDING -> {
-                body.setBackgroundResource(R.drawable.voice_bubble_bg_recording)
                 pulseRing?.visibility = View.VISIBLE
-                shimmer?.visibility = View.VISIBLE
-                pulseRing?.alpha = 0.5f
-                shimmer?.alpha = 0.7f
-                rootView?.contentDescription = "Recording. Tap to stop."
-                startRecordingAnimators()
+                pulseRing?.alpha = 0.45f
+                rootView?.contentDescription = if (translateHoldActive) {
+                    "Translating. Release to finish."
+                } else {
+                    "Listening. Tap to stop."
+                }
+                startPulseAnimators()
             }
             VoiceBubbleState.PROCESSING -> {
-                body.setBackgroundResource(R.drawable.ai_mic_bg_processing)
                 pulseRing?.visibility = View.VISIBLE
-                shimmer?.visibility = View.VISIBLE
-                pulseRing?.alpha = 0.6f
-                shimmer?.alpha = 0.85f
+                pulseRing?.alpha = 0.55f
                 rootView?.contentDescription = "Processing dictation."
-                startProcessingAnimators()
+                startPulseAnimators(slower = true)
             }
         }
     }
 
-    private fun startRecordingAnimators() {
+    private fun startPulseAnimators(slower: Boolean = false) {
         val body = bubbleBody ?: return
+        val duration = if (slower) 850L else 650L
         val pulse = ObjectAnimator.ofPropertyValuesHolder(
             body,
-            PropertyValuesHolder.ofFloat(View.SCALE_X, 1f, 1.14f),
-            PropertyValuesHolder.ofFloat(View.SCALE_Y, 1f, 1.14f)
+            PropertyValuesHolder.ofFloat(View.SCALE_X, 1f, 1.12f),
+            PropertyValuesHolder.ofFloat(View.SCALE_Y, 1f, 1.12f)
         ).apply {
-            duration = 650
+            this.duration = duration
             repeatMode = ObjectAnimator.REVERSE
             repeatCount = ObjectAnimator.INFINITE
             interpolator = AccelerateDecelerateInterpolator()
         }
-        ringPulseAnimator = ObjectAnimator.ofFloat(pulseRing, View.ALPHA, 0.3f, 1f).apply {
-            duration = 650
+        ringPulseAnimator = ObjectAnimator.ofFloat(pulseRing, View.ALPHA, 0.25f, 0.75f).apply {
+            this.duration = duration
             repeatMode = ObjectAnimator.REVERSE
             repeatCount = ObjectAnimator.INFINITE
             start()
         }
         pulseAnimator = AnimatorSet().apply {
             playTogether(pulse)
-            start()
-        }
-        shimmerRotateAnimator = ObjectAnimator.ofFloat(shimmer, View.ROTATION, 0f, 360f).apply {
-            duration = 1800
-            repeatCount = ObjectAnimator.INFINITE
-            interpolator = LinearInterpolator()
-            start()
-        }
-    }
-
-    private fun startProcessingAnimators() {
-        val body = bubbleBody ?: return
-        val pulse = ObjectAnimator.ofPropertyValuesHolder(
-            body,
-            PropertyValuesHolder.ofFloat(View.SCALE_X, 1f, 1.1f),
-            PropertyValuesHolder.ofFloat(View.SCALE_Y, 1f, 1.1f)
-        ).apply {
-            duration = 750
-            repeatMode = ObjectAnimator.REVERSE
-            repeatCount = ObjectAnimator.INFINITE
-            interpolator = AccelerateDecelerateInterpolator()
-        }
-        ringPulseAnimator = ObjectAnimator.ofFloat(pulseRing, View.ALPHA, 0.25f, 1f).apply {
-            duration = 750
-            repeatMode = ObjectAnimator.REVERSE
-            repeatCount = ObjectAnimator.INFINITE
-            start()
-        }
-        pulseAnimator = AnimatorSet().apply {
-            playTogether(pulse)
-            start()
-        }
-        shimmerRotateAnimator = ObjectAnimator.ofFloat(shimmer, View.ROTATION, 0f, 360f).apply {
-            duration = 1400
-            repeatCount = ObjectAnimator.INFINITE
-            interpolator = LinearInterpolator()
             start()
         }
     }
 
     private fun stopAnimators() {
         pulseAnimator?.cancel()
-        shimmerRotateAnimator?.cancel()
         ringPulseAnimator?.cancel()
         pulseAnimator = null
-        shimmerRotateAnimator = null
         ringPulseAnimator = null
         bubbleBody?.scaleX = 1f
         bubbleBody?.scaleY = 1f
-        shimmer?.rotation = 0f
     }
 }

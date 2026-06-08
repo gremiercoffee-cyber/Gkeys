@@ -136,23 +136,15 @@
 
                 android:layout_width="0dp"
 
-                android:layout_height="30dp"
+                android:layout_height="28dp"
 
-                android:layout_weight="1"
+                android:layout_weight="0.72"
 
                 android:layout_marginStart="5dp"
 
-                android:layout_marginEnd="5dp"
+                android:layout_marginEnd="4dp"
 
-                android:background="@drawable/clipboard_pill_bg"
-
-                android:clickable="true"
-
-                android:focusable="true"
-
-                android:longClickable="true"
-
-                android:foreground="?android:attr/selectableItemBackground">
+                android:background="@drawable/clipboard_pill_bg">
 
 
 
@@ -166,79 +158,155 @@
 
                     android:gravity="center_vertical"
 
-                    android:paddingStart="8dp"
+                    android:paddingStart="2dp"
 
-                    android:paddingEnd="6dp">
+                    android:paddingEnd="4dp">
 
 
 
-                    <ImageView
+                    <ImageButton
 
-                        android:id="@+id/iv_clipboard_preview"
+                        android:id="@+id/btn_clipboard_undo"
 
                         android:layout_width="24dp"
 
                         android:layout_height="24dp"
 
-                        android:layout_marginEnd="6dp"
+                        android:src="@drawable/ic_undo"
 
-                        android:visibility="gone"
+                        android:background="?android:attr/selectableItemBackgroundBorderless"
 
-                        android:scaleType="centerCrop"
+                        android:contentDescription="Undo"
 
-                        android:contentDescription="Recent clip preview" />
+                        android:scaleType="centerInside"
 
-
-
-                    <TextView
-
-                        android:id="@+id/tv_clipboard"
-
-                        android:layout_width="0dp"
-
-                        android:layout_height="wrap_content"
-
-                        android:layout_weight="1"
-
-                        android:text=""
-
-                        android:textColor="#E8EAF0"
-
-                        android:textSize="12sp"
-
-                        android:singleLine="true"
-
-                        android:ellipsize="end"
-
-                        android:visibility="gone" />
+                        android:padding="3dp" />
 
 
 
-                    <TextView
+                    <LinearLayout
 
-                        android:id="@+id/tv_clipboard_hint"
+                        android:id="@+id/clipboard_preview_strip"
 
                         android:layout_width="0dp"
 
-                        android:layout_height="wrap_content"
+                        android:layout_height="match_parent"
 
                         android:layout_weight="1"
 
-                        android:text="Clipboard"
+                        android:orientation="horizontal"
 
-                        android:textColor="#9CA3AF"
+                        android:gravity="center_vertical"
 
-                        android:textSize="12sp"
+                        android:paddingStart="2dp"
 
-                        android:singleLine="true" />
+                        android:paddingEnd="2dp"
+
+                        android:clickable="true"
+
+                        android:focusable="true"
+
+                        android:longClickable="true"
+
+                        android:foreground="?android:attr/selectableItemBackground">
+
+
+
+                        <ImageView
+
+                            android:id="@+id/iv_clipboard_preview"
+
+                            android:layout_width="18dp"
+
+                            android:layout_height="18dp"
+
+                            android:layout_marginEnd="4dp"
+
+                            android:visibility="gone"
+
+                            android:scaleType="centerCrop"
+
+                            android:contentDescription="Recent clip preview" />
+
+
+
+                        <TextView
+
+                            android:id="@+id/tv_clipboard"
+
+                            android:layout_width="0dp"
+
+                            android:layout_height="wrap_content"
+
+                            android:layout_weight="1"
+
+                            android:text=""
+
+                            android:textColor="#E8EAF0"
+
+                            android:textSize="11sp"
+
+                            android:singleLine="true"
+
+                            android:ellipsize="end"
+
+                            android:visibility="gone" />
+
+
+
+                        <TextView
+
+                            android:id="@+id/tv_clipboard_hint"
+
+                            android:layout_width="0dp"
+
+                            android:layout_height="wrap_content"
+
+                            android:layout_weight="1"
+
+                            android:text="Clipboard"
+
+                            android:textColor="#9CA3AF"
+
+                            android:textSize="11sp"
+
+                            android:singleLine="true"
+
+                            android:ellipsize="end" />
+
+
+
+                    </LinearLayout>
+
+
+
+                    <ImageButton
+
+                        android:id="@+id/btn_clipboard_clear_all"
+
+                        android:layout_width="24dp"
+
+                        android:layout_height="24dp"
+
+                        android:src="@drawable/ic_clear_all"
+
+                        android:background="?android:attr/selectableItemBackgroundBorderless"
+
+                        android:contentDescription="Clear all text"
+
+                        android:scaleType="centerInside"
+
+                        android:padding="3dp" />
 
 
 
                     <ImageView
 
-                        android:layout_width="16dp"
+                        android:layout_width="14dp"
 
-                        android:layout_height="16dp"
+                        android:layout_height="14dp"
+
+                        android:layout_marginStart="2dp"
 
                         android:src="@drawable/ic_clipboard_toolbar"
 
@@ -253,6 +321,16 @@
 
 
             </FrameLayout>
+
+
+
+            <View
+
+                android:layout_width="0dp"
+
+                android:layout_height="0dp"
+
+                android:layout_weight="1" />
 
 
 

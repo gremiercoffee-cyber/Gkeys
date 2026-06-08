@@ -3,19 +3,11 @@
     android:id="@+id/voice_bubble_root"
     android:layout_width="56dp"
     android:layout_height="56dp"
-    android:contentDescription="Voice dictation bubble. Tap to record. Swipe up for keyboard."
+    android:contentDescription="Gkeys voice bubble. Tap to dictate. Hold to translate. Swipe up for keyboard."
     android:importantForAccessibility="yes">
 
     <View
         android:id="@+id/bubble_pulse_ring"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:background="@drawable/voice_bubble_glow_ring"
-        android:visibility="gone"
-        android:importantForAccessibility="no" />
-
-    <View
-        android:id="@+id/bubble_shimmer"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:background="@drawable/voice_bubble_glow_ring"
@@ -27,15 +19,16 @@
         android:layout_width="52dp"
         android:layout_height="52dp"
         android:layout_gravity="center"
-        android:background="@drawable/voice_bubble_bg"
+        android:background="@drawable/voice_bubble_icon_bg"
         android:importantForAccessibility="no">
 
         <ImageView
             android:id="@+id/bubble_icon"
-            android:layout_width="26dp"
-            android:layout_height="26dp"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
             android:layout_gravity="center"
-            android:src="@drawable/ic_mic_white"
+            android:src="@drawable/ic_launcher_foreground"
+            android:scaleType="fitCenter"
             android:importantForAccessibility="no" />
 
     </FrameLayout>
