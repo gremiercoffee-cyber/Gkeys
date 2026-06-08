@@ -6,17 +6,18 @@ import android.view.ViewGroup
 import kotlin.math.hypot
 
 /**
- * Resolves touch points to keys using proximity scoring inspired by AOSP LatinIME /
- * OpenBoard: position correction, expanded hit zones, bigram weighting, and
- * personalized offset learning.
+ * Resolves touch points to keys using proximity scoring, adaptive personal key maps,
+ * confusion learning, context biasing, and dynamic hitbox resizing.
  */
 class TouchInputResolver(
-    private val personalization: TouchPersonalization
+    private val personalization: TouchPersonalization,
+    private val adaptive: AdaptiveTouchIntelligence
 ) {
     private val targets = mutableListOf<KeyHitTarget>()
     private var averageKeyWidth = 48f
     private var averageKeyHeight = 48f
     private var previousChar: Char? = null
+    private var lastTapTimeMs = 0L
     var enabled = true
     var rightHandedMode = false
 
@@ -29,6 +30,9 @@ class TouchInputResolver(
     fun setPreviousChar(c: Char?) {
         previousChar = c?.lowercaseChar()
     }
+
+    fun targetForLabel(label: String): KeyHitTarget? =
+        targets.firstOrNull { it.label == label }
 
     fun registerTarget(label: String, row: Int, centerX: Float, centerY: Float, width: Float, height: Float) {
         val char = label.singleOrNull()?.lowercaseChar()?.takeIf { it.isLetter() }
@@ -69,6 +73,7 @@ class TouchInputResolver(
                 height = rect.height().toFloat()
             )
         }
+        adaptive.setKeyboardWidth(container.width.toFloat())
     }
 
     fun resolve(touchX: Float, touchY: Float): TouchResolution? {
@@ -82,29 +87,30 @@ class TouchInputResolver(
             rightHanded = rightHandedMode,
             keyWidth = averageKeyWidth
         )
-        var correctedX = corrected.first
-        var correctedY = corrected.second
+        val correctedX = corrected.first
+        val correctedY = corrected.second
 
         val searchDist = TouchPositionCorrection.SEARCH_DISTANCE_FACTOR * averageKeyWidth
         var best: KeyHitTarget? = null
         var bestScore = Float.MAX_VALUE
 
         for (target in targets) {
-            val dx = correctedX - target.sweetSpotX
-            val dy = correctedY - target.sweetSpotY
+            val (spotX, spotY) = adaptive.personalizedCenter(target)
+            val dx = correctedX - spotX
+            val dy = correctedY - spotY
             val distance = hypot(dx, dy)
 
             if (distance > searchDist * bigramRadiusBoost(target)) continue
 
             val radius = effectiveRadius(target)
-            val score = distance / radius
+            var score = distance / radius
+            score *= adaptive.adaptiveBoost(touchX, touchY, target, "")
             if (score < bestScore) {
                 bestScore = score
                 best = target
             }
         }
 
-        // Fallback: nearest key within hard search limit
         if (best == null) {
             for (target in targets) {
                 val dx = correctedX - target.centerX
@@ -122,7 +128,18 @@ class TouchInputResolver(
 
     fun recordTap(touchX: Float, touchY: Float, resolution: TouchResolution) {
         val target = targets.firstOrNull { it.label == resolution.label } ?: return
+        val now = System.currentTimeMillis()
+        val interKey = if (lastTapTimeMs > 0L) now - lastTapTimeMs else 180L
+        lastTapTimeMs = now
+
         personalization.recordSample(touchX, touchY, target, averageKeyWidth)
+        adaptive.recordTap(touchX, touchY, target, resolution.label, interKey)
+    }
+
+    fun recordCorrection(correctLabel: String) {
+        val ch = correctLabel.singleOrNull()?.lowercaseChar()?.takeIf { it.isLetter() } ?: return
+        val target = targets.firstOrNull { it.label.equals(correctLabel, ignoreCase = true) }
+        adaptive.recordCorrection(ch, target)
     }
 
     private fun effectiveRadius(target: KeyHitTarget): Float {
@@ -130,6 +147,7 @@ class TouchInputResolver(
         var radius = TouchPositionCorrection.BASE_RADIUS_FRACTION * diagonal
         radius *= BigramModel.frequencyMultiplier(target.char)
         radius *= bigramRadiusBoost(target)
+        radius *= adaptive.adaptiveRadiusMultiplier(target)
         return radius.coerceAtLeast(averageKeyWidth * 0.28f)
     }
 

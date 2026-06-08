@@ -3,6 +3,7 @@ package com.gremier.gkeys.settings
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
 import android.view.inputmethod.InputMethodManager
@@ -28,15 +29,17 @@ class SettingsActivity : AppCompatActivity() {
 
     companion object {
         const val EXTRA_REQUEST_MIC_PERMISSION = "request_mic_permission"
+        const val EXTRA_REQUEST_OVERLAY_PERMISSION = "request_overlay_permission"
     }
 
     private lateinit var etOpenAiKey: TextInputEditText
     private lateinit var etAnthropicKey: TextInputEditText
+    private lateinit var etGoogleSttKey: TextInputEditText
     private lateinit var sliderKeyRepeat: Slider
     private lateinit var sliderDeleteSpeed: Slider
     private lateinit var switchVibration: SwitchMaterial
     private lateinit var sliderVibration: Slider
-    private lateinit var switchAutoPolish: SwitchMaterial
+    private lateinit var radioPolishLevel: RadioGroup
     private lateinit var spinnerVoiceFrom: Spinner
     private lateinit var spinnerVoiceTo: Spinner
     private lateinit var switchDefaultLang: SwitchMaterial
@@ -45,6 +48,11 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var tvKeySizeLabel: TextView
     private lateinit var tvAppVersion: TextView
     private lateinit var btnMicPermission: MaterialButton
+    private lateinit var btnOverlayPermission: MaterialButton
+    private lateinit var switchDefaultVoiceBubble: SwitchMaterial
+    private lateinit var switchAdaptiveTouch: SwitchMaterial
+    private lateinit var tvAdaptiveTouchStats: TextView
+    private lateinit var btnResetAdaptiveTouch: MaterialButton
     private lateinit var radioOneHanded: RadioGroup
     private lateinit var btnSave: MaterialButton
     private lateinit var btnEnableKeyboard: MaterialButton
@@ -91,6 +99,9 @@ class SettingsActivity : AppCompatActivity() {
             refreshCrashCard()
             if (intent.getBooleanExtra(EXTRA_REQUEST_MIC_PERMISSION, false)) {
                 requestMicPermissionIfNeeded()
+            }
+            if (intent.getBooleanExtra(EXTRA_REQUEST_OVERLAY_PERMISSION, false)) {
+                requestOverlayPermissionIfNeeded()
             }
         } catch (e: Throwable) {
             com.gremier.gkeys.diag.CrashLogger.record(this, e)
@@ -170,6 +181,8 @@ class SettingsActivity : AppCompatActivity() {
         if (crashScreenShown) return
         try {
             updateMicPermissionButton()
+            updateOverlayPermissionButton()
+            refreshAdaptiveTouchStats()
             checkKeyboardEnabled()
             refreshCrashCard()
         } catch (e: Throwable) {
@@ -180,11 +193,12 @@ class SettingsActivity : AppCompatActivity() {
     private fun bindViews() {
         etOpenAiKey = findViewById(R.id.et_openai_key)
         etAnthropicKey = findViewById(R.id.et_anthropic_key)
+        etGoogleSttKey = findViewById(R.id.et_google_stt_key)
         sliderKeyRepeat = findViewById(R.id.slider_key_repeat)
         sliderDeleteSpeed = findViewById(R.id.slider_delete_speed)
         switchVibration = findViewById(R.id.switch_vibration)
         sliderVibration = findViewById(R.id.slider_vibration)
-        switchAutoPolish = findViewById(R.id.switch_auto_polish)
+        radioPolishLevel = findViewById(R.id.radio_polish_level)
         spinnerVoiceFrom = findViewById(R.id.spinner_voice_from)
         spinnerVoiceTo = findViewById(R.id.spinner_voice_to)
         setupVoiceLanguageSpinners()
@@ -194,6 +208,11 @@ class SettingsActivity : AppCompatActivity() {
         tvKeySizeLabel = findViewById(R.id.tv_key_size_label)
         tvAppVersion = findViewById(R.id.tv_app_version)
         btnMicPermission = findViewById(R.id.btn_mic_permission)
+        btnOverlayPermission = findViewById(R.id.btn_overlay_permission)
+        switchDefaultVoiceBubble = findViewById(R.id.switch_default_voice_bubble)
+        switchAdaptiveTouch = findViewById(R.id.switch_adaptive_touch)
+        tvAdaptiveTouchStats = findViewById(R.id.tv_adaptive_touch_stats)
+        btnResetAdaptiveTouch = findViewById(R.id.btn_reset_adaptive_touch)
         radioOneHanded = findViewById(R.id.radio_one_handed)
         btnSave = findViewById(R.id.btn_save)
         btnEnableKeyboard = findViewById(R.id.btn_enable_keyboard)
@@ -218,18 +237,28 @@ class SettingsActivity : AppCompatActivity() {
           try {
             etOpenAiKey.setText(GkeysSettings.openAiKey(this@SettingsActivity).first())
             etAnthropicKey.setText(GkeysSettings.anthropicKey(this@SettingsActivity).first())
+            etGoogleSttKey.setText(GkeysSettings.googleSttKey(this@SettingsActivity).first())
             sliderKeyRepeat.value = clampToSlider(sliderKeyRepeat, GkeysSettings.keyRepeatSpeed(this@SettingsActivity).first().toFloat())
             sliderDeleteSpeed.value = clampToSlider(sliderDeleteSpeed, GkeysSettings.deleteSpeed(this@SettingsActivity).first().toFloat())
             switchVibration.isChecked = GkeysSettings.vibrationEnabled(this@SettingsActivity).first()
             sliderVibration.value = clampToSlider(sliderVibration, GkeysSettings.vibrationStrength(this@SettingsActivity).first().toFloat())
             sliderVibration.isEnabled = switchVibration.isChecked
-            switchAutoPolish.isChecked = GkeysSettings.autoPolishEnabled(this@SettingsActivity).first()
+            when (GkeysSettings.polishLevel(this@SettingsActivity).first()) {
+                GkeysSettings.POLISH_FORMAL -> radioPolishLevel.check(R.id.radio_polish_formal)
+                GkeysSettings.POLISH_RAW -> radioPolishLevel.check(R.id.radio_polish_raw)
+                else -> radioPolishLevel.check(R.id.radio_polish_natural)
+            }
             selectSpinnerLanguage(spinnerVoiceFrom, GkeysSettings.voiceTranslateFrom(this@SettingsActivity).first())
             selectSpinnerLanguage(spinnerVoiceTo, GkeysSettings.voiceTranslateTo(this@SettingsActivity).first())
             switchDefaultLang.isChecked = GkeysSettings.defaultLanguage(this@SettingsActivity).first() == "he"
             switchRightHanded.isChecked = GkeysSettings.rightHandedMode(this@SettingsActivity).first()
             sliderKeySize.value = clampToSlider(sliderKeySize, presetToSlider(GkeysSettings.keySizePreset(this@SettingsActivity).first()))
             updateKeySizeLabel(sliderKeySize.value.toInt())
+            switchDefaultVoiceBubble.isChecked =
+                GkeysSettings.defaultToVoiceBubble(this@SettingsActivity).first()
+            switchAdaptiveTouch.isChecked =
+                GkeysSettings.adaptiveTouchEnabled(this@SettingsActivity).first()
+            refreshAdaptiveTouchStats()
             when (GkeysSettings.oneHandedMode(this@SettingsActivity).first()) {
                 GkeysSettings.ONE_HANDED_LEFT -> radioOneHanded.check(R.id.radio_one_hand_left)
                 GkeysSettings.ONE_HANDED_RIGHT -> radioOneHanded.check(R.id.radio_one_hand_right)
@@ -262,15 +291,22 @@ class SettingsActivity : AppCompatActivity() {
             updateKeySizeLabel(value.toInt())
         }
         btnMicPermission.setOnClickListener { requestMicPermissionIfNeeded() }
+        btnOverlayPermission.setOnClickListener { requestOverlayPermissionIfNeeded() }
+        btnResetAdaptiveTouch.setOnClickListener {
+            com.gremier.gkeys.ime.touch.AdaptiveTouchStore.reset(this)
+            refreshAdaptiveTouchStats()
+            Toast.makeText(this, "Touch model reset", Toast.LENGTH_SHORT).show()
+        }
         btnSave.setOnClickListener {
             lifecycleScope.launch {
                 GkeysSettings.saveOpenAiKey(this@SettingsActivity, etOpenAiKey.text.toString().trim())
                 GkeysSettings.saveAnthropicKey(this@SettingsActivity, etAnthropicKey.text.toString().trim())
+                GkeysSettings.saveGoogleSttKey(this@SettingsActivity, etGoogleSttKey.text.toString().trim())
                 GkeysSettings.saveKeyRepeatSpeed(this@SettingsActivity, sliderKeyRepeat.value.toInt())
                 GkeysSettings.saveDeleteSpeed(this@SettingsActivity, sliderDeleteSpeed.value.toInt())
                 GkeysSettings.saveVibration(this@SettingsActivity, switchVibration.isChecked)
                 GkeysSettings.saveVibrationStrength(this@SettingsActivity, sliderVibration.value.toInt())
-                GkeysSettings.saveAutoPolish(this@SettingsActivity, switchAutoPolish.isChecked)
+                GkeysSettings.savePolishLevel(this@SettingsActivity, polishLevelFromRadio())
                 GkeysSettings.saveVoiceTranslateFrom(this@SettingsActivity, spinnerLanguageCode(spinnerVoiceFrom))
                 GkeysSettings.saveVoiceTranslateTo(this@SettingsActivity, spinnerLanguageCode(spinnerVoiceTo))
                 GkeysSettings.saveDefaultLanguage(this@SettingsActivity,
@@ -283,6 +319,17 @@ class SettingsActivity : AppCompatActivity() {
                     else -> GkeysSettings.ONE_HANDED_OFF
                 }
                 GkeysSettings.saveOneHandedMode(this@SettingsActivity, oneHanded)
+                GkeysSettings.saveDefaultToVoiceBubble(
+                    this@SettingsActivity,
+                    switchDefaultVoiceBubble.isChecked
+                )
+                if (switchDefaultVoiceBubble.isChecked) {
+                    GkeysSettings.saveVoiceBubbleModeActive(this@SettingsActivity, true)
+                }
+                GkeysSettings.saveAdaptiveTouchEnabled(
+                    this@SettingsActivity,
+                    switchAdaptiveTouch.isChecked
+                )
                 AppVersionTracker.noteCurrentVersion(this@SettingsActivity)
                 btnSave.text = "Saved ✓"
                 Toast.makeText(
@@ -318,6 +365,41 @@ class SettingsActivity : AppCompatActivity() {
         }
     }
 
+    private fun hasOverlayPermission(): Boolean =
+        Settings.canDrawOverlays(this)
+
+    private fun requestOverlayPermissionIfNeeded() {
+        if (hasOverlayPermission()) {
+            Toast.makeText(this, "Overlay permission already allowed", Toast.LENGTH_SHORT).show()
+            return
+        }
+        try {
+            startActivity(
+                Intent(
+                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:$packageName")
+                )
+            )
+        } catch (e: Exception) {
+            Toast.makeText(this, "Open Settings → Apps → Gkeys → Display over other apps", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun refreshAdaptiveTouchStats() {
+        if (!::tvAdaptiveTouchStats.isInitialized) return
+        val engine = com.gremier.gkeys.ime.touch.AdaptiveTouchIntelligence(this, lifecycleScope)
+        engine.load()
+        tvAdaptiveTouchStats.text = engine.statsSummary()
+    }
+
+    private fun updateOverlayPermissionButton() {
+        btnOverlayPermission.text = if (hasOverlayPermission()) {
+            "✓ Display over other apps allowed"
+        } else {
+            "Allow display over other apps"
+        }
+    }
+
     private fun setupVoiceLanguageSpinners() {
         val names = resources.getStringArray(R.array.voice_translate_language_names)
         val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, names)
@@ -333,6 +415,12 @@ class SettingsActivity : AppCompatActivity() {
     private fun spinnerLanguageCode(spinner: Spinner): String {
         val index = spinner.selectedItemPosition.coerceIn(0, GkeysSettings.voiceLanguageCodes.lastIndex)
         return GkeysSettings.voiceLanguageCodes[index]
+    }
+
+    private fun polishLevelFromRadio(): String = when (radioPolishLevel.checkedRadioButtonId) {
+        R.id.radio_polish_formal -> GkeysSettings.POLISH_FORMAL
+        R.id.radio_polish_raw -> GkeysSettings.POLISH_RAW
+        else -> GkeysSettings.POLISH_NATURAL
     }
 
     private fun presetToSlider(preset: String): Float = when (preset) {

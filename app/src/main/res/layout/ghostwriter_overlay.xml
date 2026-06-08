@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/ghostwriter_overlay"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#E60F0F1A"
+    android:visibility="gone"
+    android:clickable="true"
+    android:focusable="true">
+
+    <ImageButton
+        android:id="@+id/btn_ghostwriter_close"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:layout_gravity="top|start"
+        android:layout_marginStart="8dp"
+        android:layout_marginTop="8dp"
+        android:src="@drawable/ic_back_arrow"
+        android:background="@drawable/btn_circle_bg"
+        android:contentDescription="Close ghostwriter"
+        android:scaleType="centerInside"
+        android:padding="8dp" />
+
+    <LinearLayout
+        android:id="@+id/ghostwriter_content"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:paddingStart="24dp"
+        android:paddingEnd="24dp">
+
+        <FrameLayout
+            android:layout_width="96dp"
+            android:layout_height="96dp"
+            android:layout_marginBottom="16dp">
+
+            <View
+                android:id="@+id/ghostwriter_glow"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:background="@drawable/ai_mic_bg_active" />
+
+            <ImageView
+                android:id="@+id/ghostwriter_wand"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:layout_gravity="center"
+                android:src="@drawable/ic_polish"
+                android:contentDescription="Ghostwriter" />
+
+        </FrameLayout>
+
+        <TextView
+            android:id="@+id/ghostwriter_title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:text="Your AI ghostwriter — describe what you want to say, and I'll write it for you."
+            android:textColor="#E5E7EB"
+            android:textSize="15sp"
+            android:lineSpacingExtra="4dp"
+            android:layout_marginBottom="12dp" />
+
+        <TextView
+            android:id="@+id/ghostwriter_status"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Tap when done speaking"
+            android:textColor="#6B7280"
+            android:textSize="12sp" />
+
+    </LinearLayout>
+
+</FrameLayout>

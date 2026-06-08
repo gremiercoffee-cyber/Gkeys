@@ -1,171 +1,580 @@
 <?xml version="1.0" encoding="utf-8"?>
+
 <FrameLayout
+
     xmlns:android="http://schemas.android.com/apk/res/android"
+
     android:layout_width="match_parent"
+
     android:layout_height="wrap_content"
+
     android:background="#0F0F1A"
+
     android:layoutDirection="ltr">
 
+
+
     <LinearLayout
+
         android:id="@+id/keyboard_content"
+
         android:layout_width="match_parent"
+
         android:layout_height="wrap_content"
+
         android:orientation="vertical"
+
         android:background="#0F0F1A"
+
         android:layoutDirection="ltr"
+
         android:paddingBottom="6dp">
 
-        <!-- Single toolbar row: one-hand | clipboard pill | mic | keyboard -->
+
+
+        <!-- Toolbar: settings | wand | polish | clipboard | mic | numpad -->
+
         <LinearLayout
+
             android:id="@+id/ai_strip"
+
             android:layout_width="match_parent"
-            android:layout_height="52dp"
+
+            android:layout_height="40dp"
+
             android:orientation="horizontal"
+
             android:background="#1A1A2E"
-            android:paddingStart="8dp"
-            android:paddingEnd="8dp"
+
+            android:paddingStart="6dp"
+
+            android:paddingEnd="6dp"
+
             android:gravity="center_vertical"
+
             android:layoutDirection="ltr">
 
-            <TextView
-                android:id="@+id/btn_one_hand"
-                android:layout_width="32dp"
-                android:layout_height="32dp"
-                android:gravity="center"
-                android:text="◧"
-                android:textColor="#6B7280"
-                android:textSize="15sp"
+
+
+            <ImageButton
+
+                android:id="@+id/btn_settings"
+
+                android:layout_width="28dp"
+
+                android:layout_height="28dp"
+
+                android:src="@drawable/ic_settings"
+
                 android:background="@drawable/btn_circle_bg"
-                android:contentDescription="One-handed mode" />
+
+                android:contentDescription="Keyboard settings"
+
+                android:scaleType="centerInside"
+
+                android:padding="4dp" />
+
+
+
+            <ImageButton
+
+                android:id="@+id/btn_wand"
+
+                android:layout_width="28dp"
+
+                android:layout_height="28dp"
+
+                android:layout_marginStart="4dp"
+
+                android:src="@drawable/ic_polish"
+
+                android:background="@drawable/btn_circle_bg"
+
+                android:contentDescription="Wand — tap for live dictation, long press for AI ghostwriter"
+
+                android:scaleType="centerInside"
+
+                android:padding="4dp" />
+
+
+
+            <LinearLayout
+
+                android:id="@+id/polish_level_toggle"
+
+                android:layout_width="wrap_content"
+
+                android:layout_height="26dp"
+
+                android:layout_marginStart="4dp"
+
+                android:orientation="horizontal"
+
+                android:background="@drawable/polish_toggle_bg"
+
+                android:padding="2dp"
+
+                android:gravity="center_vertical">
+
+
+
+                <TextView
+
+                    android:id="@+id/btn_polish_formal"
+
+                    android:layout_width="wrap_content"
+
+                    android:layout_height="match_parent"
+
+                    android:minWidth="28dp"
+
+                    android:gravity="center"
+
+                    android:text="F"
+
+                    android:textColor="#9CA3AF"
+
+                    android:textSize="10sp"
+
+                    android:paddingStart="4dp"
+
+                    android:paddingEnd="4dp"
+
+                    android:contentDescription="Formal — grammar only, keep vocabulary" />
+
+
+
+                <TextView
+
+                    android:id="@+id/btn_polish_natural"
+
+                    android:layout_width="wrap_content"
+
+                    android:layout_height="match_parent"
+
+                    android:minWidth="28dp"
+
+                    android:gravity="center"
+
+                    android:text="N"
+
+                    android:textColor="#FFFFFF"
+
+                    android:textSize="10sp"
+
+                    android:paddingStart="4dp"
+
+                    android:paddingEnd="4dp"
+
+                    android:background="@drawable/polish_toggle_segment_active"
+
+                    android:contentDescription="Natural — remove ums, keep voice" />
+
+
+
+                <TextView
+
+                    android:id="@+id/btn_polish_raw"
+
+                    android:layout_width="wrap_content"
+
+                    android:layout_height="match_parent"
+
+                    android:minWidth="28dp"
+
+                    android:gravity="center"
+
+                    android:text="R"
+
+                    android:textColor="#9CA3AF"
+
+                    android:textSize="10sp"
+
+                    android:paddingStart="4dp"
+
+                    android:paddingEnd="4dp"
+
+                    android:contentDescription="Raw transcription" />
+
+
+
+            </LinearLayout>
+
+
 
             <FrameLayout
+
                 android:id="@+id/clipboard_area"
+
                 android:layout_width="0dp"
-                android:layout_height="36dp"
+
+                android:layout_height="28dp"
+
                 android:layout_weight="1"
-                android:layout_marginStart="6dp"
-                android:layout_marginEnd="6dp"
+
+                android:layout_marginStart="4dp"
+
+                android:layout_marginEnd="4dp"
+
                 android:background="@drawable/clipboard_pill_bg"
+
                 android:clickable="true"
+
                 android:focusable="true"
+
+                android:longClickable="true"
+
                 android:foreground="?android:attr/selectableItemBackground">
 
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:paddingStart="12dp"
-                    android:paddingEnd="10dp">
 
-                    <TextView
-                        android:id="@+id/tv_clipboard"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="Tap for clipboard"
-                        android:textColor="#9CA3AF"
-                        android:textSize="12sp"
-                        android:singleLine="true"
-                        android:ellipsize="end" />
+
+                <LinearLayout
+
+                    android:layout_width="match_parent"
+
+                    android:layout_height="match_parent"
+
+                    android:orientation="horizontal"
+
+                    android:gravity="center_vertical"
+
+                    android:paddingStart="8dp"
+
+                    android:paddingEnd="6dp">
+
+
 
                     <ImageView
-                        android:layout_width="18dp"
-                        android:layout_height="18dp"
+
+                        android:id="@+id/iv_clipboard_preview"
+
+                        android:layout_width="22dp"
+
+                        android:layout_height="22dp"
+
+                        android:layout_marginEnd="6dp"
+
+                        android:visibility="gone"
+
+                        android:scaleType="centerCrop"
+
+                        android:contentDescription="Recent clip preview" />
+
+
+
+                    <TextView
+
+                        android:id="@+id/tv_clipboard"
+
+                        android:layout_width="0dp"
+
+                        android:layout_height="wrap_content"
+
+                        android:layout_weight="1"
+
+                        android:text=""
+
+                        android:textColor="#E8EAF0"
+
+                        android:textSize="11sp"
+
+                        android:singleLine="true"
+
+                        android:ellipsize="end"
+
+                        android:visibility="gone" />
+
+
+
+                    <TextView
+
+                        android:id="@+id/tv_clipboard_hint"
+
+                        android:layout_width="0dp"
+
+                        android:layout_height="wrap_content"
+
+                        android:layout_weight="1"
+
+                        android:text="Clipboard"
+
+                        android:textColor="#9CA3AF"
+
+                        android:textSize="11sp"
+
+                        android:singleLine="true" />
+
+
+
+                    <ImageView
+
+                        android:layout_width="14dp"
+
+                        android:layout_height="14dp"
+
                         android:src="@drawable/ic_clipboard_toolbar"
+
                         android:contentDescription="Clipboard"
+
                         android:importantForAccessibility="no" />
+
+
 
                 </LinearLayout>
 
+
+
             </FrameLayout>
 
-            <FrameLayout
-                android:id="@+id/btn_mic_container"
-                android:layout_width="44dp"
-                android:layout_height="44dp"
-                android:layout_marginStart="4dp"
-                android:background="@drawable/ai_mic_bg"
-                android:clickable="true"
-                android:focusable="true">
 
-                <ImageView
-                    android:id="@+id/btn_mic"
-                    android:layout_width="28dp"
-                    android:layout_height="28dp"
-                    android:layout_gravity="center"
-                    android:src="@drawable/ic_mic_white"
-                    android:contentDescription="Voice dictation"
-                    android:clickable="false"
-                    android:focusable="false"
+
+            <FrameLayout
+
+                android:id="@+id/btn_mic_container"
+
+                android:layout_width="32dp"
+
+                android:layout_height="32dp"
+
+                android:layout_marginStart="4dp"
+
+                android:background="@drawable/ai_mic_bg"
+
+                android:clickable="true"
+
+                android:focusable="true"
+
+                android:clipChildren="false">
+
+
+
+                <View
+
+                    android:id="@+id/mic_ai_glow"
+
+                    android:layout_width="match_parent"
+
+                    android:layout_height="match_parent"
+
+                    android:background="@drawable/mic_ai_glow_ring"
+
+                    android:visibility="gone"
+
                     android:importantForAccessibility="no" />
 
+
+
+                <View
+
+                    android:id="@+id/mic_ai_shimmer"
+
+                    android:layout_width="match_parent"
+
+                    android:layout_height="match_parent"
+
+                    android:background="@drawable/mic_shimmer_sweep"
+
+                    android:visibility="gone"
+
+                    android:importantForAccessibility="no" />
+
+
+
+                <ImageView
+
+                    android:id="@+id/mic_ai_sparkles"
+
+                    android:layout_width="match_parent"
+
+                    android:layout_height="match_parent"
+
+                    android:src="@drawable/mic_sparkle_cluster"
+
+                    android:visibility="gone"
+
+                    android:importantForAccessibility="no" />
+
+
+
+                <ImageView
+
+                    android:id="@+id/btn_mic"
+
+                    android:layout_width="20dp"
+
+                    android:layout_height="20dp"
+
+                    android:layout_gravity="center"
+
+                    android:src="@drawable/ic_mic_white"
+
+                    android:contentDescription="Voice dictation"
+
+                    android:clickable="false"
+
+                    android:focusable="false"
+
+                    android:importantForAccessibility="no" />
+
+
+
             </FrameLayout>
+
+
 
             <ImageButton
-                android:id="@+id/btn_keyboard"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
+
+                android:id="@+id/btn_voice_bubble"
+
+                android:layout_width="28dp"
+
+                android:layout_height="28dp"
+
                 android:layout_marginStart="4dp"
-                android:src="@drawable/ic_dialpad"
+
+                android:src="@drawable/ic_voice_bubble"
+
                 android:background="@drawable/btn_circle_bg"
-                android:contentDescription="Number pad"
+
+                android:contentDescription="Voice Bubble Mode — hide keyboard, dictate with floating bubble"
+
                 android:scaleType="centerInside"
-                android:padding="8dp" />
+
+                android:padding="4dp" />
+
+
+
+            <ImageButton
+
+                android:id="@+id/btn_keyboard"
+
+                android:layout_width="28dp"
+
+                android:layout_height="28dp"
+
+                android:layout_marginStart="4dp"
+
+                android:src="@drawable/ic_dialpad"
+
+                android:background="@drawable/btn_circle_bg"
+
+                android:contentDescription="Number pad"
+
+                android:scaleType="centerInside"
+
+                android:padding="4dp" />
+
+
 
         </LinearLayout>
 
+
+
         <View
+
             android:layout_width="match_parent"
+
             android:layout_height="1dp"
+
             android:background="#2A2A3E" />
 
-        <LinearLayout
+
+
+        <FrameLayout
+
             android:id="@+id/keyboard_panel"
+
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
+
+            android:layout_height="220dp"
+
             android:layoutDirection="ltr"
+
             android:background="#0F0F1A">
 
+
+
             <FrameLayout
+
                 android:id="@+id/keyboard_keys_host"
+
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
+
+                android:layout_height="match_parent"
+
                 android:background="#0F0F1A">
 
+
+
                 <com.gremier.gkeys.ime.KeyboardTouchLayout
+
                     android:id="@+id/keyboard_rows"
+
                     android:layout_width="match_parent"
-                    android:layout_height="280dp"
+
+                    android:layout_height="match_parent"
+
                     android:layout_gravity="bottom|center_horizontal"
+
                     android:orientation="vertical"
+
                     android:layoutDirection="ltr"
-                    android:paddingStart="4dp"
-                    android:paddingEnd="4dp"
-                    android:paddingTop="2dp"
-                    android:paddingBottom="2dp" />
+
+                    android:paddingStart="2dp"
+
+                    android:paddingEnd="2dp"
+
+                    android:paddingTop="1dp"
+
+                    android:paddingBottom="1dp" />
+
+
 
             </FrameLayout>
 
-        </LinearLayout>
+
+
+            <include layout="@layout/voice_overlay" />
+
+            <include layout="@layout/ghostwriter_overlay" />
+
+
+
+            <FrameLayout
+
+                android:id="@+id/clipboard_overlay_container"
+
+                android:layout_width="match_parent"
+
+                android:layout_height="match_parent"
+
+                android:visibility="gone"
+
+                android:clickable="true"
+
+                android:focusable="true" />
+
+
+
+        </FrameLayout>
+
+
 
         <TextView
+
             android:id="@+id/tv_status"
+
             android:layout_width="match_parent"
+
             android:layout_height="0dp"
+
             android:visibility="gone" />
+
+
 
     </LinearLayout>
 
-    <include layout="@layout/voice_overlay" />
 
-    <FrameLayout
-        android:id="@+id/clipboard_overlay_container"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:visibility="gone"
-        android:clickable="true"
-        android:focusable="true" />
 
 </FrameLayout>
+

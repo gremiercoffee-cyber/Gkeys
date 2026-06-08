@@ -1,124 +1,224 @@
 package com.gremier.gkeys.ime.layout
 
+
+
 /**
- * Key sizing and right-handed one-thumb layout tuning.
- * Baseline pebble height 52dp (~20–22mm thumb tip); widths slightly wider than tall.
+
+ * Gboard-style tile layout: edge-to-edge rounded rectangles in a fixed-height keyboard shell.
+
  */
+
 object KeyboardLayoutMetrics {
 
+
+
     const val KEY_SIZE_SMALL = "small"
+
     const val KEY_SIZE_DEFAULT = "default"
+
     const val KEY_SIZE_LARGE = "large"
+
     const val KEY_SIZE_EXTRA_LARGE = "extra_large"
 
-    const val BASE_PEBBLE_DP = 52
-    const val BASE_SPECIAL_DP = 56
-    const val BASE_KEY_GAP_DP = 4
-    const val KEY_CIRCLE_INSET_DP = 3
-    const val NUMPAD_KEY_GAP_DP = 1
-    const val NUMPAD_KEY_CIRCLE_INSET_DP = 1
-    const val NUMPAD_COLUMN_COUNT = 5
-    /** Side symbol columns narrower so digit columns 1–3 stack tightly. */
-    val NUMPAD_COLUMN_WEIGHTS = floatArrayOf(0.5f, 1f, 1f, 1f, 0.5f)
-    const val BASE_ROW_COUNT = 5
 
-    /** @deprecated Use [BASE_PEBBLE_DP] — keys are circles with equal width and height. */
-    const val BASE_PEBBLE_HEIGHT_DP = BASE_PEBBLE_DP
-    /** @deprecated Use [BASE_PEBBLE_DP] */
-    const val BASE_PEBBLE_WIDTH_DP = BASE_PEBBLE_DP
-    const val BASE_SPACE_HEIGHT_DP = BASE_PEBBLE_DP
-    const val BASE_SPACE_WIDTH_DP = BASE_PEBBLE_DP
+
+    /** Hairline gap between tiles; keyboard background shows through. */
+
+    const val TILE_GAP_DP = 1
+
+    const val NUMPAD_TILE_GAP_DP = 0
+
+
+
+    const val DEFAULT_KEYBOARD_HEIGHT_DP = 220
+
+    const val MIN_KEYBOARD_HEIGHT_DP = 160
+
+    const val MAX_KEYBOARD_HEIGHT_DP = 320
+
+
+
+    const val AI_STRIP_HEIGHT_DP = 40
+
+    const val SHELL_DIVIDER_DP = 1
+
+    const val SHELL_BOTTOM_PADDING_DP = 6
+
+
+
+    const val NUMPAD_COLUMN_COUNT = 5
+
+
 
     data class Profile(
-        val pebbleWidthDp: Int,
-        val pebbleHeightDp: Int,
-        val specialDp: Int,
-        val spaceWidthDp: Int,
-        val spaceHeightDp: Int,
+
         val keyGapDp: Int,
-        val keyboardHeightDp: Int,
+
+        val textScale: Float,
+
         val rightHanded: Boolean
+
     )
 
+
+
     fun scaleForPreset(preset: String): Float = when (preset) {
-        KEY_SIZE_SMALL -> 0.90f
+
+        KEY_SIZE_SMALL -> 0.88f
+
         KEY_SIZE_LARGE -> 1.06f
-        KEY_SIZE_EXTRA_LARGE -> 1.12f
+
+        KEY_SIZE_EXTRA_LARGE -> 1.14f
+
         else -> 1.0f
+
     }
 
-    fun profile(preset: String, rightHanded: Boolean, rowCount: Int = BASE_ROW_COUNT): Profile {
-        val scale = scaleForPreset(preset)
-        val pebble = (BASE_PEBBLE_DP * scale).toInt()
-        val gap = BASE_KEY_GAP_DP
-        val rowHeight = pebble + gap * 2 + 6
-        return Profile(
-            pebbleWidthDp = pebble,
-            pebbleHeightDp = pebble,
-            specialDp = (BASE_SPECIAL_DP * scale).toInt(),
-            spaceWidthDp = pebble,
-            spaceHeightDp = pebble,
-            keyGapDp = gap,
-            keyboardHeightDp = rowHeight * rowCount,
-            rightHanded = rightHanded
-        )
-    }
 
-    fun heightForRowCount(profile: Profile, rowCount: Int): Int {
-        val perRow = profile.keyboardHeightDp / BASE_ROW_COUNT
-        return perRow * rowCount
-    }
 
-    /** Horizontal cell weight multiplier for right-handed reach. */
-    fun weightMultiplier(label: String, rightHanded: Boolean): Float {
-        if (!rightHanded) return 1f
-        return when (label) {
-            "p", "l", "⌫", "↵" -> 1.14f
-            "o", "i", "m", "n", "." -> 1.06f
-            "q", "a", "z", "⇧" -> 0.86f
-            "w", "s", "x" -> 0.92f
-            "?123", "ABC", "🌐", "," -> 0.88f
-            "0" -> 2.2f
-            "SPACE" -> 1.08f
-            else -> 1f
-        }
-    }
+    fun profile(preset: String, rightHanded: Boolean): Profile = Profile(
 
-    /** Bottom row only: bias spacebar right of visual center. */
+        keyGapDp = TILE_GAP_DP,
+
+        textScale = scaleForPreset(preset),
+
+        rightHanded = rightHanded
+
+    )
+
+
+
+    fun clampKeyboardHeightDp(heightDp: Int): Int =
+
+        heightDp.coerceIn(MIN_KEYBOARD_HEIGHT_DP, MAX_KEYBOARD_HEIGHT_DP)
+
+
+
+    /** Total IME key-shell height: toolbar + divider + keys + bottom padding. */
+
+    fun shellHeightDp(keyboardHeightDp: Int): Int =
+
+        AI_STRIP_HEIGHT_DP + SHELL_DIVIDER_DP + clampKeyboardHeightDp(keyboardHeightDp) + SHELL_BOTTOM_PADDING_DP
+
+
+
+    /** Bottom row: space dominates; punctuation and globe are clearly secondary. */
+
     fun bottomRowWeight(label: String, rightHanded: Boolean): Float {
+
         if (!rightHanded) {
+
             return when (label) {
-                "SPACE" -> 4.9f
-                "⌫" -> 1.85f
-                "0" -> 2.2f
-                "↵", "⇧" -> 1.5f
+
+                "SPACE" -> 6.8f
+
+                "🌐" -> 0.55f
+
+                ",", ".", "?" -> 0.72f
+
+                "?123", "ABC", "NUMPAD_BACK" -> 0.85f
+
+                "↵" -> 1.2f
+
                 else -> 1f
+
             }
+
         }
+
         return when (label) {
-            "SPACE" -> 5.2f
-            "↵" -> 1.65f
-            "⌫" -> 1.9f
-            "." -> 1.08f
-            "?123", "ABC", "🌐" -> 0.82f
-            "," -> 0.90f
+
+            "SPACE" -> 7.0f
+
+            "🌐" -> 0.5f
+
+            ",", ".", "?" -> 0.68f
+
+            "?123", "ABC", "NUMPAD_BACK" -> 0.82f
+
+            "↵" -> 1.15f
+
             else -> 1f
+
         }
+
     }
+
+
+
+    /** Numpad bottom row: wide space bar, compact action keys. */
+
+    fun numpadBottomRowWeight(label: String): Float = when (label) {
+
+        "SPACE" -> 3.6f
+
+        "ABC", "NUMPAD_BACK" -> 0.9f
+
+        "⌫" -> 1.1f
+
+        ".", "?" -> 0.75f
+
+        "↵" -> 1.05f
+
+        else -> 1f
+
+    }
+
+
+
+    fun rowKeyWeight(
+
+        label: String,
+
+        rowIndex: Int,
+
+        totalRows: Int,
+
+        rightHanded: Boolean,
+
+        isNumpadMode: Boolean
+
+    ): Float {
+
+        if (!isBottomRowSpecialRow(rowIndex, totalRows)) return 1f
+
+        return if (isNumpadMode) numpadBottomRowWeight(label)
+
+        else bottomRowWeight(label, rightHanded)
+
+    }
+
+
 
     fun isBottomRowSpecialRow(rowIndex: Int, totalRows: Int): Boolean =
+
         rowIndex == totalRows - 1
 
+
+
     /** Horizontal inset to shift keyboard slightly right for right-thumb arc. */
+
     fun keyboardShiftRightDp(rightHanded: Boolean): Int = if (rightHanded) 10 else 0
 
-    fun keyboardPaddingStartDp(rightHanded: Boolean): Int = if (rightHanded) 6 else 4
-    fun keyboardPaddingEndDp(rightHanded: Boolean): Int = if (rightHanded) 2 else 4
+
+
+    fun keyboardPaddingStartDp(rightHanded: Boolean): Int = if (rightHanded) 4 else 2
+
+    fun keyboardPaddingEndDp(rightHanded: Boolean): Int = if (rightHanded) 2 else 2
+
+
 
     /** One-handed: key cluster width; background stays full screen. */
+
     const val ONE_HANDED_KEY_AREA_FRACTION = 0.92f
-    const val ONE_HANDED_KEY_GAP_DP = 2
-    const val ONE_HANDED_KEY_CIRCLE_INSET_DP = 0
-    /** @deprecated Keys area uses [ONE_HANDED_KEY_AREA_FRACTION]; shell is always full width. */
-    const val ONE_HANDED_WIDTH_FRACTION = ONE_HANDED_KEY_AREA_FRACTION
+
+    const val ONE_HANDED_KEY_GAP_DP = TILE_GAP_DP
+
+    const val EMOJI_COLUMNS = 9
+    const val EMOJI_ROW_HEIGHT_DP = 30
+    const val EMOJI_HEADER_ROW_DP = 36
+    const val EMOJI_CATEGORY_HEADER_DP = 22
+    const val EMOJI_TEXT_SP = 15f
+
 }
+

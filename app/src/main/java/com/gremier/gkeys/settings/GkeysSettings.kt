@@ -23,15 +23,21 @@ object GkeysSettings {
     val VIBRATION_ENABLED = booleanPreferencesKey("vibration_enabled")
     val VIBRATION_STRENGTH = intPreferencesKey("vibration_strength")
     val AUTO_POLISH_ENABLED = booleanPreferencesKey("auto_polish_enabled")
+    val POLISH_LEVEL = stringPreferencesKey("polish_level")
     val DEFAULT_LANGUAGE = stringPreferencesKey("default_language")
     val ONE_HANDED_MODE = stringPreferencesKey("one_handed_mode")
     val TOUCH_OFFSET_X = floatPreferencesKey("touch_offset_x")
     val TOUCH_OFFSET_Y = floatPreferencesKey("touch_offset_y")
     val TOUCH_OFFSET_SAMPLES = intPreferencesKey("touch_offset_samples")
+    val ADAPTIVE_TOUCH_ENABLED = booleanPreferencesKey("adaptive_touch_enabled")
     val RIGHT_HANDED_MODE = booleanPreferencesKey("right_handed_mode")
     val VOICE_TRANSLATE_FROM = stringPreferencesKey("voice_translate_from")
     val VOICE_TRANSLATE_TO = stringPreferencesKey("voice_translate_to")
     val KEY_SIZE_PRESET = stringPreferencesKey("key_size_preset")
+    val KEYBOARD_HEIGHT_DP = intPreferencesKey("keyboard_height_dp")
+    val GOOGLE_STT_KEY = stringPreferencesKey("google_stt_key")
+    val VOICE_BUBBLE_MODE_ACTIVE = booleanPreferencesKey("voice_bubble_mode_active")
+    val DEFAULT_TO_VOICE_BUBBLE = booleanPreferencesKey("default_to_voice_bubble")
 
     const val LANG_EN = "en"
     const val LANG_HE = "he"
@@ -44,11 +50,21 @@ object GkeysSettings {
     const val KEY_SIZE_EXTRA_LARGE = "extra_large"
     const val DEFAULT_KEY_SIZE_PRESET = KEY_SIZE_LARGE
 
+    const val DEFAULT_KEYBOARD_HEIGHT_DP = 220
+    const val MIN_KEYBOARD_HEIGHT_DP = 160
+    const val MAX_KEYBOARD_HEIGHT_DP = 320
+
     const val DEFAULT_KEY_REPEAT_MS = 50
     const val DEFAULT_DELETE_SPEED_MS = 50
     const val DEFAULT_VIBRATION = true
     const val DEFAULT_VIBRATION_STRENGTH = 20
     const val DEFAULT_AUTO_POLISH = true
+    const val DEFAULT_ADAPTIVE_TOUCH = true
+
+    const val POLISH_FORMAL = "formal"
+    const val POLISH_NATURAL = "natural"
+    const val POLISH_RAW = "raw"
+    const val DEFAULT_POLISH_LEVEL = POLISH_NATURAL
     const val DEFAULT_LANGUAGE_VAL = "en"
     const val ONE_HANDED_OFF = "off"
     const val ONE_HANDED_LEFT = "left"
@@ -62,6 +78,11 @@ object GkeysSettings {
     fun anthropicKey(context: Context): Flow<String> = flow {
         migrateAnthropicKeyIfNeeded(context)
         emit(SecureApiKeyStore.getAnthropicKey(context))
+    }
+
+    fun googleSttKey(context: Context): Flow<String> = flow {
+        migrateGoogleSttKeyIfNeeded(context)
+        emit(SecureApiKeyStore.getGoogleSttKey(context))
     }
 
     fun keyRepeatSpeed(context: Context): Flow<Int> =
@@ -79,6 +100,28 @@ object GkeysSettings {
     fun autoPolishEnabled(context: Context): Flow<Boolean> =
         settingsStore(context).data.map { it[AUTO_POLISH_ENABLED] ?: DEFAULT_AUTO_POLISH }
 
+    fun polishLevel(context: Context): Flow<String> =
+        settingsStore(context).data.map { prefs ->
+            prefs[POLISH_LEVEL] ?: when (prefs[AUTO_POLISH_ENABLED]) {
+                false -> POLISH_RAW
+                else -> DEFAULT_POLISH_LEVEL
+            }
+        }
+
+    fun polishLevelLabel(level: String): String = when (level) {
+        POLISH_FORMAL -> "Formal"
+        POLISH_RAW -> "Raw"
+        else -> "Natural"
+    }
+
+    fun polishLevelShortLabel(level: String): String = when (level) {
+        POLISH_FORMAL -> "Frm"
+        POLISH_RAW -> "Raw"
+        else -> "Nat"
+    }
+
+    val polishLevels: List<String> = listOf(POLISH_FORMAL, POLISH_NATURAL, POLISH_RAW)
+
     fun defaultLanguage(context: Context): Flow<String> =
         settingsStore(context).data.map { it[DEFAULT_LANGUAGE] ?: DEFAULT_LANGUAGE_VAL }
 
@@ -90,6 +133,23 @@ object GkeysSettings {
 
     fun keySizePreset(context: Context): Flow<String> =
         settingsStore(context).data.map { it[KEY_SIZE_PRESET] ?: KEY_SIZE_DEFAULT }
+
+    fun keyboardHeightDp(context: Context): Flow<Int> =
+        settingsStore(context).data.map {
+            (it[KEYBOARD_HEIGHT_DP] ?: DEFAULT_KEYBOARD_HEIGHT_DP)
+                .coerceIn(MIN_KEYBOARD_HEIGHT_DP, MAX_KEYBOARD_HEIGHT_DP)
+        }
+
+    fun voiceBubbleModeActive(context: Context): Flow<Boolean> =
+        settingsStore(context).data.map { prefs ->
+            prefs[VOICE_BUBBLE_MODE_ACTIVE] ?: (prefs[DEFAULT_TO_VOICE_BUBBLE] ?: false)
+        }
+
+    fun defaultToVoiceBubble(context: Context): Flow<Boolean> =
+        settingsStore(context).data.map { it[DEFAULT_TO_VOICE_BUBBLE] ?: false }
+
+    fun adaptiveTouchEnabled(context: Context): Flow<Boolean> =
+        settingsStore(context).data.map { it[ADAPTIVE_TOUCH_ENABLED] ?: DEFAULT_ADAPTIVE_TOUCH }
 
     fun voiceTranslateFrom(context: Context): Flow<String> =
         settingsStore(context).data.map { it[VOICE_TRANSLATE_FROM] ?: DEFAULT_VOICE_TRANSLATE_FROM }
@@ -115,6 +175,11 @@ object GkeysSettings {
         settingsStore(context).edit { it.remove(ANTHROPIC_KEY) }
     }
 
+    suspend fun saveGoogleSttKey(context: Context, key: String) {
+        SecureApiKeyStore.saveGoogleSttKey(context, key)
+        settingsStore(context).edit { it.remove(GOOGLE_STT_KEY) }
+    }
+
     private suspend fun migrateOpenAiKeyIfNeeded(context: Context) {
         if (SecureApiKeyStore.getOpenAiKey(context).isNotBlank()) return
         val legacy = settingsStore(context).data.first()[OPENAI_KEY] ?: ""
@@ -130,6 +195,15 @@ object GkeysSettings {
         if (legacy.isNotBlank()) {
             SecureApiKeyStore.saveAnthropicKey(context, legacy)
             settingsStore(context).edit { it.remove(ANTHROPIC_KEY) }
+        }
+    }
+
+    private suspend fun migrateGoogleSttKeyIfNeeded(context: Context) {
+        if (SecureApiKeyStore.getGoogleSttKey(context).isNotBlank()) return
+        val legacy = settingsStore(context).data.first()[GOOGLE_STT_KEY] ?: ""
+        if (legacy.isNotBlank()) {
+            SecureApiKeyStore.saveGoogleSttKey(context, legacy)
+            settingsStore(context).edit { it.remove(GOOGLE_STT_KEY) }
         }
     }
 
@@ -151,6 +225,14 @@ object GkeysSettings {
 
     suspend fun saveAutoPolish(context: Context, enabled: Boolean) {
         settingsStore(context).edit { it[AUTO_POLISH_ENABLED] = enabled }
+    }
+
+    suspend fun savePolishLevel(context: Context, level: String) {
+        val normalized = when (level) {
+            POLISH_FORMAL, POLISH_NATURAL, POLISH_RAW -> level
+            else -> DEFAULT_POLISH_LEVEL
+        }
+        settingsStore(context).edit { it[POLISH_LEVEL] = normalized }
     }
 
     suspend fun saveDefaultLanguage(context: Context, lang: String) {
@@ -175,6 +257,24 @@ object GkeysSettings {
 
     suspend fun saveKeySizePreset(context: Context, preset: String) {
         settingsStore(context).edit { it[KEY_SIZE_PRESET] = preset }
+    }
+
+    suspend fun saveKeyboardHeightDp(context: Context, heightDp: Int) {
+        settingsStore(context).edit {
+            it[KEYBOARD_HEIGHT_DP] = heightDp.coerceIn(MIN_KEYBOARD_HEIGHT_DP, MAX_KEYBOARD_HEIGHT_DP)
+        }
+    }
+
+    suspend fun saveVoiceBubbleModeActive(context: Context, active: Boolean) {
+        settingsStore(context).edit { it[VOICE_BUBBLE_MODE_ACTIVE] = active }
+    }
+
+    suspend fun saveDefaultToVoiceBubble(context: Context, enabled: Boolean) {
+        settingsStore(context).edit { it[DEFAULT_TO_VOICE_BUBBLE] = enabled }
+    }
+
+    suspend fun saveAdaptiveTouchEnabled(context: Context, enabled: Boolean) {
+        settingsStore(context).edit { it[ADAPTIVE_TOUCH_ENABLED] = enabled }
     }
 
     suspend fun saveVoiceTranslateFrom(context: Context, lang: String) {

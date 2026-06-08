@@ -3,13 +3,16 @@ package com.gremier.gkeys.clipboard
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.net.Uri
 import android.os.Build
 import android.util.Log
+import android.util.Size
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.GridLayout
 import android.widget.ImageButton
+import android.widget.ImageView
 import android.widget.PopupMenu
 import android.widget.TextView
 import com.gremier.gkeys.R
@@ -19,48 +22,78 @@ import kotlinx.coroutines.flow.collectLatest
 class GkeysClipboardManager(
     private val context: Context,
     private val overlayContainer: ViewGroup,
+    private val previewContainer: View,
     private val previewView: TextView,
-    private val onPaste: (String) -> Unit,
+    private val previewImage: ImageView,
+    private val previewHint: TextView,
+    private val onPasteItem: (ClipboardItem) -> Unit,
     private val onVibrate: () -> Unit,
     private val onPanelOpen: () -> Unit = {},
     private val onPanelClose: () -> Unit = {}
 ) {
     companion object {
         private const val TAG = "GkeysClipboard"
-        private const val MAX_ITEMS = 20
-        private const val MAX_AGE_MS = 60 * 60 * 1000L
+        private const val PREVIEW_MAX_AGE_MS = 15 * 60 * 1000L
+        private const val MAX_UNPINNED_ITEMS = 2000
         private const val PREFS = "gkeys_clipboard"
         private const val KEY_BLOCKED = "blocked_texts"
-        private const val MAX_BLOCKED = 50
+        private const val MAX_BLOCKED = 100
     }
 
     private val dao = ClipboardDatabase.getInstance(context).clipboardDao()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var overlayView: View? = null
     private var isListening = false
-    private var lastCapturedText: String? = null
+    private var lastCapturedKey: String? = null
+    private var previewItem: ClipboardItem? = null
     private var observeJob: Job? = null
 
     private val prefs by lazy {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     }
 
-    private val blockedTexts = loadBlockedTexts().toMutableSet()
+    private val blockedKeys = loadBlockedKeys().toMutableSet()
 
     private val systemClipboard =
         context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
 
+    private val screenshotMonitor = ScreenshotMonitor(context) { uri ->
+        scope.launch { addImageItem(uri) }
+    }
+
     private val clipListener = ClipboardManager.OnPrimaryClipChangedListener {
         if (!isListening) return@OnPrimaryClipChangedListener
         try {
-            val text = readSystemClipText() ?: return@OnPrimaryClipChangedListener
-            if (text != lastCapturedText && !isBlocked(text)) {
-                lastCapturedText = text
-                scope.launch { addItem(text) }
+            val capture = readSystemClip() ?: return@OnPrimaryClipChangedListener
+            val key = captureKey(capture)
+            if (key != lastCapturedKey && !isBlockedKey(key)) {
+                lastCapturedKey = key
+                scope.launch {
+                    when (capture) {
+                        is ClipCapture.Text -> addTextItem(capture.text)
+                        is ClipCapture.Image -> addImageItem(capture.uri)
+                    }
+                }
             }
         } catch (e: Exception) {
             Log.w(TAG, "Clipboard listener failed", e)
         }
+    }
+
+    fun setupPreviewInteractions() {
+        previewContainer.setOnClickListener { onPreviewTap() }
+        previewContainer.setOnLongClickListener {
+            showPanel()
+            onVibrate()
+            true
+        }
+    }
+
+    fun onPreviewTap() {
+        val item = previewItem ?: return
+        if (!isPreviewEligible(item)) return
+        onPasteItem(item)
+        onVibrate()
     }
 
     fun startListening() {
@@ -71,6 +104,7 @@ class GkeysClipboardManager(
         } catch (e: Exception) {
             Log.w(TAG, "Unable to register clipboard listener", e)
         }
+        screenshotMonitor.start()
         observeJob?.cancel()
         observeJob = scope.launch {
             try {
@@ -84,11 +118,16 @@ class GkeysClipboardManager(
         }
         scope.launch {
             try {
-                purgeExpired()
-                val text = readSystemClipText()
-                if (text != null && !isBlocked(text)) {
-                    lastCapturedText = text
-                    addItem(text)
+                val capture = readSystemClip()
+                if (capture != null) {
+                    val key = captureKey(capture)
+                    if (!isBlockedKey(key)) {
+                        lastCapturedKey = key
+                        when (capture) {
+                            is ClipCapture.Text -> addTextItem(capture.text)
+                            is ClipCapture.Image -> addImageItem(capture.uri)
+                        }
+                    }
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "Clipboard bootstrap failed", e)
@@ -101,6 +140,7 @@ class GkeysClipboardManager(
         isListening = false
         observeJob?.cancel()
         observeJob = null
+        screenshotMonitor.stop()
         try {
             systemClipboard.removePrimaryClipChangedListener(clipListener)
         } catch (e: Exception) {
@@ -114,10 +154,7 @@ class GkeysClipboardManager(
         if (overlayView != null) {
             overlayView?.visibility = View.VISIBLE
             scope.launch {
-                refreshOverlay(withContext(Dispatchers.IO) {
-                    purgeExpired()
-                    dao.getAllOnce()
-                })
+                refreshOverlay(withContext(Dispatchers.IO) { dao.getAllOnce() })
             }
             return
         }
@@ -130,10 +167,7 @@ class GkeysClipboardManager(
         overlayContainer.addView(panel, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
         overlayView = panel
         scope.launch {
-            refreshOverlay(withContext(Dispatchers.IO) {
-                purgeExpired()
-                dao.getAllOnce()
-            })
+            refreshOverlay(withContext(Dispatchers.IO) { dao.getAllOnce() })
         }
     }
 
@@ -157,16 +191,39 @@ class GkeysClipboardManager(
         overlayView = null
     }
 
-    private suspend fun addItem(text: String) {
-        if (isBlocked(text)) return
+    private sealed class ClipCapture {
+        data class Text(val text: String) : ClipCapture()
+        data class Image(val uri: Uri) : ClipCapture()
+    }
+
+    private suspend fun addTextItem(text: String) {
+        if (isBlockedKey(text)) return
         withContext(Dispatchers.IO) {
-            purgeExpired()
             val existing = dao.findByText(text)
             if (existing != null) {
                 dao.update(existing.copy(timestamp = System.currentTimeMillis()))
             } else {
-                dao.insert(ClipboardItem(text = text))
-                trimHistory()
+                dao.insert(ClipboardItem(text = text, itemType = ClipboardItem.TYPE_TEXT))
+                trimUnpinnedHistory()
+            }
+        }
+    }
+
+    private suspend fun addImageItem(uri: Uri) {
+        val uriStr = uri.toString()
+        if (isBlockedKey("img:$uriStr")) return
+        withContext(Dispatchers.IO) {
+            val existing = dao.findByImageUri(uriStr)
+            if (existing != null) {
+                dao.update(existing.copy(timestamp = System.currentTimeMillis()))
+            } else {
+                dao.insert(
+                    ClipboardItem(
+                        imageUri = uriStr,
+                        itemType = ClipboardItem.TYPE_IMAGE
+                    )
+                )
+                trimUnpinnedHistory()
             }
         }
     }
@@ -174,14 +231,18 @@ class GkeysClipboardManager(
     private suspend fun deleteItem(item: ClipboardItem) {
         withContext(Dispatchers.IO) {
             dao.deleteById(item.id)
-            dao.deleteByText(item.text)
-            blockText(item.text)
+            if (item.isImage) {
+                dao.deleteByImageUri(item.imageUri.orEmpty())
+            } else {
+                dao.deleteByText(item.text)
+            }
+            blockItem(item)
         }
         withContext(Dispatchers.Main) {
             try {
-                if (readSystemClipText() == item.text) {
+                if (!item.isImage && readSystemClipText() == item.text) {
                     clearSystemClipboard()
-                    lastCapturedText = ""
+                    lastCapturedKey = null
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "Unable to clear system clipboard", e)
@@ -190,44 +251,62 @@ class GkeysClipboardManager(
         }
     }
 
-    private fun blockText(text: String) {
-        blockedTexts.add(text)
-        while (blockedTexts.size > MAX_BLOCKED) {
-            blockedTexts.remove(blockedTexts.first())
+    private fun blockItem(item: ClipboardItem) {
+        blockedKeys.add(itemKey(item))
+        while (blockedKeys.size > MAX_BLOCKED) {
+            blockedKeys.remove(blockedKeys.first())
         }
-        prefs.edit().putStringSet(KEY_BLOCKED, blockedTexts.toSet()).apply()
+        prefs.edit().putStringSet(KEY_BLOCKED, blockedKeys.toSet()).apply()
     }
 
-    private fun isBlocked(text: String): Boolean = text in blockedTexts
+    private fun isBlockedKey(key: String): Boolean = key in blockedKeys
 
-    private fun loadBlockedTexts(): Set<String> = try {
+    private fun isBlocked(item: ClipboardItem): Boolean = isBlockedKey(itemKey(item))
+
+    private fun itemKey(item: ClipboardItem): String =
+        if (item.isImage) "img:${item.imageUri}" else item.text
+
+    private fun captureKey(capture: ClipCapture): String = when (capture) {
+        is ClipCapture.Text -> capture.text
+        is ClipCapture.Image -> "img:${capture.uri}"
+    }
+
+    private fun loadBlockedKeys(): Set<String> = try {
         prefs.getStringSet(KEY_BLOCKED, emptySet())?.toSet() ?: emptySet()
     } catch (e: Throwable) {
-        Log.w(TAG, "Unable to load blocked texts", e)
+        Log.w(TAG, "Unable to load blocked keys", e)
         emptySet()
     }
 
-    private suspend fun purgeExpired() {
-        dao.deleteOlderThan(System.currentTimeMillis() - MAX_AGE_MS)
-    }
-
-    private suspend fun trimHistory() {
-        while (dao.countAll() > MAX_ITEMS) {
+    private suspend fun trimUnpinnedHistory() {
+        while (dao.countAll() > MAX_UNPINNED_ITEMS) {
             val oldest = dao.getOldestUnpinned() ?: break
             dao.delete(oldest)
         }
     }
 
-    private fun readSystemClipText(): String? {
+    private fun isPreviewEligible(item: ClipboardItem): Boolean =
+        System.currentTimeMillis() - item.timestamp <= PREVIEW_MAX_AGE_MS
+
+    private fun readSystemClip(): ClipCapture? {
         return try {
             val clip = systemClipboard.primaryClip ?: return null
             if (clip.itemCount == 0) return null
-            clip.getItemAt(0).coerceToText(context)?.toString()?.trim()?.takeIf { it.isNotBlank() }
+            val item = clip.getItemAt(0)
+            val uri = item.uri
+            if (uri != null && clip.description.hasMimeType("image/*")) {
+                return ClipCapture.Image(uri)
+            }
+            val text = item.coerceToText(context)?.toString()?.trim()?.takeIf { it.isNotBlank() }
+            if (text != null) ClipCapture.Text(text) else null
         } catch (e: Exception) {
             Log.w(TAG, "Unable to read clipboard", e)
             null
         }
     }
+
+    private fun readSystemClipText(): String? =
+        (readSystemClip() as? ClipCapture.Text)?.text
 
     private fun clearSystemClipboard() {
         try {
@@ -243,16 +322,52 @@ class GkeysClipboardManager(
     }
 
     private fun updatePreview(items: List<ClipboardItem>) {
-        val latest = items.firstOrNull { !it.isPinned } ?: items.firstOrNull()
-        if (latest != null) {
-            val text = latest.text
-            previewView.text = if (text.length > 30) text.take(30) + "…" else text
-            previewView.tag = text
-        } else {
-            previewView.text = "Tap for clipboard"
-            previewView.tag = null
+        val latest = items
+            .filter { isPreviewEligible(it) }
+            .maxByOrNull { it.timestamp }
+
+        previewItem = latest
+        if (latest == null) {
+            previewView.visibility = View.GONE
+            previewImage.visibility = View.GONE
+            previewHint.visibility = View.VISIBLE
+            previewHint.text = "Clipboard"
+            previewContainer.isClickable = false
+            previewContainer.isLongClickable = true
+            return
         }
-        previewView.visibility = View.VISIBLE
+
+        previewContainer.isClickable = true
+        previewContainer.isLongClickable = true
+        previewHint.visibility = View.GONE
+
+        if (latest.isImage) {
+            previewView.visibility = View.GONE
+            previewImage.visibility = View.VISIBLE
+            loadThumbnail(previewImage, latest.imageUri)
+        } else {
+            previewImage.visibility = View.GONE
+            previewView.visibility = View.VISIBLE
+            val text = latest.text
+            previewView.text = if (text.length > 22) text.take(22) + "…" else text
+        }
+    }
+
+    private fun loadThumbnail(imageView: ImageView, uriString: String?) {
+        if (uriString.isNullOrBlank()) return
+        try {
+            val uri = Uri.parse(uriString)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val bmp = context.contentResolver.loadThumbnail(uri, Size(96, 96), null)
+                imageView.setImageBitmap(bmp)
+            } else {
+                @Suppress("DEPRECATION")
+                imageView.setImageURI(uri)
+            }
+            imageView.scaleType = ImageView.ScaleType.CENTER_CROP
+        } catch (e: Exception) {
+            imageView.setImageResource(R.drawable.ic_clipboard_toolbar)
+        }
     }
 
     private fun refreshOverlay(items: List<ClipboardItem>) {
@@ -272,7 +387,7 @@ class GkeysClipboardManager(
 
         val isEmpty = items.isEmpty()
         emptyView.visibility = if (isEmpty) View.VISIBLE else View.GONE
-        recentHeader.visibility = if (isEmpty) View.GONE else View.VISIBLE
+        recentHeader.visibility = if (recent.isEmpty()) View.GONE else View.VISIBLE
 
         recent.forEachIndexed { index, item ->
             recentContainer.addView(createCardView(recentContainer, item, index))
@@ -289,18 +404,29 @@ class GkeysClipboardManager(
 
     private fun createCardView(parent: GridLayout, item: ClipboardItem, index: Int): View {
         val card = LayoutInflater.from(context).inflate(R.layout.item_clipboard, parent, false)
-        card.findViewById<TextView>(R.id.tv_clip_text).text = item.text
+        val textView = card.findViewById<TextView>(R.id.tv_clip_text)
+        val imageView = card.findViewById<ImageView>(R.id.iv_clip_image)
+
+        if (item.isImage) {
+            textView.visibility = View.GONE
+            imageView.visibility = View.VISIBLE
+            loadThumbnail(imageView, item.imageUri)
+        } else {
+            imageView.visibility = View.GONE
+            textView.visibility = View.VISIBLE
+            textView.text = item.text
+        }
 
         val margin = (4 * context.resources.displayMetrics.density).toInt()
         card.layoutParams = GridLayout.LayoutParams().apply {
             width = 0
-            height = (72 * context.resources.displayMetrics.density).toInt()
+            height = (64 * context.resources.displayMetrics.density).toInt()
             columnSpec = GridLayout.spec(index % 2, 1f)
             rowSpec = GridLayout.spec(index / 2)
             setMargins(margin, margin, margin, margin)
         }
         card.setOnClickListener {
-            onPaste(item.text)
+            onPasteItem(item)
             hidePanel()
             onVibrate()
         }

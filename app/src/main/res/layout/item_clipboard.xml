@@ -2,21 +2,29 @@
 <LinearLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="72dp"
+    android:layout_height="64dp"
     android:orientation="vertical"
     android:background="@drawable/clipboard_card_bg"
-    android:padding="10dp"
+    android:padding="6dp"
     android:clickable="true"
     android:focusable="true"
     android:longClickable="true"
     android:foreground="?android:attr/selectableItemBackground">
+
+    <ImageView
+        android:id="@+id/iv_clip_image"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone"
+        android:scaleType="centerCrop"
+        android:contentDescription="Clipboard image" />
 
     <TextView
         android:id="@+id/tv_clip_text"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:textColor="#E8EAF0"
-        android:textSize="12sp"
+        android:textSize="11sp"
         android:lineSpacingExtra="1dp"
         android:maxLines="3"
         android:ellipsize="end" />

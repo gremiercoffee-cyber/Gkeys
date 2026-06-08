@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
+
 <FrameLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/voice_overlay"
@@ -16,9 +17,9 @@
         android:gravity="center">
 
         <FrameLayout
-            android:layout_width="140dp"
-            android:layout_height="140dp"
-            android:layout_marginBottom="16dp">
+            android:layout_width="96dp"
+            android:layout_height="96dp"
+            android:layout_marginBottom="12dp">
 
             <View
                 android:id="@+id/voice_mic_glow"
@@ -28,8 +29,8 @@
 
             <ImageView
                 android:id="@+id/voice_mic_large"
-                android:layout_width="64dp"
-                android:layout_height="64dp"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
                 android:layout_gravity="center"
                 android:src="@drawable/ic_ai_mic_active"
                 android:contentDescription="Listening" />
@@ -42,8 +43,8 @@
             android:layout_height="wrap_content"
             android:text="Listening…"
             android:textColor="#E5E7EB"
-            android:textSize="16sp"
-            android:layout_marginBottom="8dp" />
+            android:textSize="15sp"
+            android:layout_marginBottom="6dp" />
 
         <TextView
             android:id="@+id/voice_translate_hint"

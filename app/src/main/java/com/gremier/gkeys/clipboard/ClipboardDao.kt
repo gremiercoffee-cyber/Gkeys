@@ -12,11 +12,14 @@ interface ClipboardDao {
     @Query("SELECT * FROM clipboard_items ORDER BY isPinned DESC, timestamp DESC")
     suspend fun getAllOnce(): List<ClipboardItem>
 
-    @Query("SELECT * FROM clipboard_items ORDER BY isPinned DESC, timestamp DESC LIMIT 1")
+    @Query("SELECT * FROM clipboard_items ORDER BY timestamp DESC LIMIT 1")
     suspend fun getLatest(): ClipboardItem?
 
-    @Query("SELECT * FROM clipboard_items WHERE text = :text LIMIT 1")
+    @Query("SELECT * FROM clipboard_items WHERE text = :text AND itemType = 'text' LIMIT 1")
     suspend fun findByText(text: String): ClipboardItem?
+
+    @Query("SELECT * FROM clipboard_items WHERE imageUri = :uri LIMIT 1")
+    suspend fun findByImageUri(uri: String): ClipboardItem?
 
     @Insert
     suspend fun insert(item: ClipboardItem): Long
@@ -36,9 +39,9 @@ interface ClipboardDao {
     @Query("SELECT * FROM clipboard_items WHERE isPinned = 0 ORDER BY timestamp ASC LIMIT 1")
     suspend fun getOldestUnpinned(): ClipboardItem?
 
-    @Query("DELETE FROM clipboard_items WHERE timestamp < :cutoff")
-    suspend fun deleteOlderThan(cutoff: Long)
-
     @Query("DELETE FROM clipboard_items WHERE text = :text")
     suspend fun deleteByText(text: String)
+
+    @Query("DELETE FROM clipboard_items WHERE imageUri = :uri")
+    suspend fun deleteByImageUri(uri: String)
 }

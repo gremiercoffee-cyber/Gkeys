@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/voice_bubble_root"
+    android:layout_width="56dp"
+    android:layout_height="56dp"
+    android:contentDescription="Voice dictation bubble. Tap to record. Swipe up for keyboard."
+    android:importantForAccessibility="yes">
+
+    <View
+        android:id="@+id/bubble_pulse_ring"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@drawable/voice_bubble_glow_ring"
+        android:visibility="gone"
+        android:importantForAccessibility="no" />
+
+    <View
+        android:id="@+id/bubble_shimmer"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@drawable/voice_bubble_glow_ring"
+        android:visibility="gone"
+        android:importantForAccessibility="no" />
+
+    <FrameLayout
+        android:id="@+id/bubble_body"
+        android:layout_width="52dp"
+        android:layout_height="52dp"
+        android:layout_gravity="center"
+        android:background="@drawable/voice_bubble_bg"
+        android:importantForAccessibility="no">
+
+        <ImageView
+            android:id="@+id/bubble_icon"
+            android:layout_width="26dp"
+            android:layout_height="26dp"
+            android:layout_gravity="center"
+            android:src="@drawable/ic_mic_white"
+            android:importantForAccessibility="no" />
+
+    </FrameLayout>
+
+</FrameLayout>

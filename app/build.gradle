@@ -12,8 +12,8 @@ android {
         applicationId "com.gremier.gkeys"
         minSdk 26
         targetSdk 34
-        versionCode 29
-        versionName "1.2.9"
+        versionCode 36
+        versionName "1.6.0"
     }
 
     signingConfigs {
@@ -48,11 +48,28 @@ android {
     kotlinOptions {
         jvmTarget = '17'
     }
+
+    packaging {
+        resources {
+            excludes += [
+                'META-INF/INDEX.LIST',
+                'META-INF/DEPENDENCIES',
+                'META-INF/LICENSE',
+                'META-INF/LICENSE.txt',
+                'META-INF/NOTICE',
+                'META-INF/NOTICE.txt'
+            ]
+        }
+    }
 }
 
 repositories {
     google()
     mavenCentral()
+}
+
+configurations.configureEach {
+    exclude group: 'com.google.protobuf', module: 'protobuf-javalite'
 }
 
 dependencies {
@@ -71,4 +88,11 @@ dependencies {
     implementation 'androidx.room:room-runtime:2.6.1'
     implementation 'androidx.room:room-ktx:2.6.1'
     kapt 'androidx.room:room-compiler:2.6.1'
+
+    implementation 'io.grpc:grpc-okhttp:1.68.2'
+    implementation 'io.grpc:grpc-stub:1.68.2'
+    implementation 'io.grpc:grpc-protobuf:1.68.2'
+    implementation 'javax.annotation:javax.annotation-api:1.3.2'
+    implementation 'com.google.protobuf:protobuf-java:3.25.5'
+    implementation 'com.google.api.grpc:grpc-google-cloud-speech-v1:4.51.0'
 }

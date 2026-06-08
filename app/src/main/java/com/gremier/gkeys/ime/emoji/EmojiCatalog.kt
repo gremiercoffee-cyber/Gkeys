@@ -1,0 +1,154 @@
+package com.gremier.gkeys.ime.emoji
+
+/**
+ * Full emoji catalog grouped for the scrollable emoji panel.
+ * Combines Unicode emoji blocks with multi-codepoint sequences (flags, skin tones, ZWJ).
+ */
+object EmojiCatalog {
+
+    data class Category(val name: String, val emojis: List<String>)
+
+    private val cachedCategories: List<Category> by lazy { buildCategories() }
+    private val cachedAll: List<String> by lazy { cachedCategories.flatMap { it.emojis } }
+    private val cachedSet: Set<String> by lazy { cachedAll.toSet() }
+
+    fun categories(): List<Category> = cachedCategories
+
+    fun allEmojis(): List<String> = cachedAll
+
+    fun isEmoji(label: String): Boolean = label in cachedSet
+
+    private fun buildCategories(): List<Category> = listOf(
+        Category("Smileys", collectRange(0x1F600..0x1F64F) + parseBlock(SMILEYS_EXTRA)),
+        Category("People", collectRange(0x1F466..0x1F487) + collectRange(0x1F57A..0x1F590) +
+            collectRange(0x1F595..0x1F596) + collectRange(0x1F645..0x1F64F) +
+            collectRange(0x1F6B6..0x1F6B7) + collectRange(0x1F926..0x1F937) +
+            collectRange(0x1F938..0x1F939) + collectRange(0x1F93D..0x1F93E) +
+            collectRange(0x1F9B5..0x1F9B6) + collectRange(0x1F9D1..0x1F9DD) + parseBlock(PEOPLE_EXTRA)),
+        Category("Animals", collectRange(0x1F400..0x1F43F) + collectRange(0x1F980..0x1F9AE) + parseBlock(ANIMALS_EXTRA)),
+        Category("Food", collectRange(0x1F32D..0x1F37F) + collectRange(0x1F950..0x1F96F) + parseBlock(FOOD_EXTRA)),
+        Category("Travel", collectRange(0x1F680..0x1F6FF) + collectRange(0x1F3E0..0x1F3F0) + parseBlock(TRAVEL_EXTRA)),
+        Category("Activities", collectRange(0x1F3A0..0x1F3FA) + collectRange(0x1F947..0x1F94F) + parseBlock(ACTIVITIES_EXTRA)),
+        Category("Objects", collectRange(0x1F4A0..0x1F4FF) + collectRange(0x1F50A..0x1F567) +
+            collectRange(0x1F56F..0x1F570) + collectRange(0x1F573..0x1F57A) +
+            collectRange(0x1F58A..0x1F58D) + collectRange(0x1F5A4..0x1F5A5) +
+            collectRange(0x1F5B1..0x1F5B2) + collectRange(0x1F5C2..0x1F5C4) +
+            collectRange(0x1F5D1..0x1F5D3) + collectRange(0x1F5DC..0x1F5DE) +
+            collectRange(0x1F5E1..0x1F5E3) + collectRange(0x1F5FA..0x1F5FB) +
+            collectRange(0x1F6E0..0x1F6E5) + collectRange(0x1F6E9..0x1F6EC) +
+            collectRange(0x1F6F0..0x1F6F8) + parseBlock(OBJECTS_EXTRA)),
+        Category("Symbols", collectRange(0x2600..0x26FF) + collectRange(0x2700..0x27BF) +
+            collectRange(0x1F300..0x1F320) + collectRange(0x1F330..0x1F335) +
+            collectRange(0x1F337..0x1F37C) + collectRange(0x1F3A0..0x1F3C4) +
+            collectRange(0x1F3C6..0x1F3CA) + collectRange(0x1F3E0..0x1F3F0) +
+            parseBlock(SYMBOLS_EXTRA)),
+        Category("Hearts & hands", parseBlock(HEARTS_HANDS)),
+        Category("Flags", allFlags())
+    ).map { category ->
+        category.copy(emojis = category.emojis.distinct().filter { it.isNotBlank() })
+    }.filter { it.emojis.isNotEmpty() }
+
+    private fun collectRange(range: IntRange): List<String> = buildList {
+        for (cp in range) {
+            if (!Character.isValidCodePoint(cp)) continue
+            val type = Character.getType(cp)
+            if (type == Character.CONTROL.toInt() || type == Character.FORMAT.toInt()) continue
+            add(String(Character.toChars(cp)))
+        }
+    }
+
+    private fun parseBlock(block: String): List<String> =
+        block.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
+
+    private fun allFlags(): List<String> = buildList {
+        for (first in 'A'..'Z') {
+            for (second in 'A'..'Z') {
+                add(regionalIndicator(first) + regionalIndicator(second))
+            }
+        }
+    }
+
+    private fun regionalIndicator(letter: Char): String =
+        String(Character.toChars(0x1F1E6 + (letter - 'A')))
+
+    private const val SMILEYS_EXTRA = """
+        ☺️ ☹️ 😐 😑 😶 🫥 😏 😒 🙄 😬 🫨 😮‍💨 🤥 😌 😔 😪 🤤 😴
+        😷 🤒 🤕 🤢 🤮 🤧 🥵 🥶 🥴 😵 😵‍💫 🤯 🤠 🥳 🥸 😎 🤓 🧐
+    """
+
+    private const val PEOPLE_EXTRA = """
+        👋 🤚 🖐️ ✋ 🖖 👌 🤌 🤏 ✌️ 🤞 🤟 🤘 🤙 👈 👉 👆 🖕 👇 ☝️ 👍 👎
+        ✊ 👊 🤛 🤛 👏 🙌 🫶 👐 🤲 🤝 🙏 ✍️ 💅 🤳 💪 🦾 🦿 🦵 🦶 👂 🦻 👃
+        🧠 🫀 🫁 🦷 🦴 👀 👁️ 👅 👄 🫦 👶 🧒 👦 👧 🧑 👱 👨 👩 🧔 👵 👴
+        👮 👷 💂 🕵️ 👩‍⚕️ 👨‍⚕️ 👩‍🌾 👨‍🌾 👩‍🍳 👨‍🍳 👩‍🎓 👨‍🎓 👩‍🎤 👨‍🎤 👩‍🏫 👨‍🏫
+        👩‍🏭 👨‍🏭 👩‍💻 👨‍💻 👩‍💼 👨‍💼 👩‍🔧 👨‍🔧 👩‍🔬 👨‍🔬 👩‍🎨 👨‍🎨 👩‍🚒 👨‍🚒
+        👩‍✈️ 👨‍✈️ 👩‍🚀 👨‍🚀 👩‍⚖️ 👨‍⚖️ 👰 🤵 👸 🤴 🥷 🦸 🦹 🧙 🧚 🧛 🧜 🧝 🧞 🧟
+    """
+
+    private const val ANIMALS_EXTRA = """
+        🐶 🐱 🐭 🐹 🐰 🦊 🐻 🐼 🐻‍❄️ 🐨 🐯 🦁 🐮 🐷 🐽 🐸 🐵 🙈 🙉 🙊 🐒 🐔 🐧
+        🐦 🐤 🐣 🐥 🦆 🦅 🦉 🦇 🐺 🐗 🐴 🦄 🐝 🪱 🐛 🦋 🐌 🐞 🐜 🪰 🪲 🪳 🦟
+        🦗 🕷️ 🕸️ 🦂 🐢 🐍 🦎 🦖 🦕 🐙 🦑 🦐 🦞 🦀 🐡 🐠 🐟 🐬 🐳 🐋 🦈 🐊 🐅
+        🐆 🦓 🦍 🦧 🦣 🐘 🦛 🦏 🐪 🐫 🦒 🦘 🦬 🐃 🐂 🐄 🐎 🐖 🐏 🐑 🦙 🐐 🦌
+        🐕 🐩 🦮 🐕‍🦺 🐈 🐈‍⬛ 🪶 🐓 🦃 🦤 🦚 🦜 🦢 🦩 🕊️ 🐇 🦝 🦨 🦡 🦫 🦦 🦥
+        🐁 🐀 🐿️ 🦔 🐾 🐉 🐲 🌵 🎄 🌲 🌳 🌴 🪵 🌱 🌿 ☘️ 🍀 🎍 🪴 🎋 🍃 🍂 🍁
+        🍄 🐚 🪨 🌾 💐 🌷 🌹 🥀 🌺 🌸 🌼 🌻 🌞 🌝 🌛 🌜 🌚 🌕 🌖 🌗 🌘 🌑 🌒 🌓 🌔
+        🌙 🌎 🌍 🌏 🪐 💫 ⭐ 🌟 ✨ ⚡ ☄️ 💥 🔥 🌈 ☀️ 🌤️ ⛅ 🌥️ ☁️ 🌦️ 🌧️ ⛈️ 🌩️ 🌨️
+        ❄️ ☃️ ⛄ 🌬️ 💨 💧 💦 ☔ ☂️ 🌊 🌫️
+    """
+
+    private const val FOOD_EXTRA = """
+        🍇 🍈 🍉 🍊 🍋 🍌 🍍 🥭 🍎 🍏 🍐 🍑 🍒 🍓 🫐 🥝 🍅 🫒 🥥 🥑 🍆 🥔 🥕 🌽
+        🌶️ 🫑 🥒 🥬 🥦 🧄 🧅 🍄 🥜 🫘 🌰 🍞 🥐 🥖 🫓 🥨 🥯 🥞 🧇 🧀 🍖 🍗 🥩 🥓
+        🍔 🍟 🍕 🌭 🥪 🌮 🌯 🫔 🥙 🧆 🥚 🍳 🥘 🍲 🫕 🥣 🥗 🍿 🧈 🧂 🥫 🍱 🍘 🍙
+        🍚 🍛 🍜 🍝 🍠 🍢 🍣 🍤 🍥 🥮 🍡 🥟 🥠 🥡 🦀 🦞 🦐 🦑 🦪 🍦 🍧 🍨 🍩 🍪
+        🎂 🍰 🧁 🥧 🍫 🍬 🍭 🍮 🍯 🍼 🥛 ☕ 🫖 🍵 🍶 🍾 🍷 🍸 🍹 🍺 🍻 🥂 🥃 🫗
+        🥤 🧋 🧃 🧉 🧊 🥢 🍽️ 🍴 🥄 🔪 🏺
+    """
+
+    private const val TRAVEL_EXTRA = """
+        🚗 🚕 🚙 🚌 🚎 🏎️ 🚓 🚑 🚒 🚐 🛻 🚚 🚛 🚜 🦯 🦽 🦼 🛴 🚲 🛵 🏍️ 🛺 🚨
+        🚔 🚍 🚘 🚖 🚡 🚠 🚟 🚃 🚋 🚞 🚝 🚄 🚅 🚈 🚂 🚆 🚇 🚊 🚉 ✈️ 🛫 🛬 🛩️
+        💺 🛰️ 🚀 🛸 🚁 🛶 ⛵ 🚤 🛥️ 🛳️ ⛴️ 🚢 ⚓ 🪝 ⛽ 🚧 🚦 🚥 🗺️ 🗿 🗽 🗼 🏰
+        🏯 🏟️ 🎡 🎢 🎠 ⛲ ⛱️ 🏖️ 🏝️ 🏜️ 🌋 ⛰️ 🏔️ 🗻 🏕️ ⛺ 🛖 🏠 🏡 🏘️ 🏚️ 🏗️ 🏭
+        🏢 🏬 🏣 🏤 🏥 🏦 🏨 🏪 🏫 🏩 💒 🏛️ ⛪ 🕌 🕍 🛕 🕋 ⛩️ 🛤️ 🛣️ 🗾 🎑 🏞️
+        🌅 🌄 🌠 🎇 🎆 🌇 🌆 🏙️ 🌃 🌌 🌉 🌁
+    """
+
+    private const val ACTIVITIES_EXTRA = """
+        ⚽ 🏀 🏈 ⚾ 🥎 🎾 🏐 🏉 🥏 🎱 🪀 🏓 🏸 🏒 🏑 🥍 🏏 🪃 🥅 ⛳ 🪁 🏹 🎣 🤿 🥊
+        🥋 🎽 🛹 🛼 🛷 ⛸️ 🥌 🎿 ⛷️ 🏂 🪂 🏋️ 🤼 🤸 ⛹️ 🤺 🤾 🏌️ 🏇 🧘 🏄 🏊 🤽 🚣
+        🧗 🚵 🚴 🏆 🥇 🥈 🥉 🏅 🎖️ 🏵️ 🎗️ 🎫 🎟️ 🎪 🤹 🎭 🩰 🎨 🎬 🎤 🎧 🎼 🎹
+        🥁 🪘 🎷 🎺 🪗 🎸 🪕 🎻 🎲 ♟️ 🎯 🎳 🎮 🎰 🧩
+    """
+
+    private const val OBJECTS_EXTRA = """
+        ⌚ 📱 📲 💻 ⌨️ 🖥️ 🖨️ 🖱️ 🖲️ 💽 💾 💿 📀 📼 📷 📸 📹 🎥 📽️ 🎞️ 📞 ☎️ 📟
+        📠 📺 📻 🎙️ 🎚️ 🎛️ 🧭 ⏱️ ⏲️ ⏰ 🕰️ ⌛ ⏳ 📡 🔋 🪫 🔌 💡 🔦 🕯️ 🪔 🧯 🛢️
+        💸 💵 💴 💶 💷 🪙 💰 💳 💎 ⚖️ 🪜 🧰 🪛 🔧 🔨 ⚒️ 🛠️ ⛏️ 🪚 🔩 ⚙️ 🪤 🧱 ⛓️
+        🧲 🔫 💣 🧨 🪓 🔪 🗡️ ⚔️ 🛡️ 🚬 ⚰️ 🪦 ⚱️ 🏺 🔮 📿 🧿 💈 ⚗️ 🔭 🔬 🕳️ 🩹
+        🩺 💊 💉 🩸 🧬 🦠 🧫 🧪 🌡️ 🧹 🪠 🧺 🧻 🚽 🚰 🚿 🛁 🛀 🧼 🪥 🪒 🧽 🪣 🧴
+        🛎️ 🔑 🗝️ 🚪 🪑 🛋️ 🛏️ 🛌 🧸 🪆 🖼️ 🪞 🪟 🛍️ 🛒 🎁 🎈 🎏 🎀 🪄 🪅 🎊 🎉
+        🎎 🏮 🎐 🧧 ✉️ 📩 📨 📧 💌 📥 📤 📦 🏷️ 🪧 📪 📫 📬 📭 📮 📯 📜 📃 📄
+        📑 🧾 📊 📈 📉 🗒️ 🗓️ 📆 📅 🗑️ 📇 🗃️ 🗳️ 🗄️ 📋 📁 📂 🗂️ 🗞️ 📰 📓 📔 📒
+        📕 📗 📘 📙 📚 📖 🔖 🧷 🔗 📎 🖇️ 📐 📏 🧮 📌 📍 ✂️ 🖊️ 🖋️ ✒️ 🖌️ 🖍️ 📝
+        ✏️ 🔍 🔎 🔏 🔐 🔒 🔓
+    """
+
+    private const val SYMBOLS_EXTRA = """
+        ❤️ 🧡 💛 💚 💙 💜 🖤 🤍 🤎 💔 ❣️ 💕 💞 💓 💗 💖 💘 💝 💟 ☮️ ✝️ ☪️ 🕉️ ☸️
+        ✡️ 🔯 🕎 ☯️ ☦️ 🛐 ⛎ ♈ ♉ ♊ ♋ ♌ ♍ ♎ ♏ ♐ ♑ ♒ ♓ 🆔 ⚛️ 🉑 ☢️ ☣️ 📴 📳 🈶
+        🈚 🈸 🈺 🈷️ ✴️ 🆚 💮 🉐 ㊙️ ㊗️ 🈴 🈵 🈹 🈲 🅰️ 🅱️ 🆎 🆑 🅾️ 🆘 ❌ ⭕ 🛑
+        ⛔ 📛 🚫 💯 💢 ♨️ 🚷 🚯 🚳 🚱 🔞 📵 🚭 ❗ ❕ ❓ ❔ ‼️ ⁉️ 🔅 🔆 〽️ ⚠️ 🚸
+        🔱 ⚜️ 🔰 ♻️ ✅ 🈯 💹 ❇️ ✳️ ❎ 🌐 💠 Ⓜ️ 🌀 💤 🏧 🚾 ♿ 🅿️ 🛗 🈳 🈂️ 🛂
+        🛃 🛄 🛅 🚹 🚺 🚼 ⚧️ 🚻 🚮 🎦 📶 🈁 🔣 ℹ️ 🔤 🔡 🔠 🆖 🆗 🆙 🆒 🆕 🆓
+        0️⃣ 1️⃣ 2️⃣ 3️⃣ 4️⃣ 5️⃣ 6️⃣ 7️⃣ 8️⃣ 9️⃣ 🔟 🔢 #️⃣ *️⃣ ⏏️ ▶️ ⏸️ ⏯️ ⏹️ ⏺️ ⏭️
+        ⏮️ ⏩ ⏪ ⏫ ⏬ ◀️ 🔼 🔽 ➡️ ⬅️ ⬆️ ⬇️ ↗️ ↘️ ↙️ ↖️ ↕️ ↔️ ↪️ ↩️ ⤴️ ⤵️ 🔀 🔁
+        🔂 🔄 🔃 🎵 🎶 ➕ ➖ ➗ ✖️ 🟰 ♾️ 💲 💱 ™️ ©️ ®️ 〰️ ➰ ➿ 🔚 🔙 🔛 🔝 🔜
+    """
+
+    private const val HEARTS_HANDS = """
+        ❤️‍🔥 ❤️‍🩹 💋 💌 💐 🌹 🥀 💒 🫶 🤝 🙏 👏 🙌 🤲 ✍️ 🫱 🫲 🫳 🫴 👋 🤚 🖐️ ✋
+        🖖 👌 🤌 🤏 ✌️ 🤞 🤟 🤘 🤙 👍 👎 ✊ 👊 🤛 🤛
+    """
+}
