@@ -59,7 +59,6 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var tvAdaptiveTouchStats: TextView
     private lateinit var btnResetAdaptiveTouch: MaterialButton
     private lateinit var radioOneHanded: RadioGroup
-    private lateinit var btnSave: MaterialButton
     private lateinit var btnEnableKeyboard: MaterialButton
     private lateinit var cardCrash: com.google.android.material.card.MaterialCardView
     private lateinit var tvCrashLog: TextView
@@ -67,6 +66,7 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var btnClearCrash: MaterialButton
     private var crashScreenShown = false
     private var overlayRestrictedStep = 0
+    private var settingsLoaded = false
 
     private val micPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -81,17 +81,6 @@ class SettingsActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        // If a previous run (app or keyboard) crashed, show it FIRST using a
-        // bulletproof programmatic screen, before any risky layout/setup runs.
-        val savedCrash = try {
-            com.gremier.gkeys.diag.CrashLogger.lastCrash(this)
-        } catch (_: Throwable) { null }
-        if (!savedCrash.isNullOrBlank()) {
-            crashScreenShown = true
-            showCrashScreen(savedCrash)
-            return
-        }
 
         try {
             setContentView(R.layout.activity_settings)
@@ -186,6 +175,21 @@ class SettingsActivity : AppCompatActivity() {
         }
     }
 
+    override fun onPause() {
+        if (settingsLoaded && !crashScreenShown) {
+            lifecycleScope.launch {
+                try {
+                    GkeysSettings.saveOpenAiKey(this@SettingsActivity, etOpenAiKey.text.toString().trim())
+                    GkeysSettings.saveAnthropicKey(this@SettingsActivity, etAnthropicKey.text.toString().trim())
+                    GkeysSettings.saveDeepgramKey(this@SettingsActivity, etDeepgramKey.text.toString().trim())
+                } catch (e: Exception) {
+                    android.util.Log.e("SettingsActivity", "onPause save failed", e)
+                }
+            }
+        }
+        super.onPause()
+    }
+
     override fun onResume() {
         super.onResume()
         // When the crash screen is showing, the normal views were never bound.
@@ -229,7 +233,6 @@ class SettingsActivity : AppCompatActivity() {
         tvAdaptiveTouchStats = findViewById(R.id.tv_adaptive_touch_stats)
         btnResetAdaptiveTouch = findViewById(R.id.btn_reset_adaptive_touch)
         radioOneHanded = findViewById(R.id.radio_one_handed)
-        btnSave = findViewById(R.id.btn_save)
         btnEnableKeyboard = findViewById(R.id.btn_enable_keyboard)
         cardCrash = findViewById(R.id.card_crash)
         tvCrashLog = findViewById(R.id.tv_crash_log)
@@ -287,6 +290,7 @@ class SettingsActivity : AppCompatActivity() {
                 GkeysSettings.ONE_HANDED_RIGHT -> radioOneHanded.check(R.id.radio_one_hand_right)
                 else -> radioOneHanded.check(R.id.radio_one_hand_off)
             }
+            settingsLoaded = true
           } catch (e: Exception) {
             android.util.Log.e("SettingsActivity", "loadSettings failed", e)
           }
@@ -301,21 +305,87 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun setupListeners() {
+        etOpenAiKey.setOnFocusChangeListener { _, hasFocus ->
+            if (!hasFocus) autoSave { GkeysSettings.saveOpenAiKey(this@SettingsActivity, etOpenAiKey.text.toString().trim()) }
+        }
+        etAnthropicKey.setOnFocusChangeListener { _, hasFocus ->
+            if (!hasFocus) autoSave { GkeysSettings.saveAnthropicKey(this@SettingsActivity, etAnthropicKey.text.toString().trim()) }
+        }
+        etDeepgramKey.setOnFocusChangeListener { _, hasFocus ->
+            if (!hasFocus) autoSave { GkeysSettings.saveDeepgramKey(this@SettingsActivity, etDeepgramKey.text.toString().trim()) }
+        }
+
+        sliderKeyRepeat.addOnChangeListener { _, _, fromUser ->
+            if (fromUser) autoSave { GkeysSettings.saveKeyRepeatSpeed(this@SettingsActivity, sliderKeyRepeat.value.toInt()) }
+        }
+        sliderDeleteSpeed.addOnChangeListener { _, _, fromUser ->
+            if (fromUser) autoSave { GkeysSettings.saveDeleteSpeed(this@SettingsActivity, sliderDeleteSpeed.value.toInt()) }
+        }
         switchVibration.setOnCheckedChangeListener { _, checked ->
             sliderVibration.isEnabled = checked
+            autoSave { GkeysSettings.saveVibration(this@SettingsActivity, checked) }
+        }
+        sliderVibration.addOnChangeListener { _, _, fromUser ->
+            if (fromUser) autoSave { GkeysSettings.saveVibrationStrength(this@SettingsActivity, sliderVibration.value.toInt()) }
+        }
+
+        radioPolishLevel.setOnCheckedChangeListener { _, _ ->
+            autoSave { GkeysSettings.savePolishLevel(this@SettingsActivity, polishLevelFromRadio()) }
+        }
+
+        spinnerVoiceFrom.onItemSelectedListener = simpleSaveListener {
+            autoSave { GkeysSettings.saveVoiceTranslateFrom(this@SettingsActivity, spinnerLanguageCode(spinnerVoiceFrom)) }
+        }
+        spinnerVoiceTo.onItemSelectedListener = simpleSaveListener {
+            autoSave { GkeysSettings.saveVoiceTranslateTo(this@SettingsActivity, spinnerLanguageCode(spinnerVoiceTo)) }
+        }
+
+        switchDefaultLang.setOnCheckedChangeListener { _, checked ->
+            autoSave { GkeysSettings.saveDefaultLanguage(this@SettingsActivity, if (checked) "he" else "en") }
         }
         switchRightHanded.setOnCheckedChangeListener { _, checked ->
             if (checked && sliderKeySize.value < 2f) {
                 sliderKeySize.value = 2f
                 updateKeySizeLabel(2)
+                autoSave { GkeysSettings.saveKeySizePreset(this@SettingsActivity, sliderToPreset(2)) }
+            }
+            autoSave { GkeysSettings.saveRightHandedMode(this@SettingsActivity, checked) }
+        }
+        sliderKeySize.addOnChangeListener { _, value, fromUser ->
+            updateKeySizeLabel(value.toInt())
+            if (fromUser) autoSave { GkeysSettings.saveKeySizePreset(this@SettingsActivity, sliderToPreset(value.toInt())) }
+        }
+        sliderKeyboardHeight.addOnChangeListener { _, value, fromUser ->
+            updateKeyboardHeightLabel(value.toInt())
+            if (fromUser) autoSave { GkeysSettings.saveKeyboardHeightDp(this@SettingsActivity, value.toInt()) }
+        }
+
+        radioOneHanded.setOnCheckedChangeListener { _, _ ->
+            autoSave {
+                val oneHanded = when (radioOneHanded.checkedRadioButtonId) {
+                    R.id.radio_one_hand_left -> GkeysSettings.ONE_HANDED_LEFT
+                    R.id.radio_one_hand_right -> GkeysSettings.ONE_HANDED_RIGHT
+                    else -> GkeysSettings.ONE_HANDED_OFF
+                }
+                GkeysSettings.saveOneHandedMode(this@SettingsActivity, oneHanded)
             }
         }
-        sliderKeySize.addOnChangeListener { _, value, _ ->
-            updateKeySizeLabel(value.toInt())
+
+        switchVoiceBubbleEnabled.setOnCheckedChangeListener { _, checked ->
+            updateVoiceBubbleSettingsUi()
+            if (!checked) {
+                switchDefaultVoiceBubble.isChecked = false
+            }
+            autoSave { saveVoiceBubbleSettings() }
         }
-        sliderKeyboardHeight.addOnChangeListener { _, value, _ ->
-            updateKeyboardHeightLabel(value.toInt())
+        switchDefaultVoiceBubble.setOnCheckedChangeListener { _, _ ->
+            autoSave { saveVoiceBubbleSettings() }
         }
+
+        switchAdaptiveTouch.setOnCheckedChangeListener { _, checked ->
+            autoSave { GkeysSettings.saveAdaptiveTouchEnabled(this@SettingsActivity, checked) }
+        }
+
         btnMicPermission.setOnClickListener { requestMicPermissionIfNeeded() }
         btnOverlayPermission.setOnClickListener { requestOverlayPermissionIfNeeded() }
         btnResetAdaptiveTouch.setOnClickListener {
@@ -323,65 +393,38 @@ class SettingsActivity : AppCompatActivity() {
             refreshAdaptiveTouchStats()
             Toast.makeText(this, "Touch model reset", Toast.LENGTH_SHORT).show()
         }
-        switchVoiceBubbleEnabled.setOnCheckedChangeListener { _, checked ->
-            updateVoiceBubbleSettingsUi()
-            if (!checked) {
-                switchDefaultVoiceBubble.isChecked = false
-            }
-        }
-        btnSave.setOnClickListener {
-            lifecycleScope.launch {
-                GkeysSettings.saveOpenAiKey(this@SettingsActivity, etOpenAiKey.text.toString().trim())
-                GkeysSettings.saveAnthropicKey(this@SettingsActivity, etAnthropicKey.text.toString().trim())
-                GkeysSettings.saveDeepgramKey(this@SettingsActivity, etDeepgramKey.text.toString().trim())
-                GkeysSettings.saveKeyRepeatSpeed(this@SettingsActivity, sliderKeyRepeat.value.toInt())
-                GkeysSettings.saveDeleteSpeed(this@SettingsActivity, sliderDeleteSpeed.value.toInt())
-                GkeysSettings.saveVibration(this@SettingsActivity, switchVibration.isChecked)
-                GkeysSettings.saveVibrationStrength(this@SettingsActivity, sliderVibration.value.toInt())
-                GkeysSettings.savePolishLevel(this@SettingsActivity, polishLevelFromRadio())
-                GkeysSettings.saveVoiceTranslateFrom(this@SettingsActivity, spinnerLanguageCode(spinnerVoiceFrom))
-                GkeysSettings.saveVoiceTranslateTo(this@SettingsActivity, spinnerLanguageCode(spinnerVoiceTo))
-                GkeysSettings.saveDefaultLanguage(this@SettingsActivity,
-                    if (switchDefaultLang.isChecked) "he" else "en")
-                GkeysSettings.saveRightHandedMode(this@SettingsActivity, switchRightHanded.isChecked)
-                GkeysSettings.saveKeySizePreset(this@SettingsActivity, sliderToPreset(sliderKeySize.value.toInt()))
-                GkeysSettings.saveKeyboardHeightDp(this@SettingsActivity, sliderKeyboardHeight.value.toInt())
-                val oneHanded = when (radioOneHanded.checkedRadioButtonId) {
-                    R.id.radio_one_hand_left -> GkeysSettings.ONE_HANDED_LEFT
-                    R.id.radio_one_hand_right -> GkeysSettings.ONE_HANDED_RIGHT
-                    else -> GkeysSettings.ONE_HANDED_OFF
-                }
-                GkeysSettings.saveOneHandedMode(this@SettingsActivity, oneHanded)
-                GkeysSettings.saveVoiceBubbleEnabled(
-                    this@SettingsActivity,
-                    switchVoiceBubbleEnabled.isChecked
-                )
-                GkeysSettings.saveDefaultToVoiceBubble(
-                    this@SettingsActivity,
-                    switchDefaultVoiceBubble.isChecked && switchVoiceBubbleEnabled.isChecked
-                )
-                if (switchDefaultVoiceBubble.isChecked && switchVoiceBubbleEnabled.isChecked) {
-                    GkeysSettings.saveVoiceBubbleModeActive(this@SettingsActivity, true)
-                } else if (!switchVoiceBubbleEnabled.isChecked) {
-                    GkeysSettings.saveVoiceBubbleModeActive(this@SettingsActivity, false)
-                }
-                GkeysSettings.saveAdaptiveTouchEnabled(
-                    this@SettingsActivity,
-                    switchAdaptiveTouch.isChecked
-                )
-                AppVersionTracker.noteCurrentVersion(this@SettingsActivity)
-                btnSave.text = "Saved ✓"
-                Toast.makeText(
-                    this@SettingsActivity,
-                    "Saved. Switch to another keyboard and back to Gkeys to apply updates.",
-                    Toast.LENGTH_LONG
-                ).show()
-                btnSave.postDelayed({ btnSave.text = "Save Settings" }, 2000)
-            }
-        }
         btnEnableKeyboard.setOnClickListener {
             startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
         }
+    }
+
+    private fun autoSave(block: suspend () -> Unit) {
+        if (!settingsLoaded) return
+        lifecycleScope.launch {
+            try {
+                block()
+            } catch (e: Exception) {
+                android.util.Log.e("SettingsActivity", "autoSave failed", e)
+            }
+        }
+    }
+
+    private suspend fun saveVoiceBubbleSettings() {
+        GkeysSettings.saveVoiceBubbleEnabled(this, switchVoiceBubbleEnabled.isChecked)
+        GkeysSettings.saveDefaultToVoiceBubble(
+            this,
+            switchDefaultVoiceBubble.isChecked && switchVoiceBubbleEnabled.isChecked
+        )
+        if (!switchVoiceBubbleEnabled.isChecked) {
+            GkeysSettings.saveVoiceBubbleModeActive(this, false)
+        }
+    }
+
+    private fun simpleSaveListener(onSave: () -> Unit) = object : android.widget.AdapterView.OnItemSelectedListener {
+        override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: android.view.View?, position: Int, id: Long) {
+            onSave()
+        }
+        override fun onNothingSelected(parent: android.widget.AdapterView<*>?) = Unit
     }
 
     private fun updateVoiceBubbleSettingsUi() {

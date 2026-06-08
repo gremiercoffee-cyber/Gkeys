@@ -783,16 +783,6 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btn_save"
-            android:layout_width="match_parent"
-            android:layout_height="52dp"
-            android:text="Save Settings"
-            android:textSize="16sp"
-            app:backgroundTint="#1A1A2E"
-            app:strokeColor="#4A9EFF"
-            app:strokeWidth="1dp" />
-
         <TextView
             android:id="@+id/tv_app_version"
             android:layout_width="match_parent"

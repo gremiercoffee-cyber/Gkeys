@@ -399,7 +399,11 @@ class GkeysIME : InputMethodService() {
         return keyboardView
     }
 
-    override fun onEvaluateInputViewShown(): Boolean = !voiceBubbleModeActive
+    override fun onEvaluateInputViewShown(): Boolean {
+        if (!voiceBubbleModeActive) return true
+        // Only hide the keyboard while the bubble overlay is actually on screen.
+        return voiceBubbleController?.isShowing != true
+    }
 
     override fun onShowInputRequested(reason: Int, showingForced: Boolean): Boolean {
         if (!voiceBubbleModeActive) {
@@ -418,23 +422,20 @@ class GkeysIME : InputMethodService() {
             refreshApiKeys()
             scope.launch {
                 voiceBubbleEnabled = GkeysSettings.voiceBubbleEnabled(this@GkeysIME).first()
+                updateVoiceBubbleButtonVisibility()
                 if (!voiceBubbleEnabled) {
                     if (voiceBubbleModeActive) {
                         dismissVoiceBubbleForKeyboard(restoreKeyboard = true)
                     }
-                    updateVoiceBubbleButtonVisibility()
                     return@launch
                 }
-                voiceBubbleModeActive = GkeysSettings.voiceBubbleModeActive(this@GkeysIME).first()
-                updateVoiceBubbleButtonVisibility()
-                if (voiceBubbleModeActive) {
-                    if (voiceBubbleController?.canDrawOverlay() == true) {
-                        voiceBubbleController?.show()
-                    } else {
-                        voiceBubbleModeActive = false
-                        GkeysSettings.saveVoiceBubbleModeActive(this@GkeysIME, false)
-                        requestShowSelf(0)
-                    }
+                val preferBubble = GkeysSettings.defaultToVoiceBubble(this@GkeysIME).first()
+                val persistedActive = GkeysSettings.voiceBubbleModeActive(this@GkeysIME).first()
+                if (!persistedActive && !preferBubble) return@launch
+                if (!tryActivateVoiceBubbleMode()) {
+                    voiceBubbleModeActive = false
+                    GkeysSettings.saveVoiceBubbleModeActive(this@GkeysIME, false)
+                    handler.post { requestShowSelf(0) }
                 }
             }
         } catch (e: Throwable) {
@@ -536,6 +537,9 @@ class GkeysIME : InputMethodService() {
                 voiceBubbleModeActive = GkeysSettings.voiceBubbleModeActive(this@GkeysIME).first()
                 if (!voiceBubbleEnabled && voiceBubbleModeActive) {
                     dismissVoiceBubbleForKeyboard(restoreKeyboard = true)
+                } else if (voiceBubbleModeActive && voiceBubbleController?.isShowing != true) {
+                    voiceBubbleModeActive = false
+                    GkeysSettings.saveVoiceBubbleModeActive(this@GkeysIME, false)
                 }
                 updateVoiceBubbleButtonVisibility()
                 adaptiveTouchEnabled = GkeysSettings.adaptiveTouchEnabled(this@GkeysIME).first()
@@ -947,19 +951,30 @@ class GkeysIME : InputMethodService() {
             showErrorToast("Voice bubble is off — enable it in Gkeys settings")
             return
         }
-        val controller = voiceBubbleController ?: return
-        if (!controller.canDrawOverlay()) {
+        if (!tryActivateVoiceBubbleMode()) {
             showErrorToast("Allow display over other apps for Voice Bubble")
             openAppForOverlayPermission()
             return
         }
-        voiceBubbleModeActive = true
-        bubbleKeyboardSuppressUntilMs = System.currentTimeMillis() + 450
         scope.launch { GkeysSettings.saveVoiceBubbleModeActive(this@GkeysIME, true) }
-        controller.show()
         if (fromKeyboard) {
             requestHideSelf(0)
         }
+    }
+
+    /** @return true if bubble mode is active and the overlay is visible. */
+    private fun tryActivateVoiceBubbleMode(): Boolean {
+        val controller = voiceBubbleController ?: return false
+        if (!controller.canDrawOverlay()) return false
+        voiceBubbleModeActive = true
+        bubbleKeyboardSuppressUntilMs = System.currentTimeMillis() + 450
+        controller.show()
+        if (!controller.isShowing) {
+            voiceBubbleModeActive = false
+            bubbleKeyboardSuppressUntilMs = 0L
+            return false
+        }
+        return true
     }
 
     /** Leaves bubble mode without re-entering IME show/hide while the framework is already doing so. */

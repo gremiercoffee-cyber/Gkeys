@@ -173,11 +173,12 @@ object GkeysSettings {
     fun voiceBubbleEnabled(context: Context): Flow<Boolean> =
         settingsStore(context).data.map { it[VOICE_BUBBLE_ENABLED] ?: DEFAULT_VOICE_BUBBLE_ENABLED }
 
+    /** True only while the user is actively in voice-bubble mode (not the same as "default to bubble"). */
     fun voiceBubbleModeActive(context: Context): Flow<Boolean> =
         settingsStore(context).data.map { prefs ->
             val enabled = prefs[VOICE_BUBBLE_ENABLED] ?: DEFAULT_VOICE_BUBBLE_ENABLED
             if (!enabled) return@map false
-            prefs[VOICE_BUBBLE_MODE_ACTIVE] ?: (prefs[DEFAULT_TO_VOICE_BUBBLE] ?: false)
+            prefs[VOICE_BUBBLE_MODE_ACTIVE] ?: false
         }
 
     fun defaultToVoiceBubble(context: Context): Flow<Boolean> =

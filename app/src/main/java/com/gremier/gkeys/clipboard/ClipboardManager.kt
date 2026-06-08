@@ -52,7 +52,9 @@ class GkeysClipboardManager(
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     }
 
-    private val blockedKeys = loadBlockedKeys().toMutableSet()
+    private val blockedKeys: MutableSet<String> by lazy {
+        loadBlockedKeys().toMutableSet()
+    }
 
     private val systemClipboard =
         context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
