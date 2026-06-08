@@ -39,6 +39,7 @@ object GkeysSettings {
     val ONE_HANDED_WIDTH_FRACTION = floatPreferencesKey("one_handed_width_fraction")
     val DEEPGRAM_KEY = stringPreferencesKey("deepgram_key")
     private val LEGACY_GOOGLE_STT_KEY = stringPreferencesKey("google_stt_key")
+    val VOICE_BUBBLE_ENABLED = booleanPreferencesKey("voice_bubble_enabled")
     val VOICE_BUBBLE_MODE_ACTIVE = booleanPreferencesKey("voice_bubble_mode_active")
     val DEFAULT_TO_VOICE_BUBBLE = booleanPreferencesKey("default_to_voice_bubble")
 
@@ -167,8 +168,15 @@ object GkeysSettings {
                 )
         }
 
+    const val DEFAULT_VOICE_BUBBLE_ENABLED = true
+
+    fun voiceBubbleEnabled(context: Context): Flow<Boolean> =
+        settingsStore(context).data.map { it[VOICE_BUBBLE_ENABLED] ?: DEFAULT_VOICE_BUBBLE_ENABLED }
+
     fun voiceBubbleModeActive(context: Context): Flow<Boolean> =
         settingsStore(context).data.map { prefs ->
+            val enabled = prefs[VOICE_BUBBLE_ENABLED] ?: DEFAULT_VOICE_BUBBLE_ENABLED
+            if (!enabled) return@map false
             prefs[VOICE_BUBBLE_MODE_ACTIVE] ?: (prefs[DEFAULT_TO_VOICE_BUBBLE] ?: false)
         }
 
@@ -307,6 +315,15 @@ object GkeysSettings {
                 KeyboardLayoutMetrics.MIN_ONE_HANDED_KEY_AREA_FRACTION,
                 KeyboardLayoutMetrics.MAX_ONE_HANDED_KEY_AREA_FRACTION
             )
+        }
+    }
+
+    suspend fun saveVoiceBubbleEnabled(context: Context, enabled: Boolean) {
+        settingsStore(context).edit {
+            it[VOICE_BUBBLE_ENABLED] = enabled
+            if (!enabled) {
+                it[VOICE_BUBBLE_MODE_ACTIVE] = false
+            }
         }
     }
 

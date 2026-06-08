@@ -52,7 +52,9 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var tvAppVersion: TextView
     private lateinit var btnMicPermission: MaterialButton
     private lateinit var btnOverlayPermission: MaterialButton
+    private lateinit var switchVoiceBubbleEnabled: SwitchMaterial
     private lateinit var switchDefaultVoiceBubble: SwitchMaterial
+    private lateinit var voiceBubbleDefaultRow: android.view.View
     private lateinit var switchAdaptiveTouch: SwitchMaterial
     private lateinit var tvAdaptiveTouchStats: TextView
     private lateinit var btnResetAdaptiveTouch: MaterialButton
@@ -220,7 +222,9 @@ class SettingsActivity : AppCompatActivity() {
         tvAppVersion = findViewById(R.id.tv_app_version)
         btnMicPermission = findViewById(R.id.btn_mic_permission)
         btnOverlayPermission = findViewById(R.id.btn_overlay_permission)
+        switchVoiceBubbleEnabled = findViewById(R.id.switch_voice_bubble_enabled)
         switchDefaultVoiceBubble = findViewById(R.id.switch_default_voice_bubble)
+        voiceBubbleDefaultRow = findViewById(R.id.voice_bubble_default_row)
         switchAdaptiveTouch = findViewById(R.id.switch_adaptive_touch)
         tvAdaptiveTouchStats = findViewById(R.id.tv_adaptive_touch_stats)
         btnResetAdaptiveTouch = findViewById(R.id.btn_reset_adaptive_touch)
@@ -270,8 +274,11 @@ class SettingsActivity : AppCompatActivity() {
                 GkeysSettings.keyboardHeightDp(this@SettingsActivity).first().toFloat()
             )
             updateKeyboardHeightLabel(sliderKeyboardHeight.value.toInt())
+            switchVoiceBubbleEnabled.isChecked =
+                GkeysSettings.voiceBubbleEnabled(this@SettingsActivity).first()
             switchDefaultVoiceBubble.isChecked =
                 GkeysSettings.defaultToVoiceBubble(this@SettingsActivity).first()
+            updateVoiceBubbleSettingsUi()
             switchAdaptiveTouch.isChecked =
                 GkeysSettings.adaptiveTouchEnabled(this@SettingsActivity).first()
             refreshAdaptiveTouchStats()
@@ -316,6 +323,12 @@ class SettingsActivity : AppCompatActivity() {
             refreshAdaptiveTouchStats()
             Toast.makeText(this, "Touch model reset", Toast.LENGTH_SHORT).show()
         }
+        switchVoiceBubbleEnabled.setOnCheckedChangeListener { _, checked ->
+            updateVoiceBubbleSettingsUi()
+            if (!checked) {
+                switchDefaultVoiceBubble.isChecked = false
+            }
+        }
         btnSave.setOnClickListener {
             lifecycleScope.launch {
                 GkeysSettings.saveOpenAiKey(this@SettingsActivity, etOpenAiKey.text.toString().trim())
@@ -339,12 +352,18 @@ class SettingsActivity : AppCompatActivity() {
                     else -> GkeysSettings.ONE_HANDED_OFF
                 }
                 GkeysSettings.saveOneHandedMode(this@SettingsActivity, oneHanded)
+                GkeysSettings.saveVoiceBubbleEnabled(
+                    this@SettingsActivity,
+                    switchVoiceBubbleEnabled.isChecked
+                )
                 GkeysSettings.saveDefaultToVoiceBubble(
                     this@SettingsActivity,
-                    switchDefaultVoiceBubble.isChecked
+                    switchDefaultVoiceBubble.isChecked && switchVoiceBubbleEnabled.isChecked
                 )
-                if (switchDefaultVoiceBubble.isChecked) {
+                if (switchDefaultVoiceBubble.isChecked && switchVoiceBubbleEnabled.isChecked) {
                     GkeysSettings.saveVoiceBubbleModeActive(this@SettingsActivity, true)
+                } else if (!switchVoiceBubbleEnabled.isChecked) {
+                    GkeysSettings.saveVoiceBubbleModeActive(this@SettingsActivity, false)
                 }
                 GkeysSettings.saveAdaptiveTouchEnabled(
                     this@SettingsActivity,
@@ -363,6 +382,12 @@ class SettingsActivity : AppCompatActivity() {
         btnEnableKeyboard.setOnClickListener {
             startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
         }
+    }
+
+    private fun updateVoiceBubbleSettingsUi() {
+        val enabled = switchVoiceBubbleEnabled.isChecked
+        switchDefaultVoiceBubble.isEnabled = enabled
+        voiceBubbleDefaultRow.alpha = if (enabled) 1f else 0.45f
     }
 
     private fun hasMicPermission(): Boolean =

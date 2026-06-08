@@ -75,6 +75,7 @@ class GkeysIME : InputMethodService() {
     private var anthropicKey = ""
     private var deepgramKey = ""
     private var voiceBubbleModeActive = false
+    private var voiceBubbleEnabled = GkeysSettings.DEFAULT_VOICE_BUBBLE_ENABLED
     private var voiceBubbleController: VoiceBubbleController? = null
     private var bubbleKeyboardSuppressUntilMs = 0L
 
@@ -266,7 +267,7 @@ class GkeysIME : InputMethodService() {
 
     private val voiceBubbleListener = object : VoiceBubbleListener {
         override fun onBubbleTap() = handleBubbleMicTap()
-        override fun onBubbleSwipeUp() = exitVoiceBubbleMode(showKeyboard = true, animated = false)
+        override fun onBubbleSwipeUp() = dismissVoiceBubbleForKeyboard(restoreKeyboard = true)
         override fun onBubbleTranslateHoldStart() = handleBubbleTranslateHoldStart()
         override fun onBubbleTranslateHoldEnd(cancelled: Boolean) =
             handleBubbleTranslateHoldEnd(cancelled)
@@ -407,7 +408,7 @@ class GkeysIME : InputMethodService() {
         if (System.currentTimeMillis() < bubbleKeyboardSuppressUntilMs) {
             return false
         }
-        exitVoiceBubbleMode(showKeyboard = true, animated = false)
+        dismissVoiceBubbleForKeyboard(restoreKeyboard = false)
         return true
     }
 
@@ -416,7 +417,16 @@ class GkeysIME : InputMethodService() {
         try {
             refreshApiKeys()
             scope.launch {
+                voiceBubbleEnabled = GkeysSettings.voiceBubbleEnabled(this@GkeysIME).first()
+                if (!voiceBubbleEnabled) {
+                    if (voiceBubbleModeActive) {
+                        dismissVoiceBubbleForKeyboard(restoreKeyboard = true)
+                    }
+                    updateVoiceBubbleButtonVisibility()
+                    return@launch
+                }
                 voiceBubbleModeActive = GkeysSettings.voiceBubbleModeActive(this@GkeysIME).first()
+                updateVoiceBubbleButtonVisibility()
                 if (voiceBubbleModeActive) {
                     if (voiceBubbleController?.canDrawOverlay() == true) {
                         voiceBubbleController?.show()
@@ -444,21 +454,20 @@ class GkeysIME : InputMethodService() {
     }
 
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
-        if (voiceBubbleModeActive) {
-            if (System.currentTimeMillis() >= bubbleKeyboardSuppressUntilMs) {
-                exitVoiceBubbleMode(showKeyboard = true, animated = false)
-            } else {
-                try {
-                    super.onStartInputView(info, restarting)
-                    refreshApiKeys()
-                    loadSettings()
-                    clipboardManager?.startListening()
-                    voiceBubbleController?.show()
-                } catch (e: Throwable) {
-                    android.util.Log.e("GkeysIME", "onStartInputView bubble failed", e)
-                }
-                return
+        if (voiceBubbleModeActive && System.currentTimeMillis() >= bubbleKeyboardSuppressUntilMs) {
+            dismissVoiceBubbleForKeyboard(restoreKeyboard = false)
+        }
+        if (voiceBubbleModeActive && System.currentTimeMillis() < bubbleKeyboardSuppressUntilMs) {
+            try {
+                super.onStartInputView(info, restarting)
+                refreshApiKeys()
+                loadSettings()
+                clipboardManager?.startListening()
+                voiceBubbleController?.show()
+            } catch (e: Throwable) {
+                android.util.Log.e("GkeysIME", "onStartInputView bubble failed", e)
             }
+            return
         }
         super.onStartInputView(info, restarting)
         try {
@@ -523,7 +532,12 @@ class GkeysIME : InputMethodService() {
                 keySizePreset = GkeysSettings.keySizePreset(this@GkeysIME).first()
                 universalKeyboardHeightDp = GkeysSettings.keyboardHeightDp(this@GkeysIME).first()
                 oneHandedWidthFraction = GkeysSettings.oneHandedWidthFraction(this@GkeysIME).first()
+                voiceBubbleEnabled = GkeysSettings.voiceBubbleEnabled(this@GkeysIME).first()
                 voiceBubbleModeActive = GkeysSettings.voiceBubbleModeActive(this@GkeysIME).first()
+                if (!voiceBubbleEnabled && voiceBubbleModeActive) {
+                    dismissVoiceBubbleForKeyboard(restoreKeyboard = true)
+                }
+                updateVoiceBubbleButtonVisibility()
                 adaptiveTouchEnabled = GkeysSettings.adaptiveTouchEnabled(this@GkeysIME).first()
                 if (::adaptiveTouch.isInitialized) {
                     adaptiveTouch.setEnabled(adaptiveTouchEnabled)
@@ -639,6 +653,7 @@ class GkeysIME : InputMethodService() {
         btnPolishLevel.setOnClickListener { cyclePolishLevel() }
         updatePolishLevelButton()
         updateNumpadButton()
+        updateVoiceBubbleButtonVisibility()
     }
 
     private fun cyclePolishLevel() {
@@ -928,6 +943,10 @@ class GkeysIME : InputMethodService() {
     }
 
     private fun enterVoiceBubbleMode(fromKeyboard: Boolean) {
+        if (!voiceBubbleEnabled) {
+            showErrorToast("Voice bubble is off — enable it in Gkeys settings")
+            return
+        }
         val controller = voiceBubbleController ?: return
         if (!controller.canDrawOverlay()) {
             showErrorToast("Allow display over other apps for Voice Bubble")
@@ -943,7 +962,14 @@ class GkeysIME : InputMethodService() {
         }
     }
 
-    private fun exitVoiceBubbleMode(showKeyboard: Boolean, animated: Boolean = true) {
+    /** Leaves bubble mode without re-entering IME show/hide while the framework is already doing so. */
+    private fun dismissVoiceBubbleForKeyboard(restoreKeyboard: Boolean) {
+        if (!voiceBubbleModeActive) {
+            if (restoreKeyboard) {
+                handler.post { requestShowSelf(0) }
+            }
+            return
+        }
         voiceBubbleModeActive = false
         bubbleKeyboardSuppressUntilMs = 0L
         scope.launch { GkeysSettings.saveVoiceBubbleModeActive(this@GkeysIME, false) }
@@ -952,22 +978,19 @@ class GkeysIME : InputMethodService() {
         if (isRecording && !recordingForGhostwriter) {
             cancelRecording()
         }
-        if (showKeyboard) {
-            val showKeyboardNow = {
-                requestShowSelf(0)
-            }
-            if (animated) {
-                voiceBubbleController?.animateExpandHandoff(
-                    onMidpoint = { },
-                    onEnd = showKeyboardNow
-                ) ?: showKeyboardNow()
-            } else {
-                voiceBubbleController?.hide(animate = false, onEnd = showKeyboardNow)
-                    ?: showKeyboardNow()
-            }
-        } else {
-            voiceBubbleController?.hide()
+        handler.post { voiceBubbleController?.hide(animate = false) }
+        if (restoreKeyboard) {
+            handler.post { requestShowSelf(0) }
         }
+    }
+
+    private fun exitVoiceBubbleMode(showKeyboard: Boolean) {
+        dismissVoiceBubbleForKeyboard(restoreKeyboard = showKeyboard)
+    }
+
+    private fun updateVoiceBubbleButtonVisibility() {
+        if (!::btnVoiceBubble.isInitialized) return
+        btnVoiceBubble.visibility = if (voiceBubbleEnabled) View.VISIBLE else View.GONE
     }
 
     private fun handleBubbleMicTap() {

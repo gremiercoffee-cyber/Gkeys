@@ -6,15 +6,6 @@
     android:contentDescription="Gkeys voice bubble. Tap to dictate. Hold to translate. Tap the text field for keyboard."
     android:importantForAccessibility="yes">
 
-    <View
-        android:id="@+id/bubble_pulse_ring"
-        android:layout_width="68dp"
-        android:layout_height="68dp"
-        android:layout_gravity="center"
-        android:background="@drawable/voice_bubble_glow_ring"
-        android:visibility="gone"
-        android:importantForAccessibility="no" />
-
     <FrameLayout
         android:id="@+id/bubble_body"
         android:layout_width="52dp"
@@ -25,11 +16,12 @@
 
         <ImageView
             android:id="@+id/bubble_icon"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
+            android:layout_width="28dp"
+            android:layout_height="28dp"
             android:layout_gravity="center"
-            android:src="@drawable/ic_launcher_foreground"
-            android:scaleType="fitCenter"
+            android:src="@drawable/ic_voice_bubble"
+            android:tint="#FFFFFF"
+            android:scaleType="centerInside"
             android:importantForAccessibility="no" />
 
     </FrameLayout>
