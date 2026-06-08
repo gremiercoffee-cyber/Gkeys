@@ -62,18 +62,84 @@ class SettingsActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_settings)
-        bindViews()
-        loadSettings()
-        setupListeners()
-        checkKeyboardEnabled()
-        updateMicPermissionButton()
-        tvAppVersion.text = "Version ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})"
-        setupCrashCardListeners()
-        refreshCrashCard()
-        if (intent.getBooleanExtra(EXTRA_REQUEST_MIC_PERMISSION, false)) {
-            requestMicPermissionIfNeeded()
+
+        // If a previous run (app or keyboard) crashed, show it FIRST using a
+        // bulletproof programmatic screen, before any risky layout/setup runs.
+        val savedCrash = try {
+            com.gremier.gkeys.diag.CrashLogger.lastCrash(this)
+        } catch (_: Throwable) { null }
+        if (!savedCrash.isNullOrBlank()) {
+            showCrashScreen(savedCrash)
+            return
         }
+
+        try {
+            setContentView(R.layout.activity_settings)
+            bindViews()
+            loadSettings()
+            setupListeners()
+            checkKeyboardEnabled()
+            updateMicPermissionButton()
+            tvAppVersion.text = "Version ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})"
+            setupCrashCardListeners()
+            refreshCrashCard()
+            if (intent.getBooleanExtra(EXTRA_REQUEST_MIC_PERMISSION, false)) {
+                requestMicPermissionIfNeeded()
+            }
+        } catch (e: Throwable) {
+            com.gremier.gkeys.diag.CrashLogger.record(this, e)
+            showCrashScreen(buildString {
+                appendLine("Settings failed to open:")
+                appendLine(e.toString())
+            })
+        }
+    }
+
+    /** Minimal, dependency-free screen that always renders, even if the normal UI can't. */
+    private fun showCrashScreen(crashText: String) {
+        val scroll = android.widget.ScrollView(this).apply {
+            setBackgroundColor(0xFF0F0F1A.toInt())
+            setPadding(32, 48, 32, 48)
+        }
+        val column = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+        }
+        val title = TextView(this).apply {
+            text = "Gkeys — last crash"
+            setTextColor(0xFFFF8A80.toInt())
+            textSize = 18f
+            setPadding(0, 0, 0, 16)
+        }
+        val body = TextView(this).apply {
+            text = crashText
+            setTextColor(0xFFE5E7EB.toInt())
+            textSize = 12f
+            setTextIsSelectable(true)
+            typeface = android.graphics.Typeface.MONOSPACE
+        }
+        val copyBtn = android.widget.Button(this).apply {
+            text = "Copy crash log"
+            setOnClickListener {
+                try {
+                    val clip = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                    clip.setPrimaryClip(android.content.ClipData.newPlainText("Gkeys crash", crashText))
+                    Toast.makeText(this@SettingsActivity, "Copied", Toast.LENGTH_SHORT).show()
+                } catch (_: Throwable) {}
+            }
+        }
+        val clearBtn = android.widget.Button(this).apply {
+            text = "Clear & open settings"
+            setOnClickListener {
+                try { com.gremier.gkeys.diag.CrashLogger.clear(this@SettingsActivity) } catch (_: Throwable) {}
+                recreate()
+            }
+        }
+        column.addView(title)
+        column.addView(copyBtn)
+        column.addView(clearBtn)
+        column.addView(body)
+        scroll.addView(column)
+        setContentView(scroll)
     }
 
     private fun setupCrashCardListeners() {

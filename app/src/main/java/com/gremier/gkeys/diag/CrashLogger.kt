@@ -30,17 +30,25 @@ object CrashLogger {
     }
 
     private fun writeCrash(context: Context, thread: Thread, throwable: Throwable) {
-        val sw = StringWriter()
-        PrintWriter(sw).use { throwable.printStackTrace(it) }
-        val timestamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
-        val text = buildString {
-            appendLine("Time: $timestamp")
-            appendLine("Thread: ${thread.name}")
-            appendLine("Message: ${throwable.message}")
-            appendLine("---")
-            append(sw.toString())
+        record(context, throwable, thread.name)
+    }
+
+    /** Manually record an exception (for try/catch blocks). */
+    fun record(context: Context, throwable: Throwable, threadName: String = Thread.currentThread().name) {
+        try {
+            val sw = StringWriter()
+            PrintWriter(sw).use { throwable.printStackTrace(it) }
+            val timestamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
+            val text = buildString {
+                appendLine("Time: $timestamp")
+                appendLine("Thread: $threadName")
+                appendLine("Message: ${throwable.message}")
+                appendLine("---")
+                append(sw.toString())
+            }
+            File(context.applicationContext.filesDir, FILE_NAME).writeText(text)
+        } catch (_: Throwable) {
         }
-        File(context.filesDir, FILE_NAME).writeText(text)
     }
 
     fun lastCrash(context: Context): String? {

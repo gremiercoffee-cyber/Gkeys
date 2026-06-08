@@ -43,12 +43,12 @@ object SecureApiKeyStore {
         val appContext = context.applicationContext
         return try {
             buildPrefs(appContext).also { cachedPrefs = it }
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Log.e(TAG, "Encrypted key store unreadable — resetting", e)
             resetCorruptedStore(appContext)
             try {
                 buildPrefs(appContext).also { cachedPrefs = it }
-            } catch (e2: Exception) {
+            } catch (e2: Throwable) {
                 Log.e(TAG, "Encrypted key store still unreadable after reset", e2)
                 null
             }
@@ -61,7 +61,7 @@ object SecureApiKeyStore {
             cachedPrefs = null
             val prefsDir = File(context.applicationInfo.dataDir, "shared_prefs")
             File(prefsDir, "$PREFS_NAME.xml").delete()
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Log.w(TAG, "Unable to delete corrupted key store", e)
         }
     }
@@ -73,7 +73,7 @@ object SecureApiKeyStore {
     private fun readKey(context: Context, key: String): String {
         return try {
             prefs(context)?.getString(key, "") ?: ""
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Log.e(TAG, "Failed to read key $key — resetting store", e)
             resetCorruptedStore(context)
             ""
@@ -87,7 +87,7 @@ object SecureApiKeyStore {
     private fun writeKey(context: Context, key: String, value: String) {
         try {
             prefs(context)?.edit()?.putString(key, value.trim())?.apply()
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Log.e(TAG, "Failed to write key $key", e)
         }
     }

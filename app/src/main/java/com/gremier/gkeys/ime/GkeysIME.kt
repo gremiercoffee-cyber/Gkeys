@@ -160,7 +160,7 @@ class GkeysIME : InputMethodService() {
             audioRecorder = AudioRecorder(this)
             vibrator = initVibrator()
             loadSettings()
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             android.util.Log.e("GkeysIME", "onCreate failed", e)
         }
     }
@@ -185,8 +185,9 @@ class GkeysIME : InputMethodService() {
     override fun onCreateInputView(): View {
         return try {
             buildInputView()
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             android.util.Log.e("GkeysIME", "onCreateInputView failed", e)
+            com.gremier.gkeys.diag.CrashLogger.record(this, e)
             // Fallback: never return null / crash the IME host.
             FrameLayout(this)
         }
@@ -259,7 +260,7 @@ class GkeysIME : InputMethodService() {
             refreshApiKeys()
             loadSettings()
             clipboardManager?.startListening()
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             android.util.Log.e("GkeysIME", "onStartInputView failed", e)
         }
     }
@@ -300,8 +301,9 @@ class GkeysIME : InputMethodService() {
                     updateOneHandButton()
                     buildKeyboard()
                 }
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 android.util.Log.e("GkeysIME", "loadSettings failed", e)
+                com.gremier.gkeys.diag.CrashLogger.record(this@GkeysIME, e)
             }
         }
     }
@@ -430,7 +432,7 @@ class GkeysIME : InputMethodService() {
         try {
             openAiKey = SecureApiKeyStore.getOpenAiKey(this)
             anthropicKey = SecureApiKeyStore.getAnthropicKey(this)
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             android.util.Log.e("GkeysIME", "refreshApiKeys failed", e)
             openAiKey = ""
             anthropicKey = ""
@@ -633,8 +635,9 @@ class GkeysIME : InputMethodService() {
     private fun buildKeyboard() {
         try {
             buildKeyboardInternal()
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             android.util.Log.e("GkeysIME", "buildKeyboard failed", e)
+            com.gremier.gkeys.diag.CrashLogger.record(this, e)
         }
     }
 
