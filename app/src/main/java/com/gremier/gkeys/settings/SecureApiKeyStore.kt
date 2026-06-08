@@ -20,7 +20,7 @@ object SecureApiKeyStore {
     private const val PREFS_NAME = "gkeys_secure_keys"
     private const val KEY_OPENAI = "openai_api_key"
     private const val KEY_ANTHROPIC = "anthropic_api_key"
-    private const val KEY_GOOGLE_STT = "google_stt_api_key"
+    private const val KEY_DEEPGRAM = "deepgram_api_key"
 
     @Volatile
     private var cachedPrefs: SharedPreferences? = null
@@ -71,7 +71,7 @@ object SecureApiKeyStore {
 
     fun getAnthropicKey(context: Context): String = readKey(context, KEY_ANTHROPIC)
 
-    fun getGoogleSttKey(context: Context): String = readKey(context, KEY_GOOGLE_STT)
+    fun getDeepgramKey(context: Context): String = readKey(context, KEY_DEEPGRAM)
 
     private fun readKey(context: Context, key: String): String {
         return try {
@@ -87,7 +87,7 @@ object SecureApiKeyStore {
 
     fun saveAnthropicKey(context: Context, key: String) = writeKey(context, KEY_ANTHROPIC, key)
 
-    fun saveGoogleSttKey(context: Context, key: String) = writeKey(context, KEY_GOOGLE_STT, key)
+    fun saveDeepgramKey(context: Context, key: String) = writeKey(context, KEY_DEEPGRAM, key)
 
     private fun writeKey(context: Context, key: String, value: String) {
         try {

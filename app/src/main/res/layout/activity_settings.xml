@@ -177,11 +177,11 @@
                 <com.google.android.material.textfield.TextInputLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:hint="Google Speech-to-Text API Key"
+                    android:hint="Deepgram API Key"
                     app:hintTextColor="#9CA3AF"
                     style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox">
                     <com.google.android.material.textfield.TextInputEditText
-                        android:id="@+id/et_google_stt_key"
+                        android:id="@+id/et_deepgram_key"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:textColor="#FFFFFF"

@@ -35,7 +35,7 @@ class SettingsActivity : AppCompatActivity() {
 
     private lateinit var etOpenAiKey: TextInputEditText
     private lateinit var etAnthropicKey: TextInputEditText
-    private lateinit var etGoogleSttKey: TextInputEditText
+    private lateinit var etDeepgramKey: TextInputEditText
     private lateinit var sliderKeyRepeat: Slider
     private lateinit var sliderDeleteSpeed: Slider
     private lateinit var switchVibration: SwitchMaterial
@@ -202,7 +202,7 @@ class SettingsActivity : AppCompatActivity() {
     private fun bindViews() {
         etOpenAiKey = findViewById(R.id.et_openai_key)
         etAnthropicKey = findViewById(R.id.et_anthropic_key)
-        etGoogleSttKey = findViewById(R.id.et_google_stt_key)
+        etDeepgramKey = findViewById(R.id.et_deepgram_key)
         sliderKeyRepeat = findViewById(R.id.slider_key_repeat)
         sliderDeleteSpeed = findViewById(R.id.slider_delete_speed)
         switchVibration = findViewById(R.id.switch_vibration)
@@ -248,7 +248,7 @@ class SettingsActivity : AppCompatActivity() {
           try {
             etOpenAiKey.setText(GkeysSettings.openAiKey(this@SettingsActivity).first())
             etAnthropicKey.setText(GkeysSettings.anthropicKey(this@SettingsActivity).first())
-            etGoogleSttKey.setText(GkeysSettings.googleSttKey(this@SettingsActivity).first())
+            etDeepgramKey.setText(GkeysSettings.deepgramKey(this@SettingsActivity).first())
             sliderKeyRepeat.value = clampToSlider(sliderKeyRepeat, GkeysSettings.keyRepeatSpeed(this@SettingsActivity).first().toFloat())
             sliderDeleteSpeed.value = clampToSlider(sliderDeleteSpeed, GkeysSettings.deleteSpeed(this@SettingsActivity).first().toFloat())
             switchVibration.isChecked = GkeysSettings.vibrationEnabled(this@SettingsActivity).first()
@@ -320,7 +320,7 @@ class SettingsActivity : AppCompatActivity() {
             lifecycleScope.launch {
                 GkeysSettings.saveOpenAiKey(this@SettingsActivity, etOpenAiKey.text.toString().trim())
                 GkeysSettings.saveAnthropicKey(this@SettingsActivity, etAnthropicKey.text.toString().trim())
-                GkeysSettings.saveGoogleSttKey(this@SettingsActivity, etGoogleSttKey.text.toString().trim())
+                GkeysSettings.saveDeepgramKey(this@SettingsActivity, etDeepgramKey.text.toString().trim())
                 GkeysSettings.saveKeyRepeatSpeed(this@SettingsActivity, sliderKeyRepeat.value.toInt())
                 GkeysSettings.saveDeleteSpeed(this@SettingsActivity, sliderDeleteSpeed.value.toInt())
                 GkeysSettings.saveVibration(this@SettingsActivity, switchVibration.isChecked)

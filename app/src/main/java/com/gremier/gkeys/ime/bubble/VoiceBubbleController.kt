@@ -38,10 +38,9 @@ class VoiceBubbleController(
     private val listener: VoiceBubbleListener
 ) {
     companion object {
-        private const val BUBBLE_SIZE_DP = 56
+        private const val BUBBLE_SIZE_DP = 72
         private const val EDGE_MARGIN_DP = 16
-        private const val DRAG_THRESHOLD_PX = 8
-        private const val SWIPE_UP_THRESHOLD_PX = 80
+        private const val DRAG_THRESHOLD_PX = 10
         private const val TRANSLATE_HOLD_MS = 380L
     }
 
@@ -238,16 +237,14 @@ class VoiceBubbleController(
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
+                if (translateHoldActive || state == VoiceBubbleState.RECORDING) {
+                    return true
+                }
                 val dx = event.rawX - touchStartX
                 val dy = event.rawY - touchStartY
                 if (!isDragging && (abs(dx) > DRAG_THRESHOLD_PX || abs(dy) > DRAG_THRESHOLD_PX)) {
                     isDragging = true
                     rootView?.removeCallbacks(translateHoldRunnable)
-                    if (translateHoldActive) {
-                        translateHoldActive = false
-                        listener.onBubbleTranslateHoldEnd(cancelled = true)
-                        applyStateVisuals()
-                    }
                 }
                 if (isDragging) {
                     params.x = (dragStartX + dx).roundToInt()
@@ -268,6 +265,7 @@ class VoiceBubbleController(
                 if (translateHoldActive) {
                     translateHoldActive = false
                     listener.onBubbleTranslateHoldEnd(cancelled)
+                    applyStateVisuals()
                     return true
                 }
                 if (isDragging) {
@@ -278,14 +276,12 @@ class VoiceBubbleController(
                         windowManager.updateViewLayout(rootView, params)
                     } catch (_: Exception) {
                     }
+                    isDragging = false
                     return true
                 }
                 val dx = event.rawX - touchStartX
                 val dy = event.rawY - touchStartY
-                if (dy < -SWIPE_UP_THRESHOLD_PX && abs(dy) > abs(dx)) {
-                    listener.onVibrate()
-                    listener.onBubbleSwipeUp()
-                } else if (abs(dx) < DRAG_THRESHOLD_PX * 2 && abs(dy) < DRAG_THRESHOLD_PX * 2) {
+                if (abs(dx) < DRAG_THRESHOLD_PX * 2 && abs(dy) < DRAG_THRESHOLD_PX * 2) {
                     listener.onVibrate()
                     listener.onBubbleTap()
                 }
@@ -323,14 +319,16 @@ class VoiceBubbleController(
         when (state) {
             VoiceBubbleState.IDLE -> {
                 pulseRing?.visibility = View.GONE
+                pulseRing?.scaleX = 1f
+                pulseRing?.scaleY = 1f
                 rootView?.contentDescription =
-                    "Gkeys voice bubble. Tap to dictate. Hold to translate. Swipe up for keyboard."
+                    "Gkeys voice bubble. Tap to dictate. Hold to translate. Tap the text field for keyboard."
                 body.scaleX = 1f
                 body.scaleY = 1f
             }
             VoiceBubbleState.RECORDING -> {
                 pulseRing?.visibility = View.VISIBLE
-                pulseRing?.alpha = 0.45f
+                pulseRing?.alpha = 0.5f
                 rootView?.contentDescription = if (translateHoldActive) {
                     "Translating. Release to finish."
                 } else {
@@ -340,7 +338,7 @@ class VoiceBubbleController(
             }
             VoiceBubbleState.PROCESSING -> {
                 pulseRing?.visibility = View.VISIBLE
-                pulseRing?.alpha = 0.55f
+                pulseRing?.alpha = 0.6f
                 rootView?.contentDescription = "Processing dictation."
                 startPulseAnimators(slower = true)
             }
@@ -349,25 +347,36 @@ class VoiceBubbleController(
 
     private fun startPulseAnimators(slower: Boolean = false) {
         val body = bubbleBody ?: return
-        val duration = if (slower) 850L else 650L
-        val pulse = ObjectAnimator.ofPropertyValuesHolder(
+        val ring = pulseRing ?: return
+        val duration = if (slower) 900L else 700L
+        val bodyPulse = ObjectAnimator.ofPropertyValuesHolder(
             body,
-            PropertyValuesHolder.ofFloat(View.SCALE_X, 1f, 1.12f),
-            PropertyValuesHolder.ofFloat(View.SCALE_Y, 1f, 1.12f)
+            PropertyValuesHolder.ofFloat(View.SCALE_X, 1f, 1.08f),
+            PropertyValuesHolder.ofFloat(View.SCALE_Y, 1f, 1.08f)
         ).apply {
             this.duration = duration
             repeatMode = ObjectAnimator.REVERSE
             repeatCount = ObjectAnimator.INFINITE
             interpolator = AccelerateDecelerateInterpolator()
         }
-        ringPulseAnimator = ObjectAnimator.ofFloat(pulseRing, View.ALPHA, 0.25f, 0.75f).apply {
+        val ringPulse = ObjectAnimator.ofPropertyValuesHolder(
+            ring,
+            PropertyValuesHolder.ofFloat(View.SCALE_X, 0.92f, 1.18f),
+            PropertyValuesHolder.ofFloat(View.SCALE_Y, 0.92f, 1.18f)
+        ).apply {
+            this.duration = duration
+            repeatMode = ObjectAnimator.REVERSE
+            repeatCount = ObjectAnimator.INFINITE
+            interpolator = AccelerateDecelerateInterpolator()
+        }
+        ringPulseAnimator = ObjectAnimator.ofFloat(ring, View.ALPHA, 0.35f, 0.85f).apply {
             this.duration = duration
             repeatMode = ObjectAnimator.REVERSE
             repeatCount = ObjectAnimator.INFINITE
             start()
         }
         pulseAnimator = AnimatorSet().apply {
-            playTogether(pulse)
+            playTogether(bodyPulse, ringPulse)
             start()
         }
     }
@@ -379,5 +388,7 @@ class VoiceBubbleController(
         ringPulseAnimator = null
         bubbleBody?.scaleX = 1f
         bubbleBody?.scaleY = 1f
+        pulseRing?.scaleX = 1f
+        pulseRing?.scaleY = 1f
     }
 }

@@ -37,7 +37,8 @@ object GkeysSettings {
     val KEY_SIZE_PRESET = stringPreferencesKey("key_size_preset")
     val KEYBOARD_HEIGHT_DP = intPreferencesKey("keyboard_height_dp")
     val ONE_HANDED_WIDTH_FRACTION = floatPreferencesKey("one_handed_width_fraction")
-    val GOOGLE_STT_KEY = stringPreferencesKey("google_stt_key")
+    val DEEPGRAM_KEY = stringPreferencesKey("deepgram_key")
+    private val LEGACY_GOOGLE_STT_KEY = stringPreferencesKey("google_stt_key")
     val VOICE_BUBBLE_MODE_ACTIVE = booleanPreferencesKey("voice_bubble_mode_active")
     val DEFAULT_TO_VOICE_BUBBLE = booleanPreferencesKey("default_to_voice_bubble")
 
@@ -82,9 +83,9 @@ object GkeysSettings {
         emit(SecureApiKeyStore.getAnthropicKey(context))
     }
 
-    fun googleSttKey(context: Context): Flow<String> = flow {
-        migrateGoogleSttKeyIfNeeded(context)
-        emit(SecureApiKeyStore.getGoogleSttKey(context))
+    fun deepgramKey(context: Context): Flow<String> = flow {
+        migrateDeepgramKeyIfNeeded(context)
+        emit(SecureApiKeyStore.getDeepgramKey(context))
     }
 
     fun keyRepeatSpeed(context: Context): Flow<Int> =
@@ -201,9 +202,12 @@ object GkeysSettings {
         settingsStore(context).edit { it.remove(ANTHROPIC_KEY) }
     }
 
-    suspend fun saveGoogleSttKey(context: Context, key: String) {
-        SecureApiKeyStore.saveGoogleSttKey(context, key)
-        settingsStore(context).edit { it.remove(GOOGLE_STT_KEY) }
+    suspend fun saveDeepgramKey(context: Context, key: String) {
+        SecureApiKeyStore.saveDeepgramKey(context, key)
+        settingsStore(context).edit {
+            it.remove(DEEPGRAM_KEY)
+            it.remove(LEGACY_GOOGLE_STT_KEY)
+        }
     }
 
     private suspend fun migrateOpenAiKeyIfNeeded(context: Context) {
@@ -224,12 +228,18 @@ object GkeysSettings {
         }
     }
 
-    private suspend fun migrateGoogleSttKeyIfNeeded(context: Context) {
-        if (SecureApiKeyStore.getGoogleSttKey(context).isNotBlank()) return
-        val legacy = settingsStore(context).data.first()[GOOGLE_STT_KEY] ?: ""
-        if (legacy.isNotBlank()) {
-            SecureApiKeyStore.saveGoogleSttKey(context, legacy)
-            settingsStore(context).edit { it.remove(GOOGLE_STT_KEY) }
+    private suspend fun migrateDeepgramKeyIfNeeded(context: Context) {
+        if (SecureApiKeyStore.getDeepgramKey(context).isNotBlank()) return
+        val legacyDeepgram = settingsStore(context).data.first()[DEEPGRAM_KEY] ?: ""
+        if (legacyDeepgram.isNotBlank()) {
+            SecureApiKeyStore.saveDeepgramKey(context, legacyDeepgram)
+            settingsStore(context).edit { it.remove(DEEPGRAM_KEY) }
+            return
+        }
+        val legacyGoogle = settingsStore(context).data.first()[LEGACY_GOOGLE_STT_KEY] ?: ""
+        if (legacyGoogle.isNotBlank()) {
+            SecureApiKeyStore.saveDeepgramKey(context, legacyGoogle)
+            settingsStore(context).edit { it.remove(LEGACY_GOOGLE_STT_KEY) }
         }
     }
 

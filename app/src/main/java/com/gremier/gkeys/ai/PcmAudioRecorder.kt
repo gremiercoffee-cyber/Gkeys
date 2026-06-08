@@ -7,7 +7,7 @@ import kotlinx.coroutines.*
 import kotlin.coroutines.coroutineContext
 
 /**
- * Captures 16 kHz mono PCM16 from the microphone for Google Speech-to-Text streaming.
+ * Captures 16 kHz mono PCM16 from the microphone for live speech-to-text streaming.
  */
 class PcmAudioRecorder {
     companion object {
