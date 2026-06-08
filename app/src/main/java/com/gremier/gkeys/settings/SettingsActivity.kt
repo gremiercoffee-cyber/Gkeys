@@ -67,6 +67,7 @@ class SettingsActivity : AppCompatActivity() {
     private var crashScreenShown = false
     private var overlayRestrictedStep = 0
     private var settingsLoaded = false
+    private var suppressPolishAutoSave = false
 
     private val micPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -200,6 +201,7 @@ class SettingsActivity : AppCompatActivity() {
             refreshAdaptiveTouchStats()
             checkKeyboardEnabled()
             refreshCrashCard()
+            refreshPolishLevelRadio()
         } catch (e: Throwable) {
             android.util.Log.e("SettingsActivity", "onResume failed", e)
         }
@@ -262,9 +264,9 @@ class SettingsActivity : AppCompatActivity() {
             sliderVibration.value = clampToSlider(sliderVibration, GkeysSettings.vibrationStrength(this@SettingsActivity).first().toFloat())
             sliderVibration.isEnabled = switchVibration.isChecked
             when (GkeysSettings.polishLevel(this@SettingsActivity).first()) {
-                GkeysSettings.POLISH_FORMAL -> radioPolishLevel.check(R.id.radio_polish_formal)
-                GkeysSettings.POLISH_RAW -> radioPolishLevel.check(R.id.radio_polish_raw)
-                else -> radioPolishLevel.check(R.id.radio_polish_natural)
+                GkeysSettings.POLISH_FORMAL -> selectPolishRadio(R.id.radio_polish_formal)
+                GkeysSettings.POLISH_RAW -> selectPolishRadio(R.id.radio_polish_raw)
+                else -> selectPolishRadio(R.id.radio_polish_natural)
             }
             selectSpinnerLanguage(spinnerVoiceFrom, GkeysSettings.voiceTranslateFrom(this@SettingsActivity).first())
             selectSpinnerLanguage(spinnerVoiceTo, GkeysSettings.voiceTranslateTo(this@SettingsActivity).first())
@@ -330,6 +332,7 @@ class SettingsActivity : AppCompatActivity() {
         }
 
         radioPolishLevel.setOnCheckedChangeListener { _, _ ->
+            if (!settingsLoaded || suppressPolishAutoSave) return@setOnCheckedChangeListener
             autoSave { GkeysSettings.savePolishLevel(this@SettingsActivity, polishLevelFromRadio()) }
         }
 
@@ -507,6 +510,30 @@ class SettingsActivity : AppCompatActivity() {
     private fun spinnerLanguageCode(spinner: Spinner): String {
         val index = spinner.selectedItemPosition.coerceIn(0, GkeysSettings.voiceLanguageCodes.lastIndex)
         return GkeysSettings.voiceLanguageCodes[index]
+    }
+
+    private fun refreshPolishLevelRadio() {
+        if (!::radioPolishLevel.isInitialized) return
+        lifecycleScope.launch {
+            try {
+                suppressPolishAutoSave = true
+                when (GkeysSettings.polishLevel(this@SettingsActivity).first()) {
+                    GkeysSettings.POLISH_FORMAL -> selectPolishRadio(R.id.radio_polish_formal)
+                    GkeysSettings.POLISH_RAW -> selectPolishRadio(R.id.radio_polish_raw)
+                    else -> selectPolishRadio(R.id.radio_polish_natural)
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("SettingsActivity", "refreshPolishLevelRadio failed", e)
+            } finally {
+                suppressPolishAutoSave = false
+            }
+        }
+    }
+
+    private fun selectPolishRadio(id: Int) {
+        if (radioPolishLevel.checkedRadioButtonId != id) {
+            radioPolishLevel.check(id)
+        }
     }
 
     private fun polishLevelFromRadio(): String = when (radioPolishLevel.checkedRadioButtonId) {

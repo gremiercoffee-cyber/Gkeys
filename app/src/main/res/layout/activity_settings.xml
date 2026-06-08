@@ -339,7 +339,7 @@
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="Formal: grammar &amp; structure, keep your words · Natural: remove ums, keep your voice · Raw: no polish"
+                    android:text="Formal: professional &amp; clear · Natural: remove ums, keep casual tone · Raw: transcript only"
                     android:textColor="#6B7280"
                     android:textSize="12sp"
                     android:layout_marginBottom="8dp" />

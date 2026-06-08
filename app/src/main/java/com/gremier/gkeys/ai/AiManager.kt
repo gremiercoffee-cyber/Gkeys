@@ -41,46 +41,38 @@ Language expectations: The user mostly speaks or types English, sometimes Hebrew
 
 
         private const val FORMAL_POLISH_PROMPT = """
-You are a conservative copy editor for voice dictation. Make the smallest possible edits.
+You rewrite messy voice dictation into clear, professional text.
 
-FORMAL mode — allowed:
-- Fix clear grammar mistakes and punctuation
-- Light structure fixes only (commas, periods, capitals) — not sentence rewrites
-- At most 1–2 word changes in the ENTIRE message (e.g. a/an). If unsure, leave the word unchanged
+FORMAL mode — do:
+- Fix grammar, punctuation, and sentence structure
+- Replace slang, filler words, and overly casual phrasing with clean professional wording
+- Turn run-on or broken speech into complete, readable sentences
+- Preserve the speaker's meaning, facts, and intent
 
-FORMAL mode — forbidden:
-- Do NOT replace the user's words with synonyms or "better" alternatives
-- Do NOT rewrite, rephrase, reorder, merge, or split sentences
-- Do NOT change vocabulary, tone, or formality
-- Do NOT add or remove content
+FORMAL mode — do not:
+- Add new information or change the message
+- Change languages (keep English/Hebrew mix as spoken)
 
-The result must use the speaker's own words and sound like them — just cleaner.
-
-Example (wrong): "I went to the store" → "I visited the shop"
-Example (right): "I went to the store" → "I went to the store." or "I went to the store"
+Example: "yo so like me and john r gonna hit up the store later" → "John and I are going to the store later."
 
 $LANGUAGE_CONTEXT
 
-Return ONLY the edited text. No quotes or commentary."""
+Return ONLY the rewritten text. No quotes or commentary."""
 
         private const val NATURAL_POLISH_PROMPT = """
-You clean up messy voice dictation while keeping the speaker's voice exactly intact.
+You clean up messy voice dictation while keeping the speaker's casual voice.
 
-NATURAL mode — allowed:
+NATURAL mode — do:
 - Remove filler words (um, uh, er, like-as-filler), false starts, and stutter-repetitions
-- Fix obvious transcription errors and major grammar breaks that block understanding
-- Light punctuation and capitalization fixes
+- Fix obvious transcription errors and broken grammar
+- Add light punctuation and capitalization
 
-NATURAL mode — forbidden:
-- Do NOT swap the user's words for different ones
-- Do NOT rewrite sentences for style, clarity, or formality
-- Do NOT change tone — stay casual if they were casual
-- Do NOT reorder or restructure beyond removing fillers
+NATURAL mode — do not:
+- Make the text formal or professional
+- Replace the speaker's word choices with fancier synonyms
+- Reorder or rewrite beyond removing fillers and fixing errors
 
-Keep their vocabulary, personality, and casual style completely intact.
-
-Example (wrong): "so like I think we should maybe go" → "I believe we ought to depart"
-Example (right): "so like I think we should maybe go" → "I think we should maybe go"
+Example: "so like I think we should maybe go" → "I think we should maybe go"
 
 $LANGUAGE_CONTEXT
 
@@ -167,60 +159,17 @@ You are an AI ghostwriter. The user describes what they want to say — often as
 
 
         private fun temperatureForLevel(level: String): Double = when (level) {
-            GkeysSettings.POLISH_FORMAL -> 0.0
-            GkeysSettings.POLISH_NATURAL -> 0.0
+            GkeysSettings.POLISH_FORMAL -> 0.25
+            GkeysSettings.POLISH_NATURAL -> 0.15
             else -> 0.0
         }
 
         private fun polishUserContent(text: String, level: String): String = when (level) {
             GkeysSettings.POLISH_FORMAL ->
-                "Apply Formal polish. Max 1–2 word changes in the whole message. Keep every other word exactly as spoken.\n\nTranscript:\n$text"
+                "Rewrite this dictation in Formal mode — professional, clear, and grammatically correct:\n\n$text"
             GkeysSettings.POLISH_NATURAL ->
-                "Apply Natural polish. Remove fillers and fix major errors only. Keep voice, tone, and word choices intact.\n\nTranscript:\n$text"
+                "Clean this dictation in Natural mode — remove fillers and fix errors, keep casual tone:\n\n$text"
             else -> text
-        }
-
-        /** Word-level edit distance; used to reject over-aggressive Formal polish. */
-        private fun wordEditDistance(a: String, b: String): Int {
-            val wa = a.split(Regex("\\s+")).filter { it.isNotBlank() }
-            val wb = b.split(Regex("\\s+")).filter { it.isNotBlank() }
-            if (wa.isEmpty()) return wb.size
-            if (wb.isEmpty()) return wa.size
-            val m = wa.size
-            val n = wb.size
-            val dp = Array(m + 1) { IntArray(n + 1) }
-            for (i in 0..m) dp[i][0] = i
-            for (j in 0..n) dp[0][j] = j
-            for (i in 1..m) {
-                for (j in 1..n) {
-                    val cost = if (wa[i - 1].equals(wb[j - 1], ignoreCase = true)) 0 else 1
-                    dp[i][j] = minOf(
-                        dp[i - 1][j] + 1,
-                        dp[i][j - 1] + 1,
-                        dp[i - 1][j - 1] + cost
-                    )
-                }
-            }
-            return dp[m][n]
-        }
-
-        private fun enforceFormalWordLimit(original: String, polished: String): String {
-            val maxEdits = 2
-            if (wordEditDistance(original, polished) > maxEdits) {
-                return original
-            }
-            return polished
-        }
-
-        private fun enforceNaturalVoiceLimit(original: String, polished: String): String {
-            val origWords = original.split(Regex("\\s+")).filter { it.isNotBlank() }
-            if (origWords.isEmpty()) return polished
-            val editDist = wordEditDistance(original, polished)
-            val maxEdits = (origWords.size * 0.35).toInt().coerceAtLeast(3)
-            if (editDist > maxEdits) {
-                return original
-            }
-            return polished
         }
 
     }
@@ -353,13 +302,7 @@ You are an AI ghostwriter. The user describes what they want to say — often as
 
             temperature = temperatureForLevel(level)
 
-        ).map { polished ->
-            when (level) {
-                GkeysSettings.POLISH_FORMAL -> enforceFormalWordLimit(text, polished)
-                GkeysSettings.POLISH_NATURAL -> enforceNaturalVoiceLimit(text, polished)
-                else -> polished
-            }
-        }
+        )
 
     }
 
