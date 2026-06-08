@@ -30,6 +30,7 @@ import com.gremier.gkeys.ime.bubble.VoiceBubbleController
 import com.gremier.gkeys.ime.bubble.VoiceBubbleListener
 import com.gremier.gkeys.ime.bubble.VoiceBubbleState
 import com.gremier.gkeys.ime.emoji.EmojiCatalog
+import com.gremier.gkeys.ime.emoji.EmojiUsageStore
 import com.gremier.gkeys.ime.layout.KeyboardLayoutMetrics
 import com.gremier.gkeys.ime.layout.KeyboardLayoutMetrics.Profile
 import com.gremier.gkeys.ime.touch.AdaptiveTouchIntelligence
@@ -879,7 +880,11 @@ class GkeysIME : InputMethodService() {
     }
 
     private fun openAppForOverlayPermission() {
-        OverlayPermissionHelper.requestOverlayPermission(this)
+        startActivity(Intent(this, SettingsActivity::class.java).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            putExtra(SettingsActivity.EXTRA_REQUEST_OVERLAY_PERMISSION, true)
+            putExtra(SettingsActivity.EXTRA_SHOW_OVERLAY_RESTRICTED_HELP, true)
+        })
     }
 
     private fun enterVoiceBubbleMode(fromKeyboard: Boolean) {
@@ -1429,6 +1434,11 @@ class GkeysIME : InputMethodService() {
         )
         shell.addView(topBar)
 
+        val columns = KeyboardLayoutMetrics.EMOJI_COLUMNS
+        val frequent = EmojiUsageStore.mostUsed(this, columns)
+        shell.addView(buildEmojiCategoryHeader("Frequently used"))
+        shell.addView(buildEmojiRow(frequent, profile, columns))
+
         val scroll = ScrollView(this).apply {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -1449,7 +1459,6 @@ class GkeysIME : InputMethodService() {
             )
         }
 
-        val columns = KeyboardLayoutMetrics.EMOJI_COLUMNS
         for (category in EmojiCatalog.categories()) {
             grid.addView(buildEmojiCategoryHeader(category.name))
             category.emojis.chunked(columns).forEach { rowEmojis ->
@@ -1809,6 +1818,9 @@ class GkeysIME : InputMethodService() {
                 }
 
                 ic.commitText(toInsert, 1)
+                if (EmojiCatalog.isEmoji(toInsert)) {
+                    EmojiUsageStore.record(this, toInsert)
+                }
                 updateTouchContext(toInsert)
                 if (isShifted && !capsLock && toInsert.length == 1 && toInsert[0].isLetter()) {
                     isShifted = false

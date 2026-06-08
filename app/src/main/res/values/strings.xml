@@ -6,4 +6,12 @@
         <item>English</item>
         <item>Hebrew</item>
     </string-array>
+
+    <string name="overlay_restricted_title">Allow Voice Bubble access</string>
+    <string name="overlay_restricted_message">Because Gkeys was installed from an APK (not the Play Store), Android blocks “Display over other apps” until you opt in.\n\n1. Tap Continue to open Gkeys app info\n2. Tap ⋮ (top-right menu) → Allow restricted settings\n3. Confirm with your PIN or fingerprint\n4. Return here and tap Allow display over other apps again\n\nThe security warning is normal for self-installed apps you trust.</string>
+    <string name="overlay_restricted_continue">Continue</string>
+    <string name="overlay_restricted_cancel">Cancel</string>
+    <string name="overlay_open_app_info_toast">Tap ⋮ → Allow restricted settings, then come back and try again</string>
+    <string name="overlay_turn_on_toast">Turn on Allow display over other apps for Gkeys</string>
+    <string name="overlay_sideload_hint">Installed from APK? If Android blocks access, open App info → ⋮ → Allow restricted settings first.</string>
 </resources>

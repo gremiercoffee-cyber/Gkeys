@@ -30,6 +30,7 @@ class SettingsActivity : AppCompatActivity() {
     companion object {
         const val EXTRA_REQUEST_MIC_PERMISSION = "request_mic_permission"
         const val EXTRA_REQUEST_OVERLAY_PERMISSION = "request_overlay_permission"
+        const val EXTRA_SHOW_OVERLAY_RESTRICTED_HELP = "show_overlay_restricted_help"
     }
 
     private lateinit var etOpenAiKey: TextInputEditText
@@ -61,6 +62,7 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var btnCopyCrash: MaterialButton
     private lateinit var btnClearCrash: MaterialButton
     private var crashScreenShown = false
+    private var overlayRestrictedStep = 0
 
     private val micPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -101,7 +103,12 @@ class SettingsActivity : AppCompatActivity() {
                 requestMicPermissionIfNeeded()
             }
             if (intent.getBooleanExtra(EXTRA_REQUEST_OVERLAY_PERMISSION, false)) {
-                requestOverlayPermissionIfNeeded()
+                if (intent.getBooleanExtra(EXTRA_SHOW_OVERLAY_RESTRICTED_HELP, false)) {
+                    overlayRestrictedStep = 0
+                    requestOverlayPermissionIfNeeded()
+                } else {
+                    requestOverlayPermissionIfNeeded()
+                }
             }
         } catch (e: Throwable) {
             com.gremier.gkeys.diag.CrashLogger.record(this, e)
@@ -369,7 +376,21 @@ class SettingsActivity : AppCompatActivity() {
         OverlayPermissionHelper.hasOverlayPermission(this)
 
     private fun requestOverlayPermissionIfNeeded() {
-        OverlayPermissionHelper.requestOverlayPermission(this)
+        if (hasOverlayPermission()) {
+            Toast.makeText(this, "Overlay permission already allowed", Toast.LENGTH_SHORT).show()
+            overlayRestrictedStep = 0
+            updateOverlayPermissionButton()
+            return
+        }
+        if (OverlayPermissionHelper.needsRestrictedSettingsUnlock() && overlayRestrictedStep == 0) {
+            OverlayPermissionHelper.showRestrictedSettingsHelp(this) {
+                overlayRestrictedStep = 1
+                OverlayPermissionHelper.openAppInfo(this)
+                updateOverlayPermissionButton()
+            }
+        } else {
+            OverlayPermissionHelper.openOverlayToggle(this)
+        }
     }
 
     private fun refreshAdaptiveTouchStats() {
@@ -380,10 +401,13 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun updateOverlayPermissionButton() {
-        btnOverlayPermission.text = if (hasOverlayPermission()) {
-            "✓ Display over other apps allowed"
-        } else {
-            "Allow display over other apps"
+        btnOverlayPermission.text = when {
+            hasOverlayPermission() -> "✓ Display over other apps allowed"
+            OverlayPermissionHelper.needsRestrictedSettingsUnlock() && overlayRestrictedStep == 1 ->
+                "Step 2: Allow display over other apps"
+            OverlayPermissionHelper.needsRestrictedSettingsUnlock() ->
+                "Step 1: Allow restricted settings"
+            else -> "Allow display over other apps"
         }
     }
 

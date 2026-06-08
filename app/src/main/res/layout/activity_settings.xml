@@ -397,6 +397,14 @@
                     android:textSize="12sp"
                     android:layout_marginBottom="8dp" />
 
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/overlay_sideload_hint"
+                    android:textColor="#6B7280"
+                    android:textSize="11sp"
+                    android:layout_marginBottom="8dp" />
+
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btn_overlay_permission"
                     android:layout_width="match_parent"
