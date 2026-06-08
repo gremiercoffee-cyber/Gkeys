@@ -40,11 +40,12 @@ class GkeysClipboardManager(
     private var isListening = false
     private var lastCapturedText: String? = null
     private var observeJob: Job? = null
-    private val blockedTexts = loadBlockedTexts().toMutableSet()
 
     private val prefs by lazy {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     }
+
+    private val blockedTexts = loadBlockedTexts().toMutableSet()
 
     private val systemClipboard =
         context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -199,8 +200,12 @@ class GkeysClipboardManager(
 
     private fun isBlocked(text: String): Boolean = text in blockedTexts
 
-    private fun loadBlockedTexts(): Set<String> =
+    private fun loadBlockedTexts(): Set<String> = try {
         prefs.getStringSet(KEY_BLOCKED, emptySet())?.toSet() ?: emptySet()
+    } catch (e: Throwable) {
+        Log.w(TAG, "Unable to load blocked texts", e)
+        emptySet()
+    }
 
     private suspend fun purgeExpired() {
         dao.deleteOlderThan(System.currentTimeMillis() - MAX_AGE_MS)
