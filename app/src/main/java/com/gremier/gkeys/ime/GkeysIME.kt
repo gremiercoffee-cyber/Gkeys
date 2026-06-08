@@ -155,14 +155,44 @@ class GkeysIME : InputMethodService() {
 
     override fun onCreate() {
         super.onCreate()
-        aiManager = AiManager(this)
-        audioRecorder = AudioRecorder(this)
-        @Suppress("DEPRECATION")
-        vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-        loadSettings()
+        try {
+            aiManager = AiManager(this)
+            audioRecorder = AudioRecorder(this)
+            vibrator = initVibrator()
+            loadSettings()
+        } catch (e: Exception) {
+            android.util.Log.e("GkeysIME", "onCreate failed", e)
+        }
+    }
+
+    private fun initVibrator(): Vibrator {
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val manager = getSystemService(Context.VIBRATOR_MANAGER_SERVICE)
+                    as android.os.VibratorManager
+                manager.defaultVibrator
+            } else {
+                @Suppress("DEPRECATION")
+                getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("GkeysIME", "Vibrator init failed", e)
+            @Suppress("DEPRECATION")
+            getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+        }
     }
 
     override fun onCreateInputView(): View {
+        return try {
+            buildInputView()
+        } catch (e: Exception) {
+            android.util.Log.e("GkeysIME", "onCreateInputView failed", e)
+            // Fallback: never return null / crash the IME host.
+            FrameLayout(this)
+        }
+    }
+
+    private fun buildInputView(): View {
         keyboardView = layoutInflater.inflate(R.layout.keyboard_view, null)
         keyboardView.layoutDirection = View.LAYOUT_DIRECTION_LTR
 
@@ -184,7 +214,6 @@ class GkeysIME : InputMethodService() {
         voiceActionViews[VoiceAction.RAW] = keyboardView.findViewById(R.id.action_raw)
 
         val keyboardRows = keyboardView.findViewById<KeyboardTouchLayout>(R.id.keyboard_rows)
-            ?: throw IllegalStateException("keyboard_rows missing from keyboard_view")
 
         touchPersonalization = TouchPersonalization(this, scope)
         touchPersonalization.load()
@@ -217,9 +246,7 @@ class GkeysIME : InputMethodService() {
 
         setupAiStrip()
         buildKeyboard()
-        keyboardView.findViewById<KeyboardTouchLayout>(R.id.keyboard_rows)?.let {
-            attachTouchTargetLayoutWatcher(it)
-        }
+        attachTouchTargetLayoutWatcher(keyboardRows)
         return keyboardView
     }
 
@@ -238,10 +265,14 @@ class GkeysIME : InputMethodService() {
     }
 
     override fun onFinishInputView(finishingInput: Boolean) {
-        cancelRecording()
-        hideVoiceOverlay()
-        clipboardManager?.stopListening()
-        clipboardManager?.hidePanel()
+        try {
+            cancelRecording()
+            hideVoiceOverlay()
+            clipboardManager?.stopListening()
+            clipboardManager?.hidePanel()
+        } catch (e: Exception) {
+            android.util.Log.e("GkeysIME", "onFinishInputView failed", e)
+        }
         super.onFinishInputView(finishingInput)
     }
 
@@ -282,33 +313,38 @@ class GkeysIME : InputMethodService() {
         btnMicContainer.isFocusable = true
 
         btnMicContainer.setOnTouchListener { _, event ->
-            when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN -> {
-                    micGestureTracking = true
-                    longPressTriggered = false
-                    pendingVoiceAction = VoiceAction.DEFAULT
-                    handler.postDelayed(longPressRunnable, LONG_PRESS_MS)
-                    true
-                }
-                MotionEvent.ACTION_MOVE -> {
-                    if (longPressTriggered || isVoiceOverlay) {
-                        highlightVoiceAction(event.rawX, event.rawY)
+            try {
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        micGestureTracking = true
+                        longPressTriggered = false
+                        pendingVoiceAction = VoiceAction.DEFAULT
+                        handler.postDelayed(longPressRunnable, LONG_PRESS_MS)
+                        true
                     }
-                    true
-                }
-                MotionEvent.ACTION_UP -> {
-                    finishMicGesture()
-                    true
-                }
-                MotionEvent.ACTION_CANCEL -> {
-                    if (longPressTriggered && isVoiceOverlay) {
-                        keyboardView.setOnTouchListener(rootMicTouchListener)
-                    } else {
-                        finishMicGesture(cancelled = true)
+                    MotionEvent.ACTION_MOVE -> {
+                        if (longPressTriggered || isVoiceOverlay) {
+                            highlightVoiceAction(event.rawX, event.rawY)
+                        }
+                        true
                     }
-                    true
+                    MotionEvent.ACTION_UP -> {
+                        finishMicGesture()
+                        true
+                    }
+                    MotionEvent.ACTION_CANCEL -> {
+                        if (longPressTriggered && isVoiceOverlay) {
+                            keyboardView.setOnTouchListener(rootMicTouchListener)
+                        } else {
+                            finishMicGesture(cancelled = true)
+                        }
+                        true
+                    }
+                    else -> false
                 }
-                else -> false
+            } catch (e: Exception) {
+                android.util.Log.e("GkeysIME", "mic touch failed", e)
+                true
             }
         }
 
@@ -595,6 +631,15 @@ class GkeysIME : InputMethodService() {
         (value * resources.displayMetrics.density).toInt()
 
     private fun buildKeyboard() {
+        try {
+            buildKeyboardInternal()
+        } catch (e: Exception) {
+            android.util.Log.e("GkeysIME", "buildKeyboard failed", e)
+        }
+    }
+
+    private fun buildKeyboardInternal() {
+        if (!::keyboardView.isInitialized || !::touchResolver.isInitialized) return
         val container = keyboardView.findViewById<KeyboardTouchLayout>(R.id.keyboard_rows) ?: return
         container.removeAllViews()
         container.layoutDirection = View.LAYOUT_DIRECTION_LTR
@@ -784,6 +829,14 @@ class GkeysIME : InputMethodService() {
     }
 
     private fun handleKey(key: String) {
+        try {
+            handleKeyInternal(key)
+        } catch (e: Exception) {
+            android.util.Log.e("GkeysIME", "handleKey failed for '$key'", e)
+        }
+    }
+
+    private fun handleKeyInternal(key: String) {
         val ic = currentInputConnection ?: return
         when (key) {
             "⌫" -> {
@@ -1001,13 +1054,18 @@ class GkeysIME : InputMethodService() {
 
     private fun vibrate(ms: Long = 8) {
         if (!vibrationEnabled || vibrationStrength <= 0) return
-        val amplitude = (vibrationStrength * 2.55f).toInt().coerceIn(1, 255)
-        val duration = (ms * (vibrationStrength / 50f)).toLong().coerceIn(1, 25)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            vibrator.vibrate(VibrationEffect.createOneShot(duration, amplitude))
-        } else {
-            @Suppress("DEPRECATION")
-            vibrator.vibrate(duration)
+        if (!::vibrator.isInitialized) return
+        try {
+            val amplitude = (vibrationStrength * 2.55f).toInt().coerceIn(1, 255)
+            val duration = (ms * (vibrationStrength / 50f)).toLong().coerceIn(1, 25)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                vibrator.vibrate(VibrationEffect.createOneShot(duration, amplitude))
+            } else {
+                @Suppress("DEPRECATION")
+                vibrator.vibrate(duration)
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("GkeysIME", "vibrate failed", e)
         }
     }
 

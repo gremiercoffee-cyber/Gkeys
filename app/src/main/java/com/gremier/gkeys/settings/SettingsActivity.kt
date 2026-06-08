@@ -133,24 +133,35 @@ class SettingsActivity : AppCompatActivity() {
 
     private fun loadSettings() {
         lifecycleScope.launch {
+          try {
             etOpenAiKey.setText(GkeysSettings.openAiKey(this@SettingsActivity).first())
             etAnthropicKey.setText(GkeysSettings.anthropicKey(this@SettingsActivity).first())
-            sliderKeyRepeat.value = GkeysSettings.keyRepeatSpeed(this@SettingsActivity).first().toFloat()
-            sliderDeleteSpeed.value = GkeysSettings.deleteSpeed(this@SettingsActivity).first().toFloat()
+            sliderKeyRepeat.value = clampToSlider(sliderKeyRepeat, GkeysSettings.keyRepeatSpeed(this@SettingsActivity).first().toFloat())
+            sliderDeleteSpeed.value = clampToSlider(sliderDeleteSpeed, GkeysSettings.deleteSpeed(this@SettingsActivity).first().toFloat())
             switchVibration.isChecked = GkeysSettings.vibrationEnabled(this@SettingsActivity).first()
-            sliderVibration.value = GkeysSettings.vibrationStrength(this@SettingsActivity).first().toFloat()
+            sliderVibration.value = clampToSlider(sliderVibration, GkeysSettings.vibrationStrength(this@SettingsActivity).first().toFloat())
             sliderVibration.isEnabled = switchVibration.isChecked
             switchAutoPolish.isChecked = GkeysSettings.autoPolishEnabled(this@SettingsActivity).first()
             switchDefaultLang.isChecked = GkeysSettings.defaultLanguage(this@SettingsActivity).first() == "he"
             switchRightHanded.isChecked = GkeysSettings.rightHandedMode(this@SettingsActivity).first()
-            sliderKeySize.value = presetToSlider(GkeysSettings.keySizePreset(this@SettingsActivity).first())
+            sliderKeySize.value = clampToSlider(sliderKeySize, presetToSlider(GkeysSettings.keySizePreset(this@SettingsActivity).first()))
             updateKeySizeLabel(sliderKeySize.value.toInt())
             when (GkeysSettings.oneHandedMode(this@SettingsActivity).first()) {
                 GkeysSettings.ONE_HANDED_LEFT -> radioOneHanded.check(R.id.radio_one_hand_left)
                 GkeysSettings.ONE_HANDED_RIGHT -> radioOneHanded.check(R.id.radio_one_hand_right)
                 else -> radioOneHanded.check(R.id.radio_one_hand_off)
             }
+          } catch (e: Exception) {
+            android.util.Log.e("SettingsActivity", "loadSettings failed", e)
+          }
         }
+    }
+
+    private fun clampToSlider(slider: Slider, value: Float): Float {
+        val stepped = if (slider.stepSize > 0f) {
+            Math.round((value - slider.valueFrom) / slider.stepSize) * slider.stepSize + slider.valueFrom
+        } else value
+        return stepped.coerceIn(slider.valueFrom, slider.valueTo)
     }
 
     private fun setupListeners() {
