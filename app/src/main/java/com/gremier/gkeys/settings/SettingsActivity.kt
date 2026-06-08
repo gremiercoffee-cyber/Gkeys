@@ -48,6 +48,7 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var tvCrashLog: TextView
     private lateinit var btnCopyCrash: MaterialButton
     private lateinit var btnClearCrash: MaterialButton
+    private var crashScreenShown = false
 
     private val micPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -69,6 +70,7 @@ class SettingsActivity : AppCompatActivity() {
             com.gremier.gkeys.diag.CrashLogger.lastCrash(this)
         } catch (_: Throwable) { null }
         if (!savedCrash.isNullOrBlank()) {
+            crashScreenShown = true
             showCrashScreen(savedCrash)
             return
         }
@@ -88,6 +90,7 @@ class SettingsActivity : AppCompatActivity() {
             }
         } catch (e: Throwable) {
             com.gremier.gkeys.diag.CrashLogger.record(this, e)
+            crashScreenShown = true
             showCrashScreen(buildString {
                 appendLine("Settings failed to open:")
                 appendLine(e.toString())
@@ -159,9 +162,15 @@ class SettingsActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        updateMicPermissionButton()
-        checkKeyboardEnabled()
-        refreshCrashCard()
+        // When the crash screen is showing, the normal views were never bound.
+        if (crashScreenShown) return
+        try {
+            updateMicPermissionButton()
+            checkKeyboardEnabled()
+            refreshCrashCard()
+        } catch (e: Throwable) {
+            android.util.Log.e("SettingsActivity", "onResume failed", e)
+        }
     }
 
     private fun bindViews() {
