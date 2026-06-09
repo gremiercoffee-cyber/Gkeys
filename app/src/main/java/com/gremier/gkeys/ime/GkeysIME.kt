@@ -45,6 +45,7 @@ import androidx.core.content.ContextCompat
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 
 class GkeysIME : InputMethodService() {
 
@@ -532,6 +533,7 @@ class GkeysIME : InputMethodService() {
         prepareBubbleDictationSession()
 
         fun attemptReady(attemptsLeft: Int) {
+            activeInputConnection = currentInputConnection ?: activeInputConnection
             val live = currentInputConnection
             if (live != null) {
                 activeInputConnection = live
@@ -540,7 +542,7 @@ class GkeysIME : InputMethodService() {
                 return
             }
             if (attemptsLeft > 0) {
-                handler.postDelayed({ attemptReady(attemptsLeft - 1) }, 60)
+                handler.postDelayed({ attemptReady(attemptsLeft - 1) }, 80)
             } else {
                 releaseInputSessionAfterBubbleDictation()
                 showErrorToast("Tap a text field first")
@@ -549,11 +551,11 @@ class GkeysIME : InputMethodService() {
         }
 
         if (!isInputViewShown) {
-            pendingSessionReadyAction = { attemptReady(15) }
+            pendingSessionReadyAction = { attemptReady(25) }
             pendingSessionReadyFailed = onFailed
             requestShowSelf(0)
         } else {
-            handler.post { attemptReady(15) }
+            handler.post { attemptReady(25) }
         }
     }
 
@@ -618,15 +620,45 @@ class GkeysIME : InputMethodService() {
     }
 
     override fun onShowInputRequested(reason: Int, showingForced: Boolean): Boolean {
-        if (voiceBubbleModeActive && bubbleKeyboardCollapsed && !bubbleDictationSessionActive) {
+        // Invisible IME session while bubble dictates with keyboard collapsed.
+        if (bubbleDictationSessionActive) return true
+        if (voiceBubbleModeActive && bubbleKeyboardCollapsed) {
             if (bubbleConsumeNextShowRequest) {
                 cancelBubbleShowRequestConsume()
-                return super.onShowInputRequested(reason, showingForced)
+                return false
             }
+            userRequestedKeyboard = true
             expandKeyboardFromBubble()
+            return true
         }
         return super.onShowInputRequested(reason, showingForced)
     }
+
+    /** Load persisted bubble mode before the first input view frame to avoid keyboard flash. */
+    private fun refreshBubbleModeCacheSync() {
+        try {
+            runBlocking {
+                voiceBubbleEnabled = GkeysSettings.voiceBubbleEnabled(this@GkeysIME).first()
+                defaultToVoiceBubbleCached = GkeysSettings.defaultToVoiceBubble(this@GkeysIME).first()
+                val persistedActive = GkeysSettings.voiceBubbleModeActive(this@GkeysIME).first()
+                if (voiceBubbleEnabled && persistedActive) {
+                    voiceBubbleModeActive = true
+                    // Keep the full keyboard open when the user expanded it or is using the mic.
+                    if (!userRequestedKeyboard && !bubbleDictationSessionActive &&
+                        !isRecording && !micIsProcessing
+                    ) {
+                        bubbleKeyboardCollapsed = true
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("GkeysIME", "refreshBubbleModeCacheSync failed", e)
+        }
+    }
+
+    /** Bubble overlay shows mic state when keyboard is hidden; keyboard mic button when it is open. */
+    private fun shouldUseBubbleMicVisuals(): Boolean =
+        voiceBubbleModeActive && (bubbleKeyboardCollapsed || !isInputViewShown)
 
     private fun armBubbleShowRequestConsume() {
         bubbleConsumeNextShowRequest = true
@@ -671,6 +703,7 @@ class GkeysIME : InputMethodService() {
     }
 
     override fun onStartInput(attribute: EditorInfo?, restarting: Boolean) {
+        refreshBubbleModeCacheSync()
         super.onStartInput(attribute, restarting)
         activeInputConnection = currentInputConnection
         try {
@@ -757,6 +790,16 @@ class GkeysIME : InputMethodService() {
     }
 
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
+        refreshBubbleModeCacheSync()
+        val collapseForBubble = voiceBubbleModeActive && bubbleKeyboardCollapsed &&
+            !bubbleDictationSessionActive && !restarting && !userRequestedKeyboard &&
+            !isRecording && !micIsProcessing
+        if (collapseForBubble) {
+            armBubbleShowRequestConsume()
+            if (::keyboardView.isInitialized) {
+                keyboardView.visibility = View.GONE
+            }
+        }
         super.onStartInputView(info, restarting)
         window?.window?.let { micSessionGuard.setImeWindow(it) }
         activeInputConnection = currentInputConnection
@@ -810,10 +853,12 @@ class GkeysIME : InputMethodService() {
 
     override fun onFinishInputView(finishingInput: Boolean) {
         try {
-            if (voiceBubbleModeActive) {
-                stopLiveStt()
+        if (voiceBubbleModeActive) {
+            stopLiveStt()
+            if (bubbleKeyboardCollapsed || bubbleDictationSessionActive) {
                 bubbleKeyboardCollapsed = true
-                hideVoiceOverlay()
+            }
+            hideVoiceOverlay()
                 hideGhostwriterOverlay()
                 clipboardManager?.stopListening()
                 clipboardManager?.hidePanel()
@@ -1382,6 +1427,11 @@ class GkeysIME : InputMethodService() {
         if (isGhostwriterOverlay) return
         refreshApiKeys()
         vibrate()
+        activeInputConnection = currentInputConnection ?: activeInputConnection
+        if (activeInputConnection == null) {
+            showErrorToast("Tap a text field first")
+            return
+        }
         if (!hasMicPermission()) {
             showErrorToast("Allow microphone for Gkeys")
             openAppForMicPermission()
@@ -1486,6 +1536,7 @@ class GkeysIME : InputMethodService() {
     private fun expandKeyboardFromBubble() {
         if (!voiceBubbleModeActive) return
         cancelBubbleShowRequestConsume()
+        userRequestedKeyboard = true
         bubbleKeyboardCollapsed = false
         keyboardVisible = true
         if (::keyboardView.isInitialized) {
@@ -1503,19 +1554,21 @@ class GkeysIME : InputMethodService() {
     /** Collapse keyboard back to bubble-only (bubble stays on screen). */
     private fun collapseKeyboardForBubble() {
         if (!voiceBubbleModeActive) return
+        userRequestedKeyboard = false
         bubbleKeyboardCollapsed = true
         syncBubbleKeyboardWindow()
     }
 
-    /** Floating bubble tap: collapse keyboard when expanded, otherwise start dictation. */
+    /** Floating bubble tap: start/stop dictation; collapse full keyboard first if it was open. */
     private fun handleFloatingBubbleTap() {
+        if (isRecording) {
+            voiceBubbleController?.setState(VoiceBubbleState.PROCESSING)
+            stopRecordingAndProcess(VoiceAction.DEFAULT)
+            return
+        }
         if (voiceBubbleModeActive && !bubbleKeyboardCollapsed) {
-            if (isRecording) {
-                voiceBubbleController?.setState(VoiceBubbleState.PROCESSING)
-                stopRecordingAndProcess(VoiceAction.DEFAULT)
-            } else {
-                collapseKeyboardForBubble()
-            }
+            collapseKeyboardForBubble()
+            handler.postDelayed({ handleBubbleMicTap() }, 120)
             return
         }
         handleBubbleMicTap()
@@ -1857,9 +1910,9 @@ class GkeysIME : InputMethodService() {
     private fun startMicProcessingAnimation() {
         if (micIsProcessing) return
         micIsProcessing = true
-        if (voiceBubbleModeActive || !isInputViewShown) {
+        if (shouldUseBubbleMicVisuals()) {
             voiceBubbleController?.setState(VoiceBubbleState.PROCESSING)
-            return
+            if (bubbleKeyboardCollapsed || !isInputViewShown) return
         }
         stopMicProcessingAnimatorsOnly()
 
@@ -1926,7 +1979,7 @@ class GkeysIME : InputMethodService() {
 
     private fun stopMicProcessingAnimation() {
         if (!micIsProcessing) {
-            if (voiceBubbleModeActive) {
+            if (shouldUseBubbleMicVisuals()) {
                 voiceBubbleController?.setState(VoiceBubbleState.IDLE)
             }
             releaseInputSessionAfterBubbleDictation()
@@ -1934,8 +1987,10 @@ class GkeysIME : InputMethodService() {
         }
         micIsProcessing = false
         stopMicProcessingAnimatorsOnly()
-        if (voiceBubbleModeActive || !isInputViewShown) {
+        if (shouldUseBubbleMicVisuals()) {
             voiceBubbleController?.setState(VoiceBubbleState.IDLE)
+        }
+        if (bubbleKeyboardCollapsed || !isInputViewShown) {
             releaseInputSessionAfterBubbleDictation()
             return
         }
