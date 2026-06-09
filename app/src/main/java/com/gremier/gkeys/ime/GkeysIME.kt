@@ -144,6 +144,7 @@ class GkeysIME : InputMethodService() {
 
     private val handler = Handler(Looper.getMainLooper())
     private var dictationStatusClearRunnable: Runnable? = null
+    private var imeStatusBannerClearRunnable: Runnable? = null
     private var deleteRunnable: Runnable? = null
     private val longPressRunnable = Runnable { onMicLongPress() }
 
@@ -1437,6 +1438,7 @@ class GkeysIME : InputMethodService() {
             cancelRecording()
         }
         releaseAudioRecorderForGhostwriter()
+        endMicCapture()
 
         liveSttKeepKeyboardOpen = shouldLiveSttKeepKeyboardOpen()
 
@@ -1453,21 +1455,25 @@ class GkeysIME : InputMethodService() {
             )
         }
 
-        if (liveSttKeepKeyboardOpen) {
-            if (liveInputConnection() == null) {
-                showLiveSttStatus("Tap a text field first", autoClearMs = 5000L)
+        fun launchLiveStt() {
+            if (liveSttKeepKeyboardOpen) {
+                if (liveInputConnection() == null) {
+                    showLiveSttStatus("Tap a text field first", autoClearMs = 5000L)
+                    return
+                }
+                beginStreaming()
                 return
             }
-            beginStreaming()
-            return
+            ensureInputForLiveStt {
+                prepareLiveSttSession()
+                syncLiveSttWindow()
+                voiceBubbleController?.show()
+                beginStreaming()
+            }
         }
 
-        ensureInputForLiveStt {
-            prepareLiveSttSession()
-            syncLiveSttWindow()
-            voiceBubbleController?.show()
-            beginStreaming()
-        }
+        // Brief pause so dictation/ghostwriter can fully release the mic hardware.
+        handler.postDelayed({ launchLiveStt() }, 150L)
     }
 
     /** Wait for input connection — only used when bubble keyboard is collapsed. */
@@ -1544,14 +1550,37 @@ class GkeysIME : InputMethodService() {
     }
 
     private fun showLiveSttStatus(message: String, autoClearMs: Long = 0L) {
-        showErrorToast(message)
-        if (::keyboardView.isInitialized && keyboardView.visibility == View.VISIBLE && !liveSttSessionActive) {
-            showDictationStatus(message, autoClearMs = autoClearMs)
+        showImeStatusBanner(message, autoClearMs)
+    }
+
+    /** Full-width status line below the AI bar (live transcribe, errors). */
+    private fun showImeStatusBanner(message: String, autoClearMs: Long = 0L) {
+        imeStatusBannerClearRunnable?.let { handler.removeCallbacks(it) }
+        imeStatusBannerClearRunnable = null
+        if (::tvStatus.isInitialized) {
+            tvStatus.text = message
+            tvStatus.setTextColor(themeColor(R.color.gkeys_accent))
+            tvStatus.visibility = View.VISIBLE
         }
+        if (autoClearMs > 0L) {
+            showErrorToast(message)
+            val clear = Runnable { hideImeStatusBanner() }
+            imeStatusBannerClearRunnable = clear
+            handler.postDelayed(clear, autoClearMs)
+        }
+    }
+
+    private fun hideImeStatusBanner() {
+        imeStatusBannerClearRunnable?.let { handler.removeCallbacks(it) }
+        imeStatusBannerClearRunnable = null
+        if (!::tvStatus.isInitialized) return
+        tvStatus.visibility = View.GONE
+        tvStatus.text = ""
     }
 
     private fun clearLiveSttStatus() {
         if (liveSttActive || liveSttConnecting) return
+        hideImeStatusBanner()
         clearDictationStatus()
     }
 

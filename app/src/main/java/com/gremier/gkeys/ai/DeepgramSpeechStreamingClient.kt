@@ -48,6 +48,8 @@ class DeepgramSpeechStreamingClient(
 
     private val onConnected: () -> Unit = {},
 
+    private val onBeforeMicStart: () -> Unit = {},
+
     private val onError: (Throwable) -> Unit
 
 ) {
@@ -183,6 +185,8 @@ class DeepgramSpeechStreamingClient(
                         }
 
                         try {
+
+                            onBeforeMicStart()
 
                             pcmRecorder.start(activeScope) pcmCapture@{ chunk ->
 

@@ -44,7 +44,6 @@ class LiveTranscribeController(
         stop(clearPartial = true)
         isConnecting = true
         onStateChanged(true, false)
-        onMicAcquire()
         onStatus("Connecting live transcribe…")
         scheduleConnectTimeout(onError)
 
@@ -54,6 +53,7 @@ class LiveTranscribeController(
                 languageCode = languageCode,
                 onPartial = { updatePartial(it) },
                 onFinal = { commitFinal(it) },
+                onBeforeMicStart = onMicAcquire,
                 onConnected = {
                     cancelConnectTimeout()
                     isConnecting = false
@@ -63,14 +63,14 @@ class LiveTranscribeController(
                 },
                 onError = { error ->
                     Log.e(TAG, "Live transcribe failed", error)
-                    onError(error.message ?: "Live transcribe failed", 6000L)
+                    onError(friendlyError(error), 6000L)
                     stop(clearPartial = false)
                 }
             )
             client?.start(scope)
         } catch (e: Exception) {
             Log.e(TAG, "start failed", e)
-            onError("Microphone error — check permission in Gkeys app", 6000L)
+            onError(friendlyError(e), 6000L)
             stop(clearPartial = true)
         }
     }
@@ -98,6 +98,32 @@ class LiveTranscribeController(
 
     fun flushPendingPartial() {
         pendingPartial?.let { updatePartial(it) }
+    }
+
+    private fun friendlyError(error: Throwable): String {
+        val raw = error.message.orEmpty()
+        return when {
+            raw.contains("permission", ignoreCase = true) ||
+                raw.contains("SecurityException", ignoreCase = true) ->
+                "Allow mic for Gkeys in Settings"
+            raw.contains("not initialized", ignoreCase = true) ||
+                raw.contains("not available", ignoreCase = true) ||
+                raw.contains("failed to start", ignoreCase = true) ||
+                raw.contains("busy", ignoreCase = true) ->
+                "Mic busy — close other apps using it, then retry"
+            raw.contains("401") || raw.contains("Invalid Deepgram", ignoreCase = true) ->
+                "Invalid Deepgram API key"
+            raw.contains("402") || raw.contains("billing", ignoreCase = true) ->
+                "Deepgram billing issue — check your account"
+            raw.contains("timed out", ignoreCase = true) ||
+                raw.contains("timeout", ignoreCase = true) ->
+                "Connection timed out — check internet"
+            raw.contains("Unable to resolve host", ignoreCase = true) ||
+                raw.contains("Network", ignoreCase = true) ->
+                "No internet — check your connection"
+            raw.isNotBlank() -> raw
+            else -> "Live transcribe failed — try again"
+        }
     }
 
     private fun updatePartial(text: String) {
@@ -153,7 +179,7 @@ class LiveTranscribeController(
         val timeout = Runnable {
             if (isConnecting && !isActive) {
                 Log.w(TAG, "Connect timeout")
-                onError("Live transcribe timed out — check Deepgram key & internet", 6000L)
+                onError("Connection timed out — check Deepgram key & internet", 6000L)
                 stop(clearPartial = false)
             }
         }
