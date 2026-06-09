@@ -8,6 +8,9 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -17,17 +20,20 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
+          cache: 'gradle'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Gradle
-        uses: gradle/actions/setup-gradle@v3
-        with:
-          gradle-version: '8.4'
+      - name: Install Android SDK packages
+        run: |
+          echo "Using SDK at $ANDROID_HOME"
+          for attempt in 1 2 3; do
+            sdkmanager --install "platforms;android-34" "build-tools;34.0.0" && break
+            echo "sdkmanager attempt ${attempt} failed, retrying in 15s..."
+            sleep 15
+          done
+          yes | sdkmanager --licenses
 
       - name: Build debug APK
-        run: gradle assembleDebug
+        run: chmod +x gradlew && ./gradlew assembleDebug --no-daemon --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
