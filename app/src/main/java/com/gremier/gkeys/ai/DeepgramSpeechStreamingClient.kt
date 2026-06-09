@@ -101,9 +101,7 @@ class DeepgramSpeechStreamingClient(
         val language = languageCode.substringBefore('-').ifBlank { "en" }
 
         val url = HttpUrl.Builder()
-
-            .scheme("wss")
-
+            .scheme("https")
             .host("api.deepgram.com")
 
             .addPathSegments("v1/listen")
