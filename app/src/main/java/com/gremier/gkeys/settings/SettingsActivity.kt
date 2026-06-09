@@ -53,6 +53,10 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var btnMicPermission: MaterialButton
     private lateinit var btnOverlayPermission: MaterialButton
     private lateinit var switchVoiceBubbleEnabled: SwitchMaterial
+    private lateinit var switchAiBarSettings: SwitchMaterial
+    private lateinit var switchAiBarWand: SwitchMaterial
+    private lateinit var switchAiBarPolish: SwitchMaterial
+    private lateinit var switchAiBarLiveTranscribe: SwitchMaterial
     private lateinit var switchDefaultVoiceBubble: SwitchMaterial
     private lateinit var voiceBubbleDefaultRow: android.view.View
     private lateinit var switchAdaptiveTouch: SwitchMaterial
@@ -229,6 +233,10 @@ class SettingsActivity : AppCompatActivity() {
         btnMicPermission = findViewById(R.id.btn_mic_permission)
         btnOverlayPermission = findViewById(R.id.btn_overlay_permission)
         switchVoiceBubbleEnabled = findViewById(R.id.switch_voice_bubble_enabled)
+        switchAiBarSettings = findViewById(R.id.switch_ai_bar_settings)
+        switchAiBarWand = findViewById(R.id.switch_ai_bar_wand)
+        switchAiBarPolish = findViewById(R.id.switch_ai_bar_polish)
+        switchAiBarLiveTranscribe = findViewById(R.id.switch_ai_bar_live_transcribe)
         switchDefaultVoiceBubble = findViewById(R.id.switch_default_voice_bubble)
         voiceBubbleDefaultRow = findViewById(R.id.voice_bubble_default_row)
         switchAdaptiveTouch = findViewById(R.id.switch_adaptive_touch)
@@ -281,6 +289,14 @@ class SettingsActivity : AppCompatActivity() {
             updateKeyboardHeightLabel(sliderKeyboardHeight.value.toInt())
             switchVoiceBubbleEnabled.isChecked =
                 GkeysSettings.voiceBubbleEnabled(this@SettingsActivity).first()
+            switchAiBarSettings.isChecked =
+                GkeysSettings.aiBarSettingsEnabled(this@SettingsActivity).first()
+            switchAiBarWand.isChecked =
+                GkeysSettings.aiBarWandEnabled(this@SettingsActivity).first()
+            switchAiBarPolish.isChecked =
+                GkeysSettings.aiBarPolishButtonEnabled(this@SettingsActivity).first()
+            switchAiBarLiveTranscribe.isChecked =
+                GkeysSettings.aiBarLiveTranscribeEnabled(this@SettingsActivity).first()
             switchDefaultVoiceBubble.isChecked =
                 GkeysSettings.defaultToVoiceBubble(this@SettingsActivity).first()
             updateVoiceBubbleSettingsUi()
@@ -383,6 +399,19 @@ class SettingsActivity : AppCompatActivity() {
         }
         switchDefaultVoiceBubble.setOnCheckedChangeListener { _, _ ->
             autoSave { saveVoiceBubbleSettings() }
+        }
+
+        switchAiBarSettings.setOnCheckedChangeListener { _, checked ->
+            autoSave { GkeysSettings.saveAiBarSettingsEnabled(this@SettingsActivity, checked) }
+        }
+        switchAiBarWand.setOnCheckedChangeListener { _, checked ->
+            autoSave { GkeysSettings.saveAiBarWandEnabled(this@SettingsActivity, checked) }
+        }
+        switchAiBarPolish.setOnCheckedChangeListener { _, checked ->
+            autoSave { GkeysSettings.saveAiBarPolishButtonEnabled(this@SettingsActivity, checked) }
+        }
+        switchAiBarLiveTranscribe.setOnCheckedChangeListener { _, checked ->
+            autoSave { GkeysSettings.saveAiBarLiveTranscribeEnabled(this@SettingsActivity, checked) }
         }
 
         switchAdaptiveTouch.setOnCheckedChangeListener { _, checked ->

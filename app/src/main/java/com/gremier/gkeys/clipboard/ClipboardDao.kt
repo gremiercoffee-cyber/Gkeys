@@ -44,4 +44,17 @@ interface ClipboardDao {
 
     @Query("DELETE FROM clipboard_items WHERE imageUri = :uri")
     suspend fun deleteByImageUri(uri: String)
+
+    @Query("DELETE FROM clipboard_items WHERE isPinned = 0 AND timestamp < :cutoff")
+    suspend fun deleteExpiredUnpinned(cutoff: Long)
+
+    @Query(
+        "DELETE FROM clipboard_items WHERE isPinned = 0 AND itemType = 'screenshot' AND timestamp < :cutoff"
+    )
+    suspend fun deleteExpiredScreenshots(cutoff: Long)
+
+    @Query(
+        "DELETE FROM clipboard_items WHERE isPinned = 0 AND itemType != 'screenshot' AND timestamp < :cutoff"
+    )
+    suspend fun deleteExpiredRegular(cutoff: Long)
 }

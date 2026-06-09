@@ -5,11 +5,10 @@ import android.util.Log
 import org.json.JSONObject
 import java.io.File
 
-/** Tracks emoji tap counts locally for the frequently-used row. */
+/** Tracks every emoji the user has typed for the recently-used section. */
 object EmojiUsageStore {
     private const val TAG = "EmojiUsageStore"
     private const val FILE_NAME = "emoji_usage.json"
-    private const val MAX_TRACKED = 120
 
     val defaultFrequent: List<String> = listOf(
         "😂", "❤️", "👍", "😊", "🙏", "🔥", "✨", "😭", "🎉"
@@ -29,33 +28,13 @@ object EmojiUsageStore {
         profile.counts[emoji] = (profile.counts[emoji] ?: 0) + 1
         profile.recent.remove(emoji)
         profile.recent.add(0, emoji)
-        trim(profile)
         save(context, profile)
     }
 
-    fun mostUsed(context: Context, limit: Int): List<String> {
+    /** Most recently used first; includes every emoji ever typed. */
+    fun recentlyUsed(context: Context): List<String> {
         val profile = load(context)
-        if (profile.counts.isEmpty()) {
-            return defaultFrequent.take(limit)
-        }
-        return profile.counts.entries
-            .sortedWith(
-                compareByDescending<Map.Entry<String, Int>> { it.value }
-                    .thenBy { profile.recent.indexOf(it.key).let { idx -> if (idx < 0) Int.MAX_VALUE else idx } }
-            )
-            .map { it.key }
-            .take(limit)
-    }
-
-    private fun trim(profile: Profile) {
-        while (profile.counts.size > MAX_TRACKED) {
-            val least = profile.counts.entries.minWithOrNull(
-                compareBy<Map.Entry<String, Int>> { it.value }
-                    .thenBy { profile.recent.indexOf(it.key).let { idx -> if (idx < 0) Int.MAX_VALUE else -idx } }
-            )?.key ?: break
-            profile.counts.remove(least)
-            profile.recent.remove(least)
-        }
+        return if (profile.recent.isEmpty()) defaultFrequent else profile.recent.toList()
     }
 
     private fun load(context: Context): Profile {

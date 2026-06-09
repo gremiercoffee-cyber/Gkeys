@@ -295,20 +295,13 @@ class KeyboardTouchLayout @JvmOverloads constructor(
 
 
 
-    /** Commit the key immediately; defer touch learning so it never blocks input. */
-
+    /** Commit the key immediately; record letter taps synchronously so corrections stay ordered. */
     private fun dispatchTap(resolution: TouchResolution, x: Float, y: Float) {
-
         val resolver = touchResolver ?: return
-
         onKeyTap?.invoke(resolution.label)
-
-        post {
-
+        if (resolution.label.length == 1 && resolution.label[0].isLetter()) {
             resolver.recordTap(x, y, resolution)
-
         }
-
     }
 
 

@@ -5,19 +5,24 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.net.Uri
 import android.os.Build
+import android.text.InputType
 import android.util.Log
 import android.util.Size
+import android.view.ContextThemeWrapper
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.EditText
 import android.widget.GridLayout
-import android.widget.ImageButton
 import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.PopupMenu
 import android.widget.TextView
+import androidx.appcompat.app.AlertDialog
 import com.gremier.gkeys.R
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 
 class GkeysClipboardManager(
     private val context: Context,
@@ -33,7 +38,10 @@ class GkeysClipboardManager(
 ) {
     companion object {
         private const val TAG = "GkeysClipboard"
-        private const val PREVIEW_MAX_AGE_MS = 15 * 60 * 1000L
+        /** Unpinned text and copied images expire after this duration. */
+        const val UNPINNED_RETENTION_MS = 15 * 60 * 1000L
+        /** Unpinned screenshots expire after this duration. */
+        const val SCREENSHOT_RETENTION_MS = 5 * 60 * 1000L
         private const val MAX_UNPINNED_ITEMS = 2000
         private const val PREFS = "gkeys_clipboard"
         private const val KEY_BLOCKED = "blocked_texts"
@@ -41,12 +49,18 @@ class GkeysClipboardManager(
     }
 
     private val dao = ClipboardDatabase.getInstance(context).clipboardDao()
+    private val folderDao = ClipboardDatabase.getInstance(context).clipboardFolderDao()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var overlayView: View? = null
     private var isListening = false
     private var lastCapturedKey: String? = null
     private var previewItem: ClipboardItem? = null
     private var observeJob: Job? = null
+    private var cachedFolders: List<ClipboardFolder> = emptyList()
+
+    private val dialogContext by lazy {
+        ContextThemeWrapper(context, R.style.Theme_Gkeys)
+    }
 
     private val prefs by lazy {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -60,7 +74,7 @@ class GkeysClipboardManager(
         context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
 
     private val screenshotMonitor = ScreenshotMonitor(context) { uri ->
-        scope.launch { addImageItem(uri) }
+        scope.launch { addScreenshotItem(uri) }
     }
 
     private val clipListener = ClipboardManager.OnPrimaryClipChangedListener {
@@ -93,7 +107,7 @@ class GkeysClipboardManager(
 
     fun onPreviewTap() {
         val item = previewItem ?: return
-        if (!isPreviewEligible(item)) return
+        if (!isRetained(item)) return
         onPasteItem(item)
         onVibrate()
     }
@@ -107,12 +121,18 @@ class GkeysClipboardManager(
             Log.w(TAG, "Unable to register clipboard listener", e)
         }
         screenshotMonitor.start()
+        scope.launch { purgeExpiredUnpinned() }
         observeJob?.cancel()
         observeJob = scope.launch {
             try {
-                dao.observeAll().collectLatest { items ->
-                    updatePreview(items)
-                    refreshOverlay(items)
+                combine(dao.observeAll(), folderDao.observeAll()) { items, folders ->
+                    items to folders
+                }.collectLatest { (items, folders) ->
+                    purgeExpiredUnpinned()
+                    cachedFolders = folders
+                    val visible = items.filter { isRetained(it) }
+                    updatePreview(visible)
+                    refreshOverlay(visible, folders)
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "Clipboard observe failed", e)
@@ -155,22 +175,22 @@ class GkeysClipboardManager(
         onPanelOpen()
         if (overlayView != null) {
             overlayView?.visibility = View.VISIBLE
-            scope.launch {
-                refreshOverlay(withContext(Dispatchers.IO) { dao.getAllOnce() })
-            }
+            scope.launch { refreshFromStore() }
             return
         }
         val panel = LayoutInflater.from(context).inflate(R.layout.clipboard_overlay, overlayContainer, false)
         panel.layoutDirection = View.LAYOUT_DIRECTION_LTR
-        panel.findViewById<ImageButton>(R.id.btn_close_clipboard).setOnClickListener {
+        panel.findViewById<View>(R.id.btn_close_clipboard).setOnClickListener {
             hidePanel()
             onVibrate()
         }
+        panel.findViewById<View>(R.id.btn_new_folder).setOnClickListener {
+            onVibrate()
+            showCreateFolderDialog()
+        }
         overlayContainer.addView(panel, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
         overlayView = panel
-        scope.launch {
-            refreshOverlay(withContext(Dispatchers.IO) { dao.getAllOnce() })
-        }
+        scope.launch { refreshFromStore() }
     }
 
     fun hidePanel() {
@@ -182,9 +202,7 @@ class GkeysClipboardManager(
     fun isPanelOpen(): Boolean = overlayContainer.visibility == View.VISIBLE
 
     fun refreshPreview() {
-        scope.launch {
-            updatePreview(withContext(Dispatchers.IO) { dao.getAllOnce() })
-        }
+        scope.launch { refreshFromStore() }
     }
 
     fun destroy() {
@@ -196,6 +214,14 @@ class GkeysClipboardManager(
     private sealed class ClipCapture {
         data class Text(val text: String) : ClipCapture()
         data class Image(val uri: Uri) : ClipCapture()
+    }
+
+    private suspend fun refreshFromStore() {
+        val items = visibleItems()
+        val folders = withContext(Dispatchers.IO) { folderDao.getAllOnce() }
+        cachedFolders = folders
+        updatePreview(items)
+        refreshOverlay(items, folders)
     }
 
     private suspend fun addTextItem(text: String) {
@@ -230,6 +256,30 @@ class GkeysClipboardManager(
         }
     }
 
+    private suspend fun addScreenshotItem(uri: Uri) {
+        val uriStr = uri.toString()
+        if (isBlockedKey("img:$uriStr")) return
+        withContext(Dispatchers.IO) {
+            val existing = dao.findByImageUri(uriStr)
+            if (existing != null) {
+                dao.update(
+                    existing.copy(
+                        itemType = ClipboardItem.TYPE_SCREENSHOT,
+                        timestamp = System.currentTimeMillis()
+                    )
+                )
+            } else {
+                dao.insert(
+                    ClipboardItem(
+                        imageUri = uriStr,
+                        itemType = ClipboardItem.TYPE_SCREENSHOT
+                    )
+                )
+                trimUnpinnedHistory()
+            }
+        }
+    }
+
     private suspend fun deleteItem(item: ClipboardItem) {
         withContext(Dispatchers.IO) {
             dao.deleteById(item.id)
@@ -253,6 +303,36 @@ class GkeysClipboardManager(
         }
     }
 
+    private suspend fun pinItem(item: ClipboardItem, folderId: Long?) {
+        withContext(Dispatchers.IO) {
+            dao.update(
+                item.copy(
+                    isPinned = true,
+                    folderId = folderId,
+                    timestamp = System.currentTimeMillis()
+                )
+            )
+        }
+    }
+
+    private suspend fun unpinItem(item: ClipboardItem) {
+        withContext(Dispatchers.IO) {
+            dao.update(
+                item.copy(
+                    isPinned = false,
+                    folderId = null,
+                    timestamp = System.currentTimeMillis()
+                )
+            )
+        }
+    }
+
+    private suspend fun moveItemToFolder(item: ClipboardItem, folderId: Long?) {
+        withContext(Dispatchers.IO) {
+            dao.update(item.copy(folderId = folderId))
+        }
+    }
+
     private fun blockItem(item: ClipboardItem) {
         blockedKeys.add(itemKey(item))
         while (blockedKeys.size > MAX_BLOCKED) {
@@ -262,8 +342,6 @@ class GkeysClipboardManager(
     }
 
     private fun isBlockedKey(key: String): Boolean = key in blockedKeys
-
-    private fun isBlocked(item: ClipboardItem): Boolean = isBlockedKey(itemKey(item))
 
     private fun itemKey(item: ClipboardItem): String =
         if (item.isImage) "img:${item.imageUri}" else item.text
@@ -287,8 +365,25 @@ class GkeysClipboardManager(
         }
     }
 
-    private fun isPreviewEligible(item: ClipboardItem): Boolean =
-        System.currentTimeMillis() - item.timestamp <= PREVIEW_MAX_AGE_MS
+    private suspend fun purgeExpiredUnpinned() {
+        withContext(Dispatchers.IO) {
+            val now = System.currentTimeMillis()
+            dao.deleteExpiredScreenshots(now - SCREENSHOT_RETENTION_MS)
+            dao.deleteExpiredRegular(now - UNPINNED_RETENTION_MS)
+        }
+    }
+
+    private suspend fun visibleItems(): List<ClipboardItem> =
+        withContext(Dispatchers.IO) {
+            dao.getAllOnce().filter { isRetained(it) }
+        }
+
+    private fun isRetained(item: ClipboardItem): Boolean {
+        if (item.isPinned) return true
+        val age = System.currentTimeMillis() - item.timestamp
+        val limit = if (item.isScreenshot) SCREENSHOT_RETENTION_MS else UNPINNED_RETENTION_MS
+        return age <= limit
+    }
 
     private fun readSystemClip(): ClipCapture? {
         return try {
@@ -324,9 +419,7 @@ class GkeysClipboardManager(
     }
 
     private fun updatePreview(items: List<ClipboardItem>) {
-        val latest = items
-            .filter { isPreviewEligible(it) }
-            .maxByOrNull { it.timestamp }
+        val latest = items.maxByOrNull { it.timestamp }
 
         previewItem = latest
         if (latest == null) {
@@ -372,36 +465,111 @@ class GkeysClipboardManager(
         }
     }
 
-    private fun refreshOverlay(items: List<ClipboardItem>) {
+    private fun refreshOverlay(items: List<ClipboardItem>, folders: List<ClipboardFolder>) {
         val panel = overlayView ?: return
-        val recent = items.filter { !it.isPinned }
-        val pinned = items.filter { it.isPinned }
+
+        val recent = items.filter { !it.isPinned && !it.isScreenshot }
+        val screenshots = items.filter { !it.isPinned && it.isScreenshot }
+        val pinnedRoot = items.filter { it.isPinned && it.folderId == null }
+        val pinnedByFolder = folders.associateWith { folder ->
+            items.filter { it.isPinned && it.folderId == folder.id }
+        }
 
         val recentContainer = panel.findViewById<GridLayout>(R.id.recent_cards)
+        val screenshotContainer = panel.findViewById<GridLayout>(R.id.screenshot_cards)
         val pinnedContainer = panel.findViewById<GridLayout>(R.id.pinned_cards)
+        val folderSections = panel.findViewById<LinearLayout>(R.id.folder_sections)
+
         val recentHeader = panel.findViewById<TextView>(R.id.tv_recent_header)
+        val screenshotsHeader = panel.findViewById<TextView>(R.id.tv_screenshots_header)
+        val screenshotsHint = panel.findViewById<TextView>(R.id.tv_screenshots_hint)
+        val dividerScreenshots = panel.findViewById<View>(R.id.divider_screenshots)
         val pinnedHeader = panel.findViewById<TextView>(R.id.tv_pinned_header)
-        val divider = panel.findViewById<View>(R.id.section_divider)
+        val dividerPinned = panel.findViewById<View>(R.id.section_divider)
         val emptyView = panel.findViewById<TextView>(R.id.tv_clipboard_empty)
 
         recentContainer.removeAllViews()
+        screenshotContainer.removeAllViews()
         pinnedContainer.removeAllViews()
-
-        val isEmpty = items.isEmpty()
-        emptyView.visibility = if (isEmpty) View.VISIBLE else View.GONE
-        recentHeader.visibility = if (recent.isEmpty()) View.GONE else View.VISIBLE
+        folderSections.removeAllViews()
 
         recent.forEachIndexed { index, item ->
             recentContainer.addView(createCardView(recentContainer, item, index))
         }
+        recentHeader.visibility = if (recent.isEmpty()) View.GONE else View.VISIBLE
 
-        val showPinned = pinned.isNotEmpty()
-        divider.visibility = if (recent.isNotEmpty() && showPinned) View.VISIBLE else View.GONE
-        pinnedHeader.visibility = if (showPinned) View.VISIBLE else View.GONE
+        screenshots.forEachIndexed { index, item ->
+            screenshotContainer.addView(createCardView(screenshotContainer, item, index))
+        }
+        val showScreenshots = screenshots.isNotEmpty()
+        dividerScreenshots.visibility =
+            if (recent.isNotEmpty() && showScreenshots) View.VISIBLE else View.GONE
+        screenshotsHeader.visibility = if (showScreenshots) View.VISIBLE else View.GONE
+        screenshotsHint.visibility = if (showScreenshots) View.VISIBLE else View.GONE
 
-        pinned.forEachIndexed { index, item ->
+        pinnedRoot.forEachIndexed { index, item ->
             pinnedContainer.addView(createCardView(pinnedContainer, item, index))
         }
+
+        folders.forEach { folder ->
+            val folderItems = pinnedByFolder[folder].orEmpty()
+            if (folderItems.isEmpty()) return@forEach
+            folderSections.addView(createFolderSection(folder, folderItems))
+        }
+
+        val hasPinnedRoot = pinnedRoot.isNotEmpty()
+        val hasFolderItems = pinnedByFolder.values.any { it.isNotEmpty() }
+        val hasPinned = hasPinnedRoot || hasFolderItems
+        val hasAbovePinned = recent.isNotEmpty() || showScreenshots
+        dividerPinned.visibility = if (hasAbovePinned && hasPinned) View.VISIBLE else View.GONE
+        pinnedHeader.visibility = if (hasPinnedRoot) View.VISIBLE else View.GONE
+
+        val isEmpty = items.isEmpty()
+        emptyView.visibility = if (isEmpty) View.VISIBLE else View.GONE
+    }
+
+    private fun createFolderSection(
+        folder: ClipboardFolder,
+        items: List<ClipboardItem>
+    ): View {
+        val density = context.resources.displayMetrics.density
+        val section = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        }
+
+        val header = TextView(context).apply {
+            text = folder.name
+            setTextColor(0xFF4A9EFF.toInt())
+            textSize = 13f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            letterSpacing = 0.05f
+            setPadding(0, (10 * density).toInt(), 0, (6 * density).toInt())
+            isClickable = true
+            isFocusable = true
+            setOnLongClickListener {
+                onVibrate()
+                showFolderOptionsDialog(folder)
+                true
+            }
+        }
+        section.addView(header)
+
+        val grid = GridLayout(context).apply {
+            columnCount = 2
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        }
+        items.forEachIndexed { index, item ->
+            grid.addView(createCardView(grid, item, index))
+        }
+        section.addView(grid)
+        return section
     }
 
     private fun createCardView(parent: GridLayout, item: ClipboardItem, index: Int): View {
@@ -434,25 +602,163 @@ class GkeysClipboardManager(
         }
         card.setOnLongClickListener { view ->
             onVibrate()
-            PopupMenu(context, view).apply {
-                menu.add(if (item.isPinned) "Unpin" else "Pin")
-                menu.add("Delete")
-                setOnMenuItemClickListener { menuItem ->
-                    when (menuItem.title.toString()) {
-                        "Pin", "Unpin" -> scope.launch(Dispatchers.IO) {
-                            dao.update(item.copy(
-                                isPinned = !item.isPinned,
-                                timestamp = System.currentTimeMillis()
-                            ))
-                        }
-                        "Delete" -> scope.launch { deleteItem(item) }
-                    }
-                    onVibrate()
-                    true
-                }
-            }.show()
+            showItemContextMenu(view, item)
             true
         }
         return card
+    }
+
+    private fun showItemContextMenu(anchor: View, item: ClipboardItem) {
+        PopupMenu(context, anchor).apply {
+            if (item.isPinned) {
+                menu.add("Unpin")
+                menu.add("Move to folder…")
+            } else {
+                menu.add("Pin…")
+            }
+            menu.add("Delete")
+            setOnMenuItemClickListener { menuItem ->
+                when (menuItem.title.toString()) {
+                    "Pin…" -> showFolderPickerForPin(item)
+                    "Unpin" -> scope.launch { unpinItem(item) }
+                    "Move to folder…" -> showFolderPickerForMove(item)
+                    "Delete" -> scope.launch { deleteItem(item) }
+                }
+                onVibrate()
+                true
+            }
+        }.show()
+    }
+
+    private fun showFolderPickerForPin(item: ClipboardItem) {
+        showFolderPicker(
+            title = "Pin to folder",
+            includeNone = true,
+            noneLabel = "Pinned (no folder)",
+            onSelected = { folderId ->
+                scope.launch { pinItem(item, folderId) }
+            }
+        )
+    }
+
+    private fun showFolderPickerForMove(item: ClipboardItem) {
+        showFolderPicker(
+            title = "Move to folder",
+            includeNone = true,
+            noneLabel = "Pinned (no folder)",
+            onSelected = { folderId ->
+                scope.launch { moveItemToFolder(item, folderId) }
+            }
+        )
+    }
+
+    private fun showFolderPicker(
+        title: String,
+        includeNone: Boolean,
+        noneLabel: String,
+        onSelected: (folderId: Long?) -> Unit
+    ) {
+        val options = mutableListOf<String>()
+        val folderIds = mutableListOf<Long?>()
+        if (includeNone) {
+            options.add(noneLabel)
+            folderIds.add(null)
+        }
+        cachedFolders.forEach { folder ->
+            options.add(folder.name)
+            folderIds.add(folder.id)
+        }
+        options.add("New folder…")
+
+        AlertDialog.Builder(dialogContext)
+            .setTitle(title)
+            .setItems(options.toTypedArray()) { _, which ->
+                if (which == options.lastIndex) {
+                    showCreateFolderDialog { newFolderId ->
+                        onSelected(newFolderId)
+                    }
+                } else {
+                    onSelected(folderIds[which])
+                }
+            }
+            .show()
+    }
+
+    private fun showCreateFolderDialog(onCreated: ((Long?) -> Unit)? = null) {
+        val input = EditText(dialogContext).apply {
+            hint = "Folder name"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS
+            setSingleLine()
+            setPadding(48, 32, 48, 16)
+        }
+
+        AlertDialog.Builder(dialogContext)
+            .setTitle("New folder")
+            .setView(input)
+            .setPositiveButton("Create") { _, _ ->
+                val name = input.text.toString().trim()
+                if (name.isBlank()) return@setPositiveButton
+                scope.launch {
+                    val id = withContext(Dispatchers.IO) {
+                        folderDao.insert(ClipboardFolder(name = name))
+                    }
+                    onCreated?.invoke(id)
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun showFolderOptionsDialog(folder: ClipboardFolder) {
+        AlertDialog.Builder(dialogContext)
+            .setTitle(folder.name)
+            .setItems(arrayOf("Rename", "Delete folder")) { _, which ->
+                when (which) {
+                    0 -> showRenameFolderDialog(folder)
+                    1 -> confirmDeleteFolder(folder)
+                }
+            }
+            .show()
+    }
+
+    private fun showRenameFolderDialog(folder: ClipboardFolder) {
+        val input = EditText(dialogContext).apply {
+            setText(folder.name)
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS
+            setSingleLine()
+            setSelection(folder.name.length)
+            setPadding(48, 32, 48, 16)
+        }
+
+        AlertDialog.Builder(dialogContext)
+            .setTitle("Rename folder")
+            .setView(input)
+            .setPositiveButton("Save") { _, _ ->
+                val name = input.text.toString().trim()
+                if (name.isBlank() || name == folder.name) return@setPositiveButton
+                scope.launch {
+                    withContext(Dispatchers.IO) {
+                        folderDao.update(folder.copy(name = name))
+                    }
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun confirmDeleteFolder(folder: ClipboardFolder) {
+        AlertDialog.Builder(dialogContext)
+            .setTitle("Delete folder?")
+            .setMessage("Items in this folder stay pinned and move to Pinned.")
+            .setPositiveButton("Delete") { _, _ ->
+                scope.launch {
+                    withContext(Dispatchers.IO) {
+                        folderDao.clearFolderAssignments(folder.id)
+                        folderDao.delete(folder)
+                    }
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 }

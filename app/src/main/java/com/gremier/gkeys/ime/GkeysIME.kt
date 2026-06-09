@@ -43,6 +43,7 @@ import com.gremier.gkeys.settings.SecureApiKeyStore
 import com.gremier.gkeys.settings.SettingsActivity
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 
 class GkeysIME : InputMethodService() {
@@ -76,6 +77,10 @@ class GkeysIME : InputMethodService() {
     private var deepgramKey = ""
     private var voiceBubbleModeActive = false
     private var voiceBubbleEnabled = GkeysSettings.DEFAULT_VOICE_BUBBLE_ENABLED
+    private var aiBarSettingsEnabled = GkeysSettings.DEFAULT_AI_BAR_FEATURE_ENABLED
+    private var aiBarWandEnabled = GkeysSettings.DEFAULT_AI_BAR_FEATURE_ENABLED
+    private var aiBarPolishButtonEnabled = GkeysSettings.DEFAULT_AI_BAR_FEATURE_ENABLED
+    private var aiBarLiveTranscribeEnabled = GkeysSettings.DEFAULT_AI_BAR_FEATURE_ENABLED
     private var voiceBubbleController: VoiceBubbleController? = null
     private var activeInputConnection: InputConnection? = null
 
@@ -89,6 +94,8 @@ class GkeysIME : InputMethodService() {
     private var pendingVoiceAction = VoiceAction.DEFAULT
     private var micGestureTracking = false
     private var suppressBubbleAutoStart = false
+    /** Set when the user taps the field or swipes up to leave bubble mode for the keyboard. */
+    private var userRequestedKeyboard = false
     private var liveSttActive = false
     private var liveSttPartialLen = 0
     private var deepgramSpeechClient: DeepgramSpeechStreamingClient? = null
@@ -259,6 +266,7 @@ class GkeysIME : InputMethodService() {
             vibrator = initVibrator()
             voiceBubbleController = VoiceBubbleController(this, voiceBubbleListener)
             observePolishLevel()
+            observeAiBarSettings()
             loadSettings()
         } catch (e: Throwable) {
             android.util.Log.e("GkeysIME", "onCreate failed", e)
@@ -274,11 +282,36 @@ class GkeysIME : InputMethodService() {
         }
     }
 
+    private fun observeAiBarSettings() {
+        scope.launch {
+            combine(
+                GkeysSettings.aiBarSettingsEnabled(this@GkeysIME),
+                GkeysSettings.aiBarWandEnabled(this@GkeysIME),
+                GkeysSettings.aiBarPolishButtonEnabled(this@GkeysIME),
+                GkeysSettings.aiBarLiveTranscribeEnabled(this@GkeysIME),
+                GkeysSettings.voiceBubbleEnabled(this@GkeysIME),
+            ) { settings, wand, polish, live, bubble ->
+                aiBarSettingsEnabled = settings
+                aiBarWandEnabled = wand
+                aiBarPolishButtonEnabled = polish
+                aiBarLiveTranscribeEnabled = live
+                voiceBubbleEnabled = bubble
+            }.collect {
+                applyAiBarVisibility()
+                if (!voiceBubbleEnabled && voiceBubbleModeActive) {
+                    dismissVoiceBubbleForKeyboard()
+                }
+            }
+        }
+    }
+
     private val voiceBubbleListener = object : VoiceBubbleListener {
         override fun onBubbleTap() = handleBubbleMicTap()
         override fun onBubbleSwipeUp() {
+            userRequestedKeyboard = true
             suppressBubbleAutoStart = true
             dismissVoiceBubbleForKeyboard()
+            requestShowSelf(0)
         }
         override fun onBubbleTranslateHoldStart() = handleBubbleTranslateHoldStart()
         override fun onBubbleTranslateHoldEnd(cancelled: Boolean) =
@@ -353,8 +386,15 @@ class GkeysIME : InputMethodService() {
             vibrate()
             cancelGhostwriter()
         }
+        ghostwriterOverlay.setOnClickListener {
+            if (isGhostwriterOverlay && isRecording && recordingForGhostwriter) {
+                vibrate()
+                stopGhostwriterAndProcess()
+            }
+        }
         ghostwriterContent.setOnClickListener {
             if (isGhostwriterOverlay && isRecording && recordingForGhostwriter) {
+                vibrate()
                 stopGhostwriterAndProcess()
             }
         }
@@ -406,6 +446,7 @@ class GkeysIME : InputMethodService() {
         forceLayoutLtr(keyboardView)
 
         setupAiStrip()
+        applyAiBarVisibility()
         applyUniversalShellHeight()
         buildKeyboard()
         attachTouchTargetLayoutWatcher(keyboardRows)
@@ -413,7 +454,10 @@ class GkeysIME : InputMethodService() {
         return keyboardView
     }
 
-    override fun onEvaluateInputViewShown(): Boolean = true
+    override fun onEvaluateInputViewShown(): Boolean {
+        if (shouldCollapseKeyboardForBubble()) return false
+        return super.onEvaluateInputViewShown()
+    }
 
     override fun onComputeInsets(outInsets: Insets) {
         if (shouldCollapseKeyboardForBubble()) {
@@ -433,11 +477,13 @@ class GkeysIME : InputMethodService() {
         val collapse = shouldCollapseKeyboardForBubble()
         keyboardView.visibility = if (collapse) View.GONE else View.VISIBLE
         window?.window?.decorView?.requestLayout()
+        window?.window?.decorView?.requestApplyInsets()
         updateFullscreenMode()
     }
 
     override fun onShowInputRequested(reason: Int, showingForced: Boolean): Boolean {
         if (voiceBubbleModeActive || voiceBubbleController?.isShowing == true) {
+            userRequestedKeyboard = true
             suppressBubbleAutoStart = true
             dismissVoiceBubbleForKeyboard()
         }
@@ -453,8 +499,9 @@ class GkeysIME : InputMethodService() {
             scope.launch {
                 voiceBubbleEnabled = GkeysSettings.voiceBubbleEnabled(this@GkeysIME).first()
                 updateVoiceBubbleButtonVisibility()
-                if (suppressBubbleAutoStart) {
+                if (suppressBubbleAutoStart || userRequestedKeyboard) {
                     suppressBubbleAutoStart = false
+                    userRequestedKeyboard = false
                     syncBubbleKeyboardWindow()
                     return@launch
                 }
@@ -462,6 +509,11 @@ class GkeysIME : InputMethodService() {
                     if (voiceBubbleModeActive) {
                         dismissVoiceBubbleForKeyboard()
                     }
+                    return@launch
+                }
+                // Refocusing the same field (e.g. tap to reopen keyboard) must not re-enter bubble.
+                if (restarting) {
+                    syncBubbleKeyboardWindow()
                     return@launch
                 }
                 val preferBubble = GkeysSettings.defaultToVoiceBubble(this@GkeysIME).first()
@@ -567,6 +619,11 @@ class GkeysIME : InputMethodService() {
                     GkeysSettings.saveVoiceBubbleModeActive(this@GkeysIME, false)
                 }
                 updateVoiceBubbleButtonVisibility()
+                aiBarSettingsEnabled = GkeysSettings.aiBarSettingsEnabled(this@GkeysIME).first()
+                aiBarWandEnabled = GkeysSettings.aiBarWandEnabled(this@GkeysIME).first()
+                aiBarPolishButtonEnabled = GkeysSettings.aiBarPolishButtonEnabled(this@GkeysIME).first()
+                aiBarLiveTranscribeEnabled = GkeysSettings.aiBarLiveTranscribeEnabled(this@GkeysIME).first()
+                applyAiBarVisibility()
                 adaptiveTouchEnabled = GkeysSettings.adaptiveTouchEnabled(this@GkeysIME).first()
                 if (::adaptiveTouch.isInitialized) {
                     adaptiveTouch.setEnabled(adaptiveTouchEnabled)
@@ -659,6 +716,8 @@ class GkeysIME : InputMethodService() {
             vibrate()
             handleGhostwriterTap()
         }
+        btnWand.isClickable = true
+        btnWand.isFocusable = true
 
         btnLiveTranscribe.setOnClickListener {
             vibrate()
@@ -698,7 +757,7 @@ class GkeysIME : InputMethodService() {
             "${GkeysSettings.polishLevelLabel(polishLevel)} dictation — tap to change polish mode"
     }
 
-    /** Tap wand: open AI ghostwriter overlay. */
+    /** Tap wand: open ghostwriter, record, tap again to write into the field. */
     private fun handleGhostwriterTap() {
         refreshApiKeys()
         if (!hasMicPermission()) {
@@ -711,14 +770,38 @@ class GkeysIME : InputMethodService() {
             openAppSettings()
             return
         }
+
         if (isGhostwriterOverlay) {
-            cancelGhostwriter()
+            if (isRecording && recordingForGhostwriter) {
+                stopGhostwriterAndProcess()
+            } else {
+                cancelGhostwriter()
+            }
             return
         }
+
         stopLiveStt()
+        if (isVoiceOverlay) {
+            hideVoiceOverlay()
+        }
+        releaseAudioRecorderForGhostwriter()
+
         vibrate(12)
         showGhostwriterOverlay()
         startGhostwriterRecording()
+    }
+
+    private fun releaseAudioRecorderForGhostwriter() {
+        try {
+            if (isRecording || audioRecorder.isRecording) {
+                audioRecorder.cancelRecording()
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("GkeysIME", "releaseAudioRecorderForGhostwriter failed", e)
+        }
+        isRecording = false
+        recordingForGhostwriter = false
+        updateMicVisuals(recording = false)
     }
 
     /** Tap live-transcribe button: toggle Deepgram streaming into the text field. */
@@ -831,7 +914,9 @@ class GkeysIME : InputMethodService() {
         isGhostwriterOverlay = true
         keyboardKeysHost.visibility = View.GONE
         ghostwriterOverlay.visibility = View.VISIBLE
-        ghostwriterStatus.text = "Tap when done speaking"
+        ghostwriterOverlay.bringToFront()
+        ghostwriterOverlay.requestLayout()
+        ghostwriterStatus.text = "Listening… tap wand or screen when done"
     }
 
     private fun hideGhostwriterOverlay() {
@@ -847,15 +932,22 @@ class GkeysIME : InputMethodService() {
 
     private fun startGhostwriterRecording() {
         refreshApiKeys()
-        if (openAiKey.isBlank() || !hasMicPermission()) return
+        if (openAiKey.isBlank() || !hasMicPermission()) {
+            hideGhostwriterOverlay()
+            return
+        }
+        if (audioRecorder.isRecording) {
+            releaseAudioRecorderForGhostwriter()
+        }
         try {
             audioRecorder.startRecording()
             isRecording = true
             recordingForGhostwriter = true
             if (::ghostwriterStatus.isInitialized) {
-                ghostwriterStatus.text = "Listening… tap when done"
+                ghostwriterStatus.text = "Listening… tap wand or screen when done"
             }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            android.util.Log.e("GkeysIME", "startGhostwriterRecording failed", e)
             hideGhostwriterOverlay()
             showErrorToast("Microphone error — check permission in Gkeys app")
         }
@@ -911,7 +1003,7 @@ class GkeysIME : InputMethodService() {
             val written = aiManager.ghostwrite(prompt, openAiKey)
             hideGhostwriterOverlay()
             written.onSuccess { text ->
-                currentInputConnection?.commitText(text, 1)
+                activeIc()?.commitText(text, 1) ?: currentInputConnection?.commitText(text, 1)
                 vibrate()
             }.onFailure {
                 showErrorToast("Ghostwriter failed — try again")
@@ -994,6 +1086,7 @@ class GkeysIME : InputMethodService() {
             showErrorToast("Voice bubble is off — enable it in Gkeys settings")
             return
         }
+        userRequestedKeyboard = false
         if (!tryActivateVoiceBubbleMode()) {
             showErrorToast("Allow display over other apps for Voice Bubble")
             openAppForOverlayPermission()
@@ -1020,7 +1113,7 @@ class GkeysIME : InputMethodService() {
 
     /** Leaves bubble mode without tearing down the IME input connection. */
     private fun dismissVoiceBubbleForKeyboard() {
-        if (!voiceBubbleModeActive) {
+        if (!voiceBubbleModeActive && voiceBubbleController?.isShowing != true) {
             syncBubbleKeyboardWindow()
             return
         }
@@ -1042,6 +1135,18 @@ class GkeysIME : InputMethodService() {
     private fun updateVoiceBubbleButtonVisibility() {
         if (!::btnVoiceBubble.isInitialized) return
         btnVoiceBubble.visibility = if (voiceBubbleEnabled) View.VISIBLE else View.GONE
+    }
+
+    private fun applyAiBarVisibility() {
+        if (!::btnSettings.isInitialized) return
+        btnSettings.visibility = if (aiBarSettingsEnabled) View.VISIBLE else View.GONE
+        btnWand.visibility = if (aiBarWandEnabled) View.VISIBLE else View.GONE
+        btnPolishLevel.visibility = if (aiBarPolishButtonEnabled) View.VISIBLE else View.GONE
+        btnLiveTranscribe.visibility = if (aiBarLiveTranscribeEnabled) View.VISIBLE else View.GONE
+        if (!aiBarLiveTranscribeEnabled && liveSttActive) {
+            stopLiveStt()
+        }
+        updateVoiceBubbleButtonVisibility()
     }
 
     private fun handleBubbleMicTap() {
@@ -1728,9 +1833,7 @@ class GkeysIME : InputMethodService() {
         shell.addView(topBar)
 
         val columns = KeyboardLayoutMetrics.EMOJI_COLUMNS
-        val frequent = EmojiUsageStore.mostUsed(this, columns)
-        shell.addView(buildEmojiCategoryHeader("Frequently used"))
-        shell.addView(buildEmojiRow(frequent, profile, columns))
+        val recent = EmojiUsageStore.recentlyUsed(this)
 
         val scroll = ScrollView(this).apply {
             layoutParams = LinearLayout.LayoutParams(
@@ -1750,6 +1853,11 @@ class GkeysIME : InputMethodService() {
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             )
+        }
+
+        grid.addView(buildEmojiCategoryHeader("Recently used"))
+        recent.chunked(columns).forEach { rowEmojis ->
+            grid.addView(buildEmojiRow(rowEmojis, profile, columns))
         }
 
         for (category in EmojiCatalog.categories()) {
@@ -2078,6 +2186,9 @@ class GkeysIME : InputMethodService() {
         when (key) {
             "⌫" -> {
                 deleteOneCharWithUndo(ic)
+                if (::touchResolver.isInitialized && touchResolver.enabled) {
+                    touchResolver.recordBackspaceOnRecentTap()
+                }
                 awaitingTouchCorrection = true
                 trimWordPrefixAfterBackspace()
                 updateUndoButtonState()
@@ -2133,7 +2244,7 @@ class GkeysIME : InputMethodService() {
                     key.length == 1 && key[0].isLetter()
                 awaitingTouchCorrection = false
                 if (correctionPending && ::touchResolver.isInitialized) {
-                    handler.post { touchResolver.recordCorrection(key) }
+                    touchResolver.recordCorrection(key)
                 }
                 if (EmojiCatalog.isEmoji(toInsert)) {
                     scope.launch { EmojiUsageStore.record(this@GkeysIME, toInsert) }

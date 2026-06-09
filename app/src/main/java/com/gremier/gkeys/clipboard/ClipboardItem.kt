@@ -10,12 +10,15 @@ data class ClipboardItem(
     val imageUri: String? = null,
     val itemType: String = TYPE_TEXT,
     val isPinned: Boolean = false,
+    val folderId: Long? = null,
     val timestamp: Long = System.currentTimeMillis()
 ) {
-    val isImage: Boolean get() = itemType == TYPE_IMAGE && !imageUri.isNullOrBlank()
+    val isImage: Boolean get() = (itemType == TYPE_IMAGE || itemType == TYPE_SCREENSHOT) && !imageUri.isNullOrBlank()
+    val isScreenshot: Boolean get() = itemType == TYPE_SCREENSHOT
 
     companion object {
         const val TYPE_TEXT = "text"
         const val TYPE_IMAGE = "image"
+        const val TYPE_SCREENSHOT = "screenshot"
     }
 }

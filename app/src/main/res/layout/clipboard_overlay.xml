@@ -1,122 +1,186 @@
-<?xml version="1.0" encoding="utf-8"?>
-<LinearLayout
-    xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:background="#0F0F1A"
-    android:layoutDirection="ltr">
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="44dp"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:paddingStart="4dp"
-        android:paddingEnd="8dp"
-        android:background="#1A1A2E">
-
-        <ImageButton
-            android:id="@+id/btn_close_clipboard"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:background="?android:attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Close clipboard"
-            android:src="@drawable/ic_backspace_close"
-            android:scaleType="centerInside"
-            android:padding="8dp" />
-
-        <TextView
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:layout_marginStart="4dp"
-            android:text="Clipboard"
-            android:textColor="#FFFFFF"
-            android:textSize="16sp"
-            android:textStyle="bold" />
-
-    </LinearLayout>
-
-    <View
-        android:layout_width="match_parent"
-        android:layout_height="1dp"
-        android:background="#3A3A55" />
-
-    <ScrollView
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:fillViewport="true"
-        android:overScrollMode="never">
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:paddingStart="12dp"
-            android:paddingEnd="12dp"
-            android:paddingTop="8dp"
-            android:paddingBottom="8dp">
-
-            <TextView
-                android:id="@+id/tv_recent_header"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="Recent"
-                android:textColor="#FFFFFF"
-                android:textSize="13sp"
-                android:textStyle="bold"
-                android:letterSpacing="0.05"
-                android:paddingBottom="6dp" />
-
-            <GridLayout
-                android:id="@+id/recent_cards"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:columnCount="2" />
-
-            <View
-                android:id="@+id/section_divider"
-                android:layout_width="match_parent"
-                android:layout_height="1dp"
-                android:layout_marginTop="6dp"
-                android:layout_marginBottom="10dp"
-                android:background="#3A3A55"
-                android:visibility="gone" />
-
-            <TextView
-                android:id="@+id/tv_pinned_header"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="Pinned"
-                android:textColor="#4A9EFF"
-                android:textSize="13sp"
-                android:textStyle="bold"
-                android:letterSpacing="0.05"
-                android:paddingBottom="6dp"
-                android:visibility="gone" />
-
-            <GridLayout
-                android:id="@+id/pinned_cards"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:columnCount="2" />
-
-            <TextView
-                android:id="@+id/tv_clipboard_empty"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:gravity="center"
-                android:paddingTop="24dp"
-                android:paddingBottom="24dp"
-                android:text="Nothing copied yet"
-                android:textColor="#9CA3AF"
-                android:textSize="14sp"
-                android:visibility="gone" />
-
-        </LinearLayout>
-
-    </ScrollView>
-
-</LinearLayout>
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="#0F0F1A"
+    android:layoutDirection="ltr">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="44dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="4dp"
+        android:paddingEnd="8dp"
+        android:background="#1A1A2E">
+
+        <TextView
+            android:id="@+id/btn_close_clipboard"
+            android:layout_width="44dp"
+            android:layout_height="32dp"
+            android:gravity="center"
+            android:text="ABC"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:background="@drawable/polish_toggle_bg"
+            android:clickable="true"
+            android:focusable="true"
+            android:foreground="?android:attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Back to keyboard" />
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="4dp"
+            android:text="Clipboard"
+            android:textColor="#FFFFFF"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/btn_new_folder"
+            android:layout_width="wrap_content"
+            android:layout_height="32dp"
+            android:gravity="center"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:text="+ Folder"
+            android:textColor="#4A9EFF"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:clickable="true"
+            android:focusable="true"
+            android:foreground="?android:attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Create folder" />
+
+    </LinearLayout>
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="#3A3A55" />
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:fillViewport="true"
+        android:overScrollMode="never">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:paddingTop="8dp"
+            android:paddingBottom="8dp">
+
+            <TextView
+                android:id="@+id/tv_recent_header"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Recent"
+                android:textColor="#FFFFFF"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:letterSpacing="0.05"
+                android:paddingBottom="6dp" />
+
+            <GridLayout
+                android:id="@+id/recent_cards"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:columnCount="2" />
+
+            <View
+                android:id="@+id/divider_screenshots"
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:layout_marginTop="6dp"
+                android:layout_marginBottom="10dp"
+                android:background="#3A3A55"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/tv_screenshots_header"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Screenshots"
+                android:textColor="#A78BFA"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:letterSpacing="0.05"
+                android:paddingBottom="6dp"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/tv_screenshots_hint"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Screenshots stay for 5 minutes unless pinned"
+                android:textColor="#6B7280"
+                android:textSize="11sp"
+                android:paddingBottom="6dp"
+                android:visibility="gone" />
+
+            <GridLayout
+                android:id="@+id/screenshot_cards"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:columnCount="2" />
+
+            <View
+                android:id="@+id/section_divider"
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:layout_marginTop="6dp"
+                android:layout_marginBottom="10dp"
+                android:background="#3A3A55"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/tv_pinned_header"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Pinned"
+                android:textColor="#4A9EFF"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:letterSpacing="0.05"
+                android:paddingBottom="6dp"
+                android:visibility="gone" />
+
+            <GridLayout
+                android:id="@+id/pinned_cards"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:columnCount="2" />
+
+            <LinearLayout
+                android:id="@+id/folder_sections"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" />
+
+            <TextView
+                android:id="@+id/tv_clipboard_empty"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:paddingTop="24dp"
+                android:paddingBottom="24dp"
+                android:text="Nothing copied yet"
+                android:textColor="#9CA3AF"
+                android:textSize="14sp"
+                android:visibility="gone" />
+
+        </LinearLayout>
+
+    </ScrollView>
+
+</LinearLayout>

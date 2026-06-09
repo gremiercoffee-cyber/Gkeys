@@ -76,6 +76,8 @@ class VoiceBubbleController(
 
         private const val DRAG_THRESHOLD_PX = 10
 
+        private const val SWIPE_UP_THRESHOLD_PX = 36
+
         private const val TRANSLATE_HOLD_MS = 380L
 
     }
@@ -557,6 +559,16 @@ class VoiceBubbleController(
                 val dx = event.rawX - touchStartX
 
                 val dy = event.rawY - touchStartY
+
+                if (dy < -SWIPE_UP_THRESHOLD_PX && abs(dy) > abs(dx) * 1.2f) {
+
+                    listener.onVibrate()
+
+                    listener.onBubbleSwipeUp()
+
+                    return true
+
+                }
 
                 if (abs(dx) < DRAG_THRESHOLD_PX * 2 && abs(dy) < DRAG_THRESHOLD_PX * 2) {
 

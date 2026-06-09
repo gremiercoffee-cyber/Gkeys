@@ -21,14 +21,15 @@ class AdaptiveTouchIntelligence(
     private var lastTapTimeMs = 0L
     private var keyboardWidth = 1f
     private var currentWordPrefix = ""
+    private var backspaceLearnedForRecentTap = false
 
     var recentTap: RecentTap? = null
         private set
 
     companion object {
-        private const val CORRECTION_WINDOW_MS = 2500L
+        private const val CORRECTION_WINDOW_MS = 4500L
         private const val EMA_ALPHA = 0.12f
-        private const val RADIUS_LEARN_ALPHA = 0.08f
+        private const val RADIUS_LEARN_ALPHA = 0.11f
         private const val MAX_RADIUS_MUL = 1.45f
         private const val MIN_RADIUS_MUL = 0.72f
         private const val CONFUSION_MATCH_SIGMA = 0.35f
@@ -65,6 +66,9 @@ class AdaptiveTouchIntelligence(
     ) {
         if (!enabled) return
         load()
+        val letter = target.char ?: return
+
+        backspaceLearnedForRecentTap = false
         val now = System.currentTimeMillis()
         if (interKeyMs in 20..2000) {
             profile.avgInterKeyMs = profile.avgInterKeyMs * 0.9f + interKeyMs * 0.1f
@@ -73,10 +77,7 @@ class AdaptiveTouchIntelligence(
 
         val offsetX = touchX - target.centerX
         val offsetY = touchY - target.centerY
-        target.char?.let { ch ->
-            val stats = profile.statsFor(ch)
-            stats.recordOffset(offsetX, offsetY)
-        }
+        profile.statsFor(letter).recordOffset(offsetX, offsetY)
 
         profile.totalTaps++
         updatePosture(touchX)
@@ -85,9 +86,31 @@ class AdaptiveTouchIntelligence(
             touchX = touchX,
             touchY = touchY,
             resolvedLabel = resolvedLabel,
-            resolvedChar = target.char,
+            resolvedChar = letter,
             timestampMs = now
         )
+        scheduleSave()
+    }
+
+    /**
+     * User backspaced soon after a letter — the resolved key was likely wrong.
+     * Counts toward corrections even if they do not retype.
+     */
+    fun recordBackspaceOnRecentTap() {
+        if (!enabled) return
+        load()
+        val tap = recentTap ?: return
+        if (System.currentTimeMillis() - tap.timestampMs > CORRECTION_WINDOW_MS) return
+        val wrong = tap.resolvedChar ?: return
+        if (backspaceLearnedForRecentTap) return
+
+        backspaceLearnedForRecentTap = true
+        profile.correctionsLearned++
+
+        val wrongStats = profile.statsFor(wrong)
+        wrongStats.radiusMultiplier = (wrongStats.radiusMultiplier - RADIUS_LEARN_ALPHA * 0.7f)
+            .coerceIn(MIN_RADIUS_MUL, MAX_RADIUS_MUL)
+
         scheduleSave()
     }
 
@@ -103,7 +126,10 @@ class AdaptiveTouchIntelligence(
         val correct = correctKey.lowercaseChar()
         if (wrong == correct) return
 
-        profile.correctionsLearned++
+        if (!backspaceLearnedForRecentTap) {
+            profile.correctionsLearned++
+        }
+        backspaceLearnedForRecentTap = false
 
         val wrongStats = profile.statsFor(wrong)
         wrongStats.radiusMultiplier = (wrongStats.radiusMultiplier - RADIUS_LEARN_ALPHA)

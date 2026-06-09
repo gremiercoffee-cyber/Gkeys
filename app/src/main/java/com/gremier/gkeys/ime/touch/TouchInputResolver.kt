@@ -128,12 +128,17 @@ class TouchInputResolver(
 
     fun recordTap(touchX: Float, touchY: Float, resolution: TouchResolution) {
         val target = targets.firstOrNull { it.label == resolution.label } ?: return
+        if (target.char == null) return
         val now = System.currentTimeMillis()
         val interKey = if (lastTapTimeMs > 0L) now - lastTapTimeMs else 180L
         lastTapTimeMs = now
 
         personalization.recordSample(touchX, touchY, target, averageKeyWidth)
         adaptive.recordTap(touchX, touchY, target, resolution.label, interKey)
+    }
+
+    fun recordBackspaceOnRecentTap() {
+        adaptive.recordBackspaceOnRecentTap()
     }
 
     fun recordCorrection(correctLabel: String) {

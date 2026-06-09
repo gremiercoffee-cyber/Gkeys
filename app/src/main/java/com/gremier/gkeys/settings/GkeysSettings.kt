@@ -42,6 +42,10 @@ object GkeysSettings {
     val VOICE_BUBBLE_ENABLED = booleanPreferencesKey("voice_bubble_enabled")
     val VOICE_BUBBLE_MODE_ACTIVE = booleanPreferencesKey("voice_bubble_mode_active")
     val DEFAULT_TO_VOICE_BUBBLE = booleanPreferencesKey("default_to_voice_bubble")
+    val AI_BAR_SETTINGS_ENABLED = booleanPreferencesKey("ai_bar_settings_enabled")
+    val AI_BAR_WAND_ENABLED = booleanPreferencesKey("ai_bar_wand_enabled")
+    val AI_BAR_POLISH_BUTTON_ENABLED = booleanPreferencesKey("ai_bar_polish_button_enabled")
+    val AI_BAR_LIVE_TRANSCRIBE_ENABLED = booleanPreferencesKey("ai_bar_live_transcribe_enabled")
 
     const val LANG_EN = "en"
     const val LANG_HE = "he"
@@ -169,6 +173,19 @@ object GkeysSettings {
         }
 
     const val DEFAULT_VOICE_BUBBLE_ENABLED = true
+    const val DEFAULT_AI_BAR_FEATURE_ENABLED = true
+
+    fun aiBarSettingsEnabled(context: Context): Flow<Boolean> =
+        settingsStore(context).data.map { it[AI_BAR_SETTINGS_ENABLED] ?: DEFAULT_AI_BAR_FEATURE_ENABLED }
+
+    fun aiBarWandEnabled(context: Context): Flow<Boolean> =
+        settingsStore(context).data.map { it[AI_BAR_WAND_ENABLED] ?: DEFAULT_AI_BAR_FEATURE_ENABLED }
+
+    fun aiBarPolishButtonEnabled(context: Context): Flow<Boolean> =
+        settingsStore(context).data.map { it[AI_BAR_POLISH_BUTTON_ENABLED] ?: DEFAULT_AI_BAR_FEATURE_ENABLED }
+
+    fun aiBarLiveTranscribeEnabled(context: Context): Flow<Boolean> =
+        settingsStore(context).data.map { it[AI_BAR_LIVE_TRANSCRIBE_ENABLED] ?: DEFAULT_AI_BAR_FEATURE_ENABLED }
 
     fun voiceBubbleEnabled(context: Context): Flow<Boolean> =
         settingsStore(context).data.map { it[VOICE_BUBBLE_ENABLED] ?: DEFAULT_VOICE_BUBBLE_ENABLED }
@@ -346,5 +363,21 @@ object GkeysSettings {
 
     suspend fun saveVoiceTranslateTo(context: Context, lang: String) {
         settingsStore(context).edit { it[VOICE_TRANSLATE_TO] = lang }
+    }
+
+    suspend fun saveAiBarSettingsEnabled(context: Context, enabled: Boolean) {
+        settingsStore(context).edit { it[AI_BAR_SETTINGS_ENABLED] = enabled }
+    }
+
+    suspend fun saveAiBarWandEnabled(context: Context, enabled: Boolean) {
+        settingsStore(context).edit { it[AI_BAR_WAND_ENABLED] = enabled }
+    }
+
+    suspend fun saveAiBarPolishButtonEnabled(context: Context, enabled: Boolean) {
+        settingsStore(context).edit { it[AI_BAR_POLISH_BUTTON_ENABLED] = enabled }
+    }
+
+    suspend fun saveAiBarLiveTranscribeEnabled(context: Context, enabled: Boolean) {
+        settingsStore(context).edit { it[AI_BAR_LIVE_TRANSCRIBE_ENABLED] = enabled }
     }
 }

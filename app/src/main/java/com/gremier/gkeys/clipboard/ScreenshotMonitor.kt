@@ -21,7 +21,7 @@ class ScreenshotMonitor(
 ) {
     companion object {
         private const val TAG = "ScreenshotMonitor"
-        private const val LOOKBACK_MS = 15 * 60 * 1000L
+        private const val LOOKBACK_MS = 5 * 60 * 1000L
     }
 
     private val handler = Handler(Looper.getMainLooper())

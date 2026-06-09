@@ -141,6 +141,17 @@
                 android:scaleType="centerInside"
                 android:padding="5dp" />
 
+            <ImageButton
+                android:id="@+id/btn_clipboard_clear_all"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
+                android:layout_marginStart="5dp"
+                android:src="@drawable/ic_clear_all"
+                android:background="@drawable/btn_circle_bg"
+                android:contentDescription="Clear all text"
+                android:scaleType="centerInside"
+                android:padding="5dp" />
+
             <FrameLayout
                 android:id="@+id/clipboard_area"
                 android:layout_width="0dp"
@@ -215,17 +226,6 @@
                 </LinearLayout>
 
             </FrameLayout>
-
-            <ImageButton
-                android:id="@+id/btn_clipboard_clear_all"
-                android:layout_width="28dp"
-                android:layout_height="28dp"
-                android:layout_marginEnd="4dp"
-                android:src="@drawable/ic_clear_all"
-                android:background="@drawable/btn_circle_bg"
-                android:contentDescription="Clear all text"
-                android:scaleType="centerInside"
-                android:padding="5dp" />
 
             <ImageButton
                 android:id="@+id/btn_live_transcribe"

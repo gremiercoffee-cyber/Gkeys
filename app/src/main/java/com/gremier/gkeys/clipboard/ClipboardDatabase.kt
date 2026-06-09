@@ -7,9 +7,14 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
-@Database(entities = [ClipboardItem::class], version = 2, exportSchema = false)
+@Database(
+    entities = [ClipboardItem::class, ClipboardFolder::class],
+    version = 3,
+    exportSchema = false
+)
 abstract class ClipboardDatabase : RoomDatabase() {
     abstract fun clipboardDao(): ClipboardDao
+    abstract fun clipboardFolderDao(): ClipboardFolderDao
 
     companion object {
         @Volatile private var instance: ClipboardDatabase? = null
@@ -23,6 +28,21 @@ abstract class ClipboardDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE clipboard_items ADD COLUMN folderId INTEGER")
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS clipboard_folders (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        name TEXT NOT NULL,
+                        createdAt INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
         fun getInstance(context: Context): ClipboardDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -30,7 +50,7 @@ abstract class ClipboardDatabase : RoomDatabase() {
                     ClipboardDatabase::class.java,
                     "gkeys_clipboard.db"
                 )
-                    .addMigrations(MIGRATION_1_2)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                     .fallbackToDestructiveMigration()
                     .build()
                     .also { instance = it }
