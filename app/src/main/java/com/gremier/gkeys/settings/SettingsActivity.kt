@@ -56,7 +56,6 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var btnPhotoPermission: MaterialButton
     private lateinit var btnOverlayPermission: MaterialButton
     private lateinit var switchVoiceBubbleEnabled: SwitchMaterial
-    private lateinit var switchAiBarSettings: SwitchMaterial
     private lateinit var switchAiBarWand: SwitchMaterial
     private lateinit var switchAiBarPolish: SwitchMaterial
     private lateinit var switchAiBarLiveTranscribe: SwitchMaterial
@@ -252,7 +251,6 @@ class SettingsActivity : AppCompatActivity() {
         btnPhotoPermission = findViewById(R.id.btn_photo_permission)
         btnOverlayPermission = findViewById(R.id.btn_overlay_permission)
         switchVoiceBubbleEnabled = findViewById(R.id.switch_voice_bubble_enabled)
-        switchAiBarSettings = findViewById(R.id.switch_ai_bar_settings)
         switchAiBarWand = findViewById(R.id.switch_ai_bar_wand)
         switchAiBarPolish = findViewById(R.id.switch_ai_bar_polish)
         switchAiBarLiveTranscribe = findViewById(R.id.switch_ai_bar_live_transcribe)
@@ -309,8 +307,6 @@ class SettingsActivity : AppCompatActivity() {
             updateKeyboardHeightLabel(sliderKeyboardHeight.value.toInt())
             switchVoiceBubbleEnabled.isChecked =
                 GkeysSettings.voiceBubbleEnabled(this@SettingsActivity).first()
-            switchAiBarSettings.isChecked =
-                GkeysSettings.aiBarSettingsEnabled(this@SettingsActivity).first()
             switchAiBarWand.isChecked =
                 GkeysSettings.aiBarWandEnabled(this@SettingsActivity).first()
             switchAiBarPolish.isChecked =
@@ -424,9 +420,6 @@ class SettingsActivity : AppCompatActivity() {
             autoSave { saveVoiceBubbleSettings() }
         }
 
-        switchAiBarSettings.setOnCheckedChangeListener { _, checked ->
-            autoSave { GkeysSettings.saveAiBarSettingsEnabled(this@SettingsActivity, checked) }
-        }
         switchAiBarWand.setOnCheckedChangeListener { _, checked ->
             autoSave { GkeysSettings.saveAiBarWandEnabled(this@SettingsActivity, checked) }
         }

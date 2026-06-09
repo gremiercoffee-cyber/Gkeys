@@ -71,13 +71,13 @@ class VoiceBubbleController(
 
     companion object {
 
-        private const val BUBBLE_ALPHA_IDLE = 0.2f
-        private const val BUBBLE_ALPHA_RECORDING = 0.55f
-        private const val BUBBLE_ALPHA_PROCESSING = 0.45f
+        private const val BUBBLE_ALPHA_IDLE = 0.55f
+        private const val BUBBLE_ALPHA_RECORDING = 0.82f
+        private const val BUBBLE_ALPHA_PROCESSING = 0.72f
 
-        private const val BUBBLE_SIZE_DP = 72
-
-        private const val EDGE_MARGIN_DP = 16
+        private const val BUBBLE_WIDTH_DP = 40
+        private const val BUBBLE_HEIGHT_DP = 104
+        private const val EDGE_MARGIN_Y_DP = 12
 
         private const val DRAG_THRESHOLD_PX = 10
 
@@ -93,9 +93,9 @@ class VoiceBubbleController(
 
     private val density = context.resources.displayMetrics.density
 
-    private val bubbleSizePx = (BUBBLE_SIZE_DP * density).roundToInt()
-
-    private val edgeMarginPx = (EDGE_MARGIN_DP * density).roundToInt()
+    private val bubbleWidthPx = (BUBBLE_WIDTH_DP * density).roundToInt()
+    private val bubbleHeightPx = (BUBBLE_HEIGHT_DP * density).roundToInt()
+    private val edgeMarginYPx = (EDGE_MARGIN_Y_DP * density).roundToInt()
 
 
 
@@ -116,6 +116,8 @@ class VoiceBubbleController(
     private var state = VoiceBubbleState.IDLE
 
 
+
+    private var dockedOnRight = true
 
     private var posX = -1
 
@@ -191,9 +193,9 @@ class VoiceBubbleController(
 
         val params = WindowManager.LayoutParams(
 
-            bubbleSizePx,
+            bubbleWidthPx,
 
-            bubbleSizePx,
+            bubbleHeightPx,
 
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
 
@@ -445,6 +447,8 @@ class VoiceBubbleController(
 
         translateHoldPending = false
 
+        dockedOnRight = true
+
     }
 
 
@@ -453,35 +457,61 @@ class VoiceBubbleController(
 
         val metrics = context.resources.displayMetrics
 
-        val insetBottom = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        val (insetTop, insetBottom) = systemBarInsets()
 
-            try {
+        dockedOnRight = true
 
-                windowManager.currentWindowMetrics.windowInsets
+        params.x = metrics.widthPixels - bubbleWidthPx
 
-                    .getInsets(android.view.WindowInsets.Type.systemBars()).bottom
+        val usableHeight = metrics.heightPixels - insetTop - insetBottom
 
-            } catch (_: Exception) {
-
-                0
-
-            }
-
-        } else {
-
-            0
-
-        }
-
-        params.x = metrics.widthPixels - bubbleSizePx - edgeMarginPx
-
-        params.y = metrics.heightPixels - bubbleSizePx - edgeMarginPx - insetBottom
+        params.y = insetTop + ((usableHeight - bubbleHeightPx) / 2f).roundToInt()
 
         posX = params.x
 
         posY = params.y
 
     }
+
+
+
+    private fun systemBarInsets(): Pair<Int, Int> {
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+
+            return try {
+
+                val insets = windowManager.currentWindowMetrics.windowInsets
+
+                    .getInsets(android.view.WindowInsets.Type.systemBars())
+
+                insets.top to insets.bottom
+
+            } catch (_: Exception) {
+
+                0 to 0
+
+            }
+
+        }
+
+        return 0 to 0
+
+    }
+
+
+
+    private fun idleBackgroundRes(): Int =
+
+        if (dockedOnRight) R.drawable.voice_bubble_icon_bg else R.drawable.voice_bubble_icon_bg_left
+
+
+
+    private fun processingBackgroundRes(): Int =
+
+        if (dockedOnRight) R.drawable.voice_bubble_processing_bg
+
+        else R.drawable.voice_bubble_processing_bg_left
 
 
 
@@ -661,13 +691,15 @@ class VoiceBubbleController(
 
         val metrics = context.resources.displayMetrics
 
-        val maxX = metrics.widthPixels - bubbleSizePx - edgeMarginPx / 2
+        val (insetTop, insetBottom) = systemBarInsets()
 
-        val maxY = metrics.heightPixels - bubbleSizePx - edgeMarginPx
+        val maxX = metrics.widthPixels - bubbleWidthPx
 
-        params.x = params.x.coerceIn(edgeMarginPx / 2, maxX)
+        val maxY = metrics.heightPixels - bubbleHeightPx - insetBottom - edgeMarginYPx
 
-        params.y = params.y.coerceIn(edgeMarginPx, maxY)
+        params.x = params.x.coerceIn(0, maxX)
+
+        params.y = params.y.coerceIn(insetTop + edgeMarginYPx, maxY.coerceAtLeast(insetTop + edgeMarginYPx))
 
     }
 
@@ -677,21 +709,25 @@ class VoiceBubbleController(
 
         val metrics = context.resources.displayMetrics
 
-        val centerX = params.x + bubbleSizePx / 2
+        val centerX = params.x + bubbleWidthPx / 2
 
         val midScreen = metrics.widthPixels / 2
 
-        params.x = if (centerX < midScreen) {
+        dockedOnRight = centerX >= midScreen
 
-            edgeMarginPx
+        params.x = if (dockedOnRight) {
+
+            metrics.widthPixels - bubbleWidthPx
 
         } else {
 
-            metrics.widthPixels - bubbleSizePx - edgeMarginPx
+            0
 
         }
 
         clampToScreen(params)
+
+        applyStateVisuals()
 
     }
 
@@ -711,7 +747,7 @@ class VoiceBubbleController(
 
         icon?.rotation = 0f
 
-        body.setBackgroundResource(R.drawable.voice_bubble_icon_bg)
+        body.setBackgroundResource(idleBackgroundRes())
 
         body.scaleX = 1f
 
@@ -789,7 +825,7 @@ class VoiceBubbleController(
 
         val icon = bubbleIcon ?: return
 
-        body.setBackgroundResource(R.drawable.ai_mic_bg_processing)
+        body.setBackgroundResource(processingBackgroundRes())
 
         glow.visibility = View.VISIBLE
 
@@ -815,9 +851,9 @@ class VoiceBubbleController(
 
             body,
 
-            PropertyValuesHolder.ofFloat(View.SCALE_X, 1f, 1.12f),
+            PropertyValuesHolder.ofFloat(View.SCALE_X, 1f, 1.05f),
 
-            PropertyValuesHolder.ofFloat(View.SCALE_Y, 1f, 1.12f)
+            PropertyValuesHolder.ofFloat(View.SCALE_Y, 1f, 1.08f)
 
         ).apply {
 
@@ -879,9 +915,9 @@ class VoiceBubbleController(
 
             body,
 
-            PropertyValuesHolder.ofFloat(View.SCALE_X, 1f, 1.1f),
+            PropertyValuesHolder.ofFloat(View.SCALE_X, 1f, 1.04f),
 
-            PropertyValuesHolder.ofFloat(View.SCALE_Y, 1f, 1.1f),
+            PropertyValuesHolder.ofFloat(View.SCALE_Y, 1f, 1.07f),
 
             PropertyValuesHolder.ofFloat(View.ALPHA, 1f, 0.82f)
 

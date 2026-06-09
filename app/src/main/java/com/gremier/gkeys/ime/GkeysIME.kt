@@ -80,7 +80,6 @@ class GkeysIME : InputMethodService() {
     /** When true the keyboard is hidden but the floating bubble stays on screen. */
     private var bubbleKeyboardCollapsed = false
     private var voiceBubbleEnabled = GkeysSettings.DEFAULT_VOICE_BUBBLE_ENABLED
-    private var aiBarSettingsEnabled = GkeysSettings.DEFAULT_AI_BAR_FEATURE_ENABLED
     private var aiBarWandEnabled = GkeysSettings.DEFAULT_AI_BAR_FEATURE_ENABLED
     private var aiBarPolishButtonEnabled = GkeysSettings.DEFAULT_AI_BAR_FEATURE_ENABLED
     private var aiBarLiveTranscribeEnabled = GkeysSettings.DEFAULT_AI_BAR_FEATURE_ENABLED
@@ -150,7 +149,6 @@ class GkeysIME : InputMethodService() {
     private lateinit var micAiSparkles: ImageView
     private lateinit var btnKeyboard: ImageButton
     private lateinit var btnVoiceBubble: ImageButton
-    private lateinit var btnSettings: ImageButton
     private lateinit var btnWand: ImageButton
     private lateinit var btnLiveTranscribe: ImageButton
     private lateinit var btnPolishLevel: TextView
@@ -318,13 +316,11 @@ class GkeysIME : InputMethodService() {
     private fun observeAiBarSettings() {
         scope.launch {
             combine(
-                GkeysSettings.aiBarSettingsEnabled(this@GkeysIME),
                 GkeysSettings.aiBarWandEnabled(this@GkeysIME),
                 GkeysSettings.aiBarPolishButtonEnabled(this@GkeysIME),
                 GkeysSettings.aiBarLiveTranscribeEnabled(this@GkeysIME),
                 GkeysSettings.voiceBubbleEnabled(this@GkeysIME),
-            ) { settings, wand, polish, live, bubble ->
-                aiBarSettingsEnabled = settings
+            ) { wand, polish, live, bubble ->
                 aiBarWandEnabled = wand
                 aiBarPolishButtonEnabled = polish
                 aiBarLiveTranscribeEnabled = live
@@ -403,7 +399,6 @@ class GkeysIME : InputMethodService() {
         micAiSparkles = keyboardView.findViewById(R.id.mic_ai_sparkles)
         btnKeyboard = keyboardView.findViewById(R.id.btn_keyboard)
         btnVoiceBubble = keyboardView.findViewById(R.id.btn_voice_bubble)
-        btnSettings = keyboardView.findViewById(R.id.btn_settings)
         btnWand = keyboardView.findViewById(R.id.btn_wand)
         btnLiveTranscribe = keyboardView.findViewById(R.id.btn_live_transcribe)
         btnPolishLevel = keyboardView.findViewById(R.id.btn_polish_level)
@@ -522,6 +517,10 @@ class GkeysIME : InputMethodService() {
     private fun prepareLiveSttSession() {
         liveSttSessionActive = true
         suspendBubbleCollapse = true
+        if (voiceBubbleModeActive) {
+            userRequestedKeyboard = false
+            bubbleKeyboardCollapsed = true
+        }
         if (::keyboardView.isInitialized) {
             keyboardView.visibility = View.GONE
         }
@@ -954,8 +953,8 @@ class GkeysIME : InputMethodService() {
         } catch (e: Exception) {
             android.util.Log.e("GkeysIME", "onFinishInput failed", e)
         }
-        // Keep the cached connection while bubble dictation is active.
-        if (!isRecording && !micIsProcessing && !liveSttActive) {
+        // Keep the cached connection while bubble dictation or live transcribe is active.
+        if (!isRecording && !micIsProcessing && !liveSttActive && !liveSttConnecting && !liveSttSessionActive) {
             activeInputConnection = null
         }
         super.onFinishInput()
@@ -1019,15 +1018,16 @@ class GkeysIME : InputMethodService() {
 
     override fun onFinishInputView(finishingInput: Boolean) {
         try {
+            refreshBubbleModeCacheSync()
             if (voiceBubbleModeActive) {
-                if (bubbleKeyboardCollapsed || bubbleDictationSessionActive) {
+                if (bubbleKeyboardCollapsed || bubbleDictationSessionActive || liveSttSessionActive) {
                     bubbleKeyboardCollapsed = true
                 }
                 hideVoiceOverlay()
                 hideGhostwriterOverlay()
                 clipboardManager?.stopListening()
                 clipboardManager?.hidePanel()
-                if (!isRecording && !micIsProcessing && !liveSttActive && !liveSttConnecting) {
+                if (!isRecording && !micIsProcessing) {
                     voiceBubbleController?.show()
                 }
                 super.onFinishInputView(finishingInput)
@@ -1036,7 +1036,7 @@ class GkeysIME : InputMethodService() {
             if (isRecording && !recordingForGhostwriter) {
                 cancelRecording()
             }
-            if (!micIsProcessing) {
+            if (!micIsProcessing && !liveSttActive && !liveSttConnecting && !liveSttSessionActive) {
                 cancelGhostwriter()
                 stopLiveStt()
                 stopMicProcessingAnimation()
@@ -1084,7 +1084,6 @@ class GkeysIME : InputMethodService() {
                     handler.post { tryActivateVoiceBubbleMode(showOverlay = true) }
                 }
                 updateVoiceBubbleButtonVisibility()
-                aiBarSettingsEnabled = GkeysSettings.aiBarSettingsEnabled(this@GkeysIME).first()
                 aiBarWandEnabled = GkeysSettings.aiBarWandEnabled(this@GkeysIME).first()
                 aiBarPolishButtonEnabled = GkeysSettings.aiBarPolishButtonEnabled(this@GkeysIME).first()
                 aiBarLiveTranscribeEnabled = GkeysSettings.aiBarLiveTranscribeEnabled(this@GkeysIME).first()
@@ -1165,11 +1164,6 @@ class GkeysIME : InputMethodService() {
             }
             buildKeyboard()
             updateNumpadButton()
-        }
-
-        btnSettings.setOnClickListener {
-            vibrate()
-            openAppSettings()
         }
 
         btnVoiceBubble.setOnClickListener {
@@ -1322,9 +1316,12 @@ class GkeysIME : InputMethodService() {
         updateLiveTranscribeButton()
         showLiveSttStatus("Connecting live transcribe…")
         scheduleLiveSttConnectTimeout()
-        prepareLiveSttSession()
-        syncLiveSttWindow()
         ensureInputForLiveStt {
+            prepareLiveSttSession()
+            syncLiveSttWindow()
+            if (voiceBubbleModeActive) {
+                voiceBubbleController?.show()
+            }
             startLiveStt()
         }
     }
@@ -1864,8 +1861,7 @@ class GkeysIME : InputMethodService() {
     }
 
     private fun applyAiBarVisibility() {
-        if (!::btnSettings.isInitialized) return
-        btnSettings.visibility = if (aiBarSettingsEnabled) View.VISIBLE else View.GONE
+        if (!::btnWand.isInitialized) return
         btnWand.visibility = if (aiBarWandEnabled) View.VISIBLE else View.GONE
         btnPolishLevel.visibility = if (aiBarPolishButtonEnabled) View.VISIBLE else View.GONE
         btnLiveTranscribe.visibility = if (aiBarLiveTranscribeEnabled) View.VISIBLE else View.GONE
