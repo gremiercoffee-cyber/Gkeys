@@ -491,35 +491,25 @@
 
 
 
-            <TextView
+            <ImageButton
 
-                android:id="@+id/suggestion_right"
+                android:id="@+id/suggestion_dismiss"
 
-                android:layout_width="0dp"
+                android:layout_width="46dp"
 
                 android:layout_height="match_parent"
 
-                android:layout_weight="1"
-
-                android:gravity="center"
-
-                android:textSize="15sp"
-
-                android:textColor="@color/gkeys_text_secondary"
-
-                android:maxLines="1"
-
-                android:ellipsize="end"
+                android:src="@drawable/ic_backspace_close"
 
                 android:background="@drawable/suggestion_chip_ripple"
 
-                android:clickable="true"
+                android:contentDescription="Back to AI bar"
 
-                android:focusable="true"
+                android:scaleType="centerInside"
 
-                android:paddingStart="6dp"
+                android:padding="10dp"
 
-                android:paddingEnd="6dp" />
+                android:tint="@color/gkeys_text_secondary" />
 
 
 

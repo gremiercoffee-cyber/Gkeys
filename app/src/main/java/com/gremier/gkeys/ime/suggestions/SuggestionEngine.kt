@@ -6,13 +6,12 @@ data class SuggestionChip(
     val text: String,
     val isPrimary: Boolean = false,
     val isCorrection: Boolean = false,
-    val isUndo: Boolean = false,
+    val isLiteralTyped: Boolean = false,
 )
 
 data class SuggestionStripModel(
     val left: SuggestionChip?,
     val center: SuggestionChip?,
-    val right: SuggestionChip?,
 )
 
 object SuggestionEngine {
@@ -26,7 +25,7 @@ object SuggestionEngine {
         DictionaryManager.ensureLoaded(context, language)
         val normalizedPrefix = normalize(prefix, language)
         if (normalizedPrefix.isEmpty()) {
-            return SuggestionStripModel(null, null, null)
+            return SuggestionStripModel(null, null)
         }
 
         val typedIsWord = DictionaryManager.isKnown(language, normalizedPrefix) ||
@@ -41,41 +40,29 @@ object SuggestionEngine {
             .filter { it.word != normalizedPrefix }
             .distinctBy { it.word }
 
-        val centerPick = when {
-            correction != null && correction.score > (completions.firstOrNull()?.score ?: 0.0) + 4.0 ->
-                correction
-            completions.isNotEmpty() -> completions.first()
-            correction != null -> correction
-            normalizedPrefix.isNotEmpty() -> Scored(normalizedPrefix, 0.0, false)
-            else -> return SuggestionStripModel(null, null, null)
+        if (correction != null && correction.word != normalizedPrefix) {
+            val left = SuggestionChip(normalizedPrefix, isLiteralTyped = true)
+            val center = SuggestionChip(
+                correction.word,
+                isPrimary = true,
+                isCorrection = true,
+            )
+            return SuggestionStripModel(left, center)
         }
 
-        val center = SuggestionChip(
-            centerPick.word,
-            isPrimary = true,
-            isCorrection = centerPick.isCorrection && centerPick.word != normalizedPrefix,
-        )
-
-        val literalUndo = if (center.isCorrection && normalizedPrefix != centerPick.word) {
-            SuggestionChip(normalizedPrefix, isUndo = true)
-        } else {
-            null
+        val centerWord = when {
+            completions.isNotEmpty() -> completions.first().word
+            else -> normalizedPrefix
         }
+        val center = SuggestionChip(centerWord, isPrimary = true)
+        val left = completions.getOrNull(1)?.let { SuggestionChip(it.word) }
+        return SuggestionStripModel(left, center)
+    }
 
-        val alts = (completions + listOfNotNull(correction))
-            .filter { it.word != centerPick.word && it.word != normalizedPrefix }
-            .distinctBy { it.word }
-            .sortedByDescending { it.score }
-
-        val sideChips = buildList {
-            literalUndo?.let { add(it) }
-            alts.take(2).forEach { add(SuggestionChip(it.word)) }
-        }
-
+    fun buildPostAutocorrectUndo(original: String, corrected: String): SuggestionStripModel {
         return SuggestionStripModel(
-            left = sideChips.getOrNull(0),
-            center = center,
-            right = sideChips.getOrNull(1),
+            left = SuggestionChip(original, isLiteralTyped = true),
+            center = SuggestionChip(corrected, isPrimary = true),
         )
     }
 
@@ -91,7 +78,8 @@ object SuggestionEngine {
         if (DictionaryManager.isKnown(language, normalized) || userWords.containsKey(normalized)) {
             return null
         }
-        return rankCorrection(language, normalized, userWords)?.word
+        val correction = rankCorrection(language, normalized, userWords) ?: return null
+        return if (shouldAutocorrect(normalized, correction)) correction.word else null
     }
 
     private data class Scored(val word: String, val score: Double, val isCorrection: Boolean)
@@ -109,6 +97,14 @@ object SuggestionEngine {
                 else Scored(candidate, score, isCorrection = true)
             }
             .maxByOrNull { it.score }
+    }
+
+    private fun shouldAutocorrect(typed: String, correction: Scored): Boolean {
+        val dist = editDistance(typed, correction.word)
+        if (dist == 0) return false
+        if (dist == 1 && correction.score >= MIN_AUTOCORRECT_SCORE) return true
+        if (dist == 2 && typed.length >= 5 && correction.score >= 48.0) return true
+        return correction.score >= HIGH_CONFIDENCE_AUTOCORRECT_SCORE
     }
 
     private fun rankCompletions(
@@ -167,6 +163,8 @@ object SuggestionEngine {
     }
 
     private const val MIN_CORRECTION_SCORE = 25.0
+    private const val MIN_AUTOCORRECT_SCORE = 32.0
+    private const val HIGH_CONFIDENCE_AUTOCORRECT_SCORE = 55.0
 
     private fun editDistance(a: String, b: String): Int {
         if (a == b) return 0

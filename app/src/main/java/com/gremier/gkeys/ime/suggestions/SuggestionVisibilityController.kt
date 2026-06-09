@@ -7,7 +7,7 @@ import android.os.Looper
  * Gboard-style suggestion bar visibility: show on first keypress, hide after idle/submit/focus loss.
  */
 class SuggestionVisibilityController(
-    private val idleTimeoutMs: Long = 1000L,
+    private val idleTimeoutMs: Long = 5000L,
     private val onVisibilityChanged: (visible: Boolean) -> Unit,
 ) {
     private val handler = Handler(Looper.getMainLooper())
@@ -24,6 +24,16 @@ class SuggestionVisibilityController(
 
     /** Call when the user presses a letter key while suggestions are supported. */
     fun onTypingKey() {
+        handler.removeCallbacks(hideRunnable)
+        if (!visible) {
+            visible = true
+            onVisibilityChanged(true)
+        }
+        handler.postDelayed(hideRunnable, idleTimeoutMs)
+    }
+
+    /** Keep the bar visible and restart the idle timer (e.g. after autocorrect undo). */
+    fun extendVisible() {
         handler.removeCallbacks(hideRunnable)
         if (!visible) {
             visible = true

@@ -161,12 +161,14 @@ class GkeysIME : InputMethodService() {
     private lateinit var suggestionStrip: LinearLayout
     private lateinit var suggestionLeft: TextView
     private lateinit var suggestionCenter: TextView
-    private lateinit var suggestionRight: TextView
+    private lateinit var suggestionDismiss: ImageButton
     private lateinit var suggestionDividerLeft: View
     private lateinit var suggestionDividerRight: View
     private var suggestionStripController: SuggestionStripController? = null
     private var suggestionVisibilityController: SuggestionVisibilityController? = null
     private var suggestionBarVisible = false
+    /** After autocorrect on space: original typed word -> corrected word (for undo chip). */
+    private var postAutocorrectUndo: Pair<String, String>? = null
     private lateinit var userWordsRepository: UserWordsRepository
     private lateinit var aiStrip: LinearLayout
     private lateinit var keyboardPanel: FrameLayout
@@ -468,20 +470,22 @@ class GkeysIME : InputMethodService() {
         suggestionStrip = keyboardView.findViewById(R.id.suggestion_strip)
         suggestionLeft = keyboardView.findViewById(R.id.suggestion_left)
         suggestionCenter = keyboardView.findViewById(R.id.suggestion_center)
-        suggestionRight = keyboardView.findViewById(R.id.suggestion_right)
+        suggestionDismiss = keyboardView.findViewById(R.id.suggestion_dismiss)
         suggestionDividerLeft = keyboardView.findViewById(R.id.suggestion_divider_left)
         suggestionDividerRight = keyboardView.findViewById(R.id.suggestion_divider_right)
         suggestionStripController = SuggestionStripController(
             strip = suggestionStrip,
             leftView = suggestionLeft,
             centerView = suggestionCenter,
-            rightView = suggestionRight,
+            dismissButton = suggestionDismiss,
             dividerLeft = suggestionDividerLeft,
             dividerRight = suggestionDividerRight,
-            onSuggestionPicked = { word -> applySuggestion(word) }
+            onSuggestionPicked = { word -> applySuggestion(word) },
+            onDismiss = { dismissSuggestionBar() },
         )
-        suggestionVisibilityController = SuggestionVisibilityController { visible ->
+        suggestionVisibilityController = SuggestionVisibilityController(idleTimeoutMs = 5000L) { visible ->
             suggestionBarVisible = visible
+            if (!visible) postAutocorrectUndo = null
             refreshSuggestions()
         }
         userWordsRepository = UserWordsRepository(applicationContext)
@@ -3038,21 +3042,26 @@ class GkeysIME : InputMethodService() {
 
     private fun refreshSuggestions() {
         val controller = suggestionStripController ?: return
-        val showSuggestions = suggestionsSupported() && suggestionBarVisible && currentWordPrefix.isNotEmpty()
-        if (!showSuggestions) {
+        val undo = postAutocorrectUndo
+        val showTyping = suggestionsSupported() && suggestionBarVisible && currentWordPrefix.isNotEmpty()
+        val showUndo = undo != null && suggestionBarVisible
+        if (!showTyping && !showUndo) {
             controller.setActive(false)
             controller.clear()
             if (::aiStrip.isInitialized) aiStrip.visibility = View.VISIBLE
             return
         }
         if (::aiStrip.isInitialized) aiStrip.visibility = View.GONE
-        val lang = activeSuggestionLanguage()
-        val model = SuggestionEngine.build(
-            this,
-            lang,
-            currentWordPrefix,
-            userWordsForSuggestions(),
-        )
+        val model = if (showUndo && undo != null) {
+            SuggestionEngine.buildPostAutocorrectUndo(undo.first, undo.second)
+        } else {
+            SuggestionEngine.build(
+                this,
+                activeSuggestionLanguage(),
+                currentWordPrefix,
+                userWordsForSuggestions(),
+            )
+        }
         controller.setActive(true)
         controller.render(
             model,
@@ -3063,11 +3072,37 @@ class GkeysIME : InputMethodService() {
 
     private fun onSuggestionTypingKey() {
         if (!suggestionsSupported()) return
+        postAutocorrectUndo = null
         suggestionVisibilityController?.onTypingKey()
     }
 
     private fun hideSuggestionBar() {
+        postAutocorrectUndo = null
         suggestionVisibilityController?.hideImmediately()
+    }
+
+    private fun dismissSuggestionBar() {
+        hapticKeyTap()
+        hideSuggestionBar()
+    }
+
+    private fun showPostAutocorrectUndo(original: String, corrected: String) {
+        postAutocorrectUndo = original to corrected
+        suggestionVisibilityController?.extendVisible()
+    }
+
+    private fun revertAutocorrect() {
+        val undo = postAutocorrectUndo ?: return
+        val ic = currentInputConnection ?: return
+        val (original, corrected) = undo
+        hapticKeyTap()
+        ic.deleteSurroundingText(corrected.length + 1, 0)
+        ic.commitText("$original ", 1)
+        fieldUndo.recordInsert("$original ")
+        lastCompletedWord = normalizeCompletedWord(original)
+        postAutocorrectUndo = null
+        hideSuggestionBar()
+        updateUndoButtonState()
     }
 
     private fun preloadSuggestionLanguage() {
@@ -3079,9 +3114,21 @@ class GkeysIME : InputMethodService() {
     }
 
     private fun applySuggestion(word: String) {
-        val ic = currentInputConnection ?: return
         val pick = word.trim()
         if (pick.isEmpty()) return
+
+        val undo = postAutocorrectUndo
+        if (undo != null) {
+            if (pick == undo.first) {
+                revertAutocorrect()
+            } else {
+                postAutocorrectUndo = null
+                dismissSuggestionBar()
+            }
+            return
+        }
+
+        val ic = currentInputConnection ?: return
         hapticKeyTap()
         val replaceLen = currentWordPrefix.length
         if (replaceLen > 0) {
@@ -3119,18 +3166,24 @@ class GkeysIME : InputMethodService() {
             ic.commitText("$corrected ", 1)
             fieldUndo.recordInsert("$corrected ")
             lastCompletedWord = normalizeCompletedWord(corrected)
-        } else {
-            ic.commitText(" ", 1)
-            fieldUndo.recordInsert(" ")
-            if (prefix.isNotEmpty()) {
-                lastCompletedWord = normalizeCompletedWord(prefix)
-                if (suggestionsSupported() && prefix.length >= 2 &&
-                    !DictionaryManager.isKnown(lang, prefix) &&
-                    !userWordsForSuggestions().containsKey(normalizeCompletedWord(prefix))
-                ) {
-                    scope.launch(Dispatchers.IO) {
-                        userWordsRepository.recordWord(lang, prefix)
-                    }
+            updateTouchContext(" ")
+            completeCurrentWord()
+            updateUndoButtonState()
+            showPostAutocorrectUndo(prefix, corrected)
+            refreshSuggestions()
+            return
+        }
+
+        ic.commitText(" ", 1)
+        fieldUndo.recordInsert(" ")
+        if (prefix.isNotEmpty()) {
+            lastCompletedWord = normalizeCompletedWord(prefix)
+            if (suggestionsSupported() && prefix.length >= 2 &&
+                !DictionaryManager.isKnown(lang, prefix) &&
+                !userWordsForSuggestions().containsKey(normalizeCompletedWord(prefix))
+            ) {
+                scope.launch(Dispatchers.IO) {
+                    userWordsRepository.recordWord(lang, prefix)
                 }
             }
         }
