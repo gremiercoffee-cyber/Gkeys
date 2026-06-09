@@ -301,11 +301,11 @@
 
                     android:layout_height="match_parent"
 
-                    android:src="@drawable/mic_sparkle_cluster_gold"
+                    android:src="@drawable/mic_sparkle_pair_gold"
 
                     android:visibility="visible"
 
-                    android:alpha="0.9"
+                    android:alpha="0.95"
 
                     android:importantForAccessibility="no" />
 
@@ -315,13 +315,13 @@
 
                     android:id="@+id/btn_mic"
 
-                    android:layout_width="26dp"
+                    android:layout_width="22dp"
 
-                    android:layout_height="26dp"
+                    android:layout_height="22dp"
 
                     android:layout_gravity="center"
 
-                    android:src="@drawable/ic_gkeys_mark"
+                    android:src="@drawable/ic_mic_white"
 
                     android:contentDescription="Voice dictation"
 
@@ -341,21 +341,21 @@
 
                 android:id="@+id/btn_voice_bubble"
 
-                android:layout_width="30dp"
+                android:layout_width="32dp"
 
-                android:layout_height="30dp"
+                android:layout_height="32dp"
 
                 android:layout_marginStart="5dp"
 
-                android:src="@drawable/ic_gkeys_mark"
+                android:src="@drawable/ic_gkeys_mark_zoomed"
 
                 android:background="@drawable/btn_circle_bg"
 
                 android:contentDescription="Voice Bubble Mode — hide keyboard, dictate with floating bubble"
 
-                android:scaleType="centerInside"
+                android:scaleType="centerCrop"
 
-                android:padding="5dp" />
+                android:padding="2dp" />
 
 
 

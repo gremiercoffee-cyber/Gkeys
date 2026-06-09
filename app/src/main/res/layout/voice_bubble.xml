@@ -1,55 +1,46 @@
-<?xml version="1.0" encoding="utf-8"?>
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@+id/voice_bubble_root"
-    android:layout_width="72dp"
-    android:layout_height="72dp"
-    android:contentDescription="Gkeys voice bubble. Tap to dictate. Hold to translate. Tap the text field for keyboard."
-    android:importantForAccessibility="yes"
-    android:clipChildren="false">
-
-    <FrameLayout
-        android:id="@+id/bubble_body"
-        android:layout_width="52dp"
-        android:layout_height="52dp"
-        android:layout_gravity="center"
-        android:background="@drawable/voice_bubble_icon_bg"
-        android:clipChildren="false"
-        android:importantForAccessibility="no">
-
-        <View
-            android:id="@+id/bubble_ai_glow"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:background="@drawable/mic_ai_glow_ring"
-            android:visibility="gone"
-            android:importantForAccessibility="no" />
-
-        <View
-            android:id="@+id/bubble_ai_shimmer"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:background="@drawable/mic_shimmer_sweep"
-            android:visibility="gone"
-            android:importantForAccessibility="no" />
-
-        <ImageView
-            android:id="@+id/bubble_ai_sparkles"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:src="@drawable/mic_sparkle_cluster_gold"
-            android:visibility="visible"
-            android:alpha="0.9"
-            android:importantForAccessibility="no" />
-
-        <ImageView
-            android:id="@+id/bubble_icon"
-            android:layout_width="30dp"
-            android:layout_height="30dp"
-            android:layout_gravity="center"
-            android:src="@drawable/ic_gkeys_mark"
-            android:scaleType="centerInside"
-            android:importantForAccessibility="no" />
-
-    </FrameLayout>
-
-</FrameLayout>
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/voice_bubble_root"
+    android:layout_width="72dp"
+    android:layout_height="72dp"
+    android:contentDescription="Gkeys voice bubble. Tap to dictate. Hold to translate. Tap the text field for keyboard."
+    android:importantForAccessibility="yes"
+    android:clipChildren="false">
+
+    <FrameLayout
+        android:id="@+id/bubble_body"
+        android:layout_width="56dp"
+        android:layout_height="56dp"
+        android:layout_gravity="center"
+        android:background="@drawable/voice_bubble_icon_bg"
+        android:clipChildren="false"
+        android:importantForAccessibility="no">
+
+        <View
+            android:id="@+id/bubble_ai_glow"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="@drawable/mic_ai_glow_ring"
+            android:visibility="gone"
+            android:importantForAccessibility="no" />
+
+        <View
+            android:id="@+id/bubble_ai_shimmer"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="@drawable/mic_shimmer_sweep"
+            android:visibility="gone"
+            android:importantForAccessibility="no" />
+
+        <ImageView
+            android:id="@+id/bubble_icon"
+            android:layout_width="46dp"
+            android:layout_height="46dp"
+            android:layout_gravity="center"
+            android:src="@drawable/ic_gkeys_mark_zoomed"
+            android:scaleType="centerCrop"
+            android:importantForAccessibility="no" />
+
+    </FrameLayout>
+
+</FrameLayout>

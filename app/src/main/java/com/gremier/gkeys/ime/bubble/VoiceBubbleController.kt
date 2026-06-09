@@ -71,6 +71,10 @@ class VoiceBubbleController(
 
     companion object {
 
+        private const val BUBBLE_ALPHA_IDLE = 0.2f
+        private const val BUBBLE_ALPHA_RECORDING = 0.55f
+        private const val BUBBLE_ALPHA_PROCESSING = 0.45f
+
         private const val BUBBLE_SIZE_DP = 72
 
         private const val EDGE_MARGIN_DP = 16
@@ -104,8 +108,6 @@ class VoiceBubbleController(
     private var bubbleAiGlow: View? = null
 
     private var bubbleAiShimmer: View? = null
-
-    private var bubbleAiSparkles: ImageView? = null
 
     private var layoutParams: WindowManager.LayoutParams? = null
 
@@ -157,10 +159,6 @@ class VoiceBubbleController(
 
     private var shimmerRotateAnimator: ObjectAnimator? = null
 
-    private var sparkleRotateAnimator: ObjectAnimator? = null
-
-    private var idleSparkleRotateAnimator: ObjectAnimator? = null
-
 
 
     fun canDrawOverlay(): Boolean = Settings.canDrawOverlays(context)
@@ -188,8 +186,6 @@ class VoiceBubbleController(
         bubbleAiGlow = view.findViewById(R.id.bubble_ai_glow)
 
         bubbleAiShimmer = view.findViewById(R.id.bubble_ai_shimmer)
-
-        bubbleAiSparkles = view.findViewById(R.id.bubble_ai_sparkles)
 
 
 
@@ -247,7 +243,7 @@ class VoiceBubbleController(
 
             view.animate()
 
-                .alpha(1f)
+                .alpha(BUBBLE_ALPHA_IDLE)
 
                 .scaleX(1f)
 
@@ -440,8 +436,6 @@ class VoiceBubbleController(
         bubbleAiGlow = null
 
         bubbleAiShimmer = null
-
-        bubbleAiSparkles = null
 
         layoutParams = null
 
@@ -735,7 +729,7 @@ class VoiceBubbleController(
 
                     "Gkeys voice bubble. Tap to dictate. Hold to translate. Tap the text field for keyboard."
 
-                startIdleSparkleAnimation()
+                rootView?.alpha = BUBBLE_ALPHA_IDLE
 
             }
 
@@ -751,6 +745,8 @@ class VoiceBubbleController(
 
                 }
 
+                rootView?.alpha = BUBBLE_ALPHA_RECORDING
+
                 startPulseAnimators()
 
             }
@@ -759,35 +755,11 @@ class VoiceBubbleController(
 
                 rootView?.contentDescription = "Processing dictation."
 
+                rootView?.alpha = BUBBLE_ALPHA_PROCESSING
+
                 startProcessingAnimators()
 
             }
-
-        }
-
-    }
-
-
-
-    private fun startIdleSparkleAnimation() {
-
-        val sparkles = bubbleAiSparkles ?: return
-
-        sparkles.visibility = View.VISIBLE
-
-        sparkles.alpha = 0.88f
-
-        sparkles.setImageResource(R.drawable.mic_sparkle_cluster_gold)
-
-        idleSparkleRotateAnimator = ObjectAnimator.ofFloat(sparkles, View.ROTATION, 0f, 360f).apply {
-
-            duration = 8000
-
-            repeatCount = ObjectAnimator.INFINITE
-
-            interpolator = LinearInterpolator()
-
-            start()
 
         }
 
@@ -807,16 +779,6 @@ class VoiceBubbleController(
 
 
 
-    private fun hideSparkles() {
-
-        bubbleAiSparkles?.visibility = View.GONE
-
-        bubbleAiSparkles?.rotation = 0f
-
-    }
-
-
-
     private fun startProcessingAnimators() {
 
         val body = bubbleBody ?: return
@@ -824,8 +786,6 @@ class VoiceBubbleController(
         val glow = bubbleAiGlow ?: return
 
         val shimmer = bubbleAiShimmer ?: return
-
-        val sparkles = bubbleAiSparkles ?: return
 
         val icon = bubbleIcon ?: return
 
@@ -835,15 +795,9 @@ class VoiceBubbleController(
 
         shimmer.visibility = View.VISIBLE
 
-        sparkles.visibility = View.VISIBLE
-
-        sparkles.setImageResource(R.drawable.mic_sparkle_cluster_gold)
-
         glow.alpha = 0.4f
 
         shimmer.alpha = 0.55f
-
-        sparkles.alpha = 0.85f
 
         val glowPulse = ObjectAnimator.ofFloat(glow, View.ALPHA, 0.25f, 1f).apply {
 
@@ -885,18 +839,6 @@ class VoiceBubbleController(
 
         }
 
-        sparkleRotateAnimator = ObjectAnimator.ofFloat(sparkles, View.ROTATION, 0f, 360f).apply {
-
-            duration = 2200
-
-            repeatCount = ObjectAnimator.INFINITE
-
-            interpolator = LinearInterpolator()
-
-            start()
-
-        }
-
         shimmerRotateAnimator = ObjectAnimator.ofFloat(shimmer, View.ROTATION, 0f, 360f).apply {
 
             duration = 1400
@@ -928,8 +870,6 @@ class VoiceBubbleController(
 
 
     private fun startPulseAnimators(slower: Boolean = false) {
-
-        hideSparkles()
 
         val body = bubbleBody ?: return
 
@@ -982,14 +922,6 @@ class VoiceBubbleController(
         shimmerRotateAnimator?.cancel()
 
         shimmerRotateAnimator = null
-
-        sparkleRotateAnimator?.cancel()
-
-        sparkleRotateAnimator = null
-
-        idleSparkleRotateAnimator?.cancel()
-
-        idleSparkleRotateAnimator = null
 
         bubbleBody?.scaleX = 1f
 
