@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.view.inputmethod.InputMethodManager
@@ -36,6 +37,7 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var etOpenAiKey: TextInputEditText
     private lateinit var etAnthropicKey: TextInputEditText
     private lateinit var etDeepgramKey: TextInputEditText
+    private lateinit var etSpeechProfile: TextInputEditText
     private lateinit var sliderKeyRepeat: Slider
     private lateinit var sliderDeleteSpeed: Slider
     private lateinit var switchVibration: SwitchMaterial
@@ -51,6 +53,7 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var tvKeyboardHeightLabel: TextView
     private lateinit var tvAppVersion: TextView
     private lateinit var btnMicPermission: MaterialButton
+    private lateinit var btnPhotoPermission: MaterialButton
     private lateinit var btnOverlayPermission: MaterialButton
     private lateinit var switchVoiceBubbleEnabled: SwitchMaterial
     private lateinit var switchAiBarSettings: SwitchMaterial
@@ -84,6 +87,17 @@ class SettingsActivity : AppCompatActivity() {
         }
     }
 
+    private val photoPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        updatePhotoPermissionButton()
+        if (granted) {
+            Toast.makeText(this, "Photos enabled — screenshots will appear in the clipboard", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(this, "Photo permission is needed to show screenshots in the clipboard", Toast.LENGTH_LONG).show()
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -94,6 +108,7 @@ class SettingsActivity : AppCompatActivity() {
             setupListeners()
             checkKeyboardEnabled()
             updateMicPermissionButton()
+            updatePhotoPermissionButton()
             tvAppVersion.text = "Version ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})"
             setupCrashCardListeners()
             refreshCrashCard()
@@ -187,6 +202,7 @@ class SettingsActivity : AppCompatActivity() {
                     GkeysSettings.saveOpenAiKey(this@SettingsActivity, etOpenAiKey.text.toString().trim())
                     GkeysSettings.saveAnthropicKey(this@SettingsActivity, etAnthropicKey.text.toString().trim())
                     GkeysSettings.saveDeepgramKey(this@SettingsActivity, etDeepgramKey.text.toString().trim())
+                    GkeysSettings.saveSpeechProfile(this@SettingsActivity, etSpeechProfile.text.toString())
                 } catch (e: Exception) {
                     android.util.Log.e("SettingsActivity", "onPause save failed", e)
                 }
@@ -201,6 +217,7 @@ class SettingsActivity : AppCompatActivity() {
         if (crashScreenShown) return
         try {
             updateMicPermissionButton()
+            updatePhotoPermissionButton()
             updateOverlayPermissionButton()
             refreshAdaptiveTouchStats()
             checkKeyboardEnabled()
@@ -215,6 +232,7 @@ class SettingsActivity : AppCompatActivity() {
         etOpenAiKey = findViewById(R.id.et_openai_key)
         etAnthropicKey = findViewById(R.id.et_anthropic_key)
         etDeepgramKey = findViewById(R.id.et_deepgram_key)
+        etSpeechProfile = findViewById(R.id.et_speech_profile)
         sliderKeyRepeat = findViewById(R.id.slider_key_repeat)
         sliderDeleteSpeed = findViewById(R.id.slider_delete_speed)
         switchVibration = findViewById(R.id.switch_vibration)
@@ -231,6 +249,7 @@ class SettingsActivity : AppCompatActivity() {
         tvKeyboardHeightLabel = findViewById(R.id.tv_keyboard_height_label)
         tvAppVersion = findViewById(R.id.tv_app_version)
         btnMicPermission = findViewById(R.id.btn_mic_permission)
+        btnPhotoPermission = findViewById(R.id.btn_photo_permission)
         btnOverlayPermission = findViewById(R.id.btn_overlay_permission)
         switchVoiceBubbleEnabled = findViewById(R.id.switch_voice_bubble_enabled)
         switchAiBarSettings = findViewById(R.id.switch_ai_bar_settings)
@@ -266,6 +285,7 @@ class SettingsActivity : AppCompatActivity() {
             etOpenAiKey.setText(GkeysSettings.openAiKey(this@SettingsActivity).first())
             etAnthropicKey.setText(GkeysSettings.anthropicKey(this@SettingsActivity).first())
             etDeepgramKey.setText(GkeysSettings.deepgramKey(this@SettingsActivity).first())
+            etSpeechProfile.setText(GkeysSettings.speechProfile(this@SettingsActivity).first())
             sliderKeyRepeat.value = clampToSlider(sliderKeyRepeat, GkeysSettings.keyRepeatSpeed(this@SettingsActivity).first().toFloat())
             sliderDeleteSpeed.value = clampToSlider(sliderDeleteSpeed, GkeysSettings.deleteSpeed(this@SettingsActivity).first().toFloat())
             switchVibration.isChecked = GkeysSettings.vibrationEnabled(this@SettingsActivity).first()
@@ -331,6 +351,9 @@ class SettingsActivity : AppCompatActivity() {
         }
         etDeepgramKey.setOnFocusChangeListener { _, hasFocus ->
             if (!hasFocus) autoSave { GkeysSettings.saveDeepgramKey(this@SettingsActivity, etDeepgramKey.text.toString().trim()) }
+        }
+        etSpeechProfile.setOnFocusChangeListener { _, hasFocus ->
+            if (!hasFocus) autoSave { GkeysSettings.saveSpeechProfile(this@SettingsActivity, etSpeechProfile.text.toString()) }
         }
 
         sliderKeyRepeat.addOnChangeListener { _, _, fromUser ->
@@ -419,6 +442,7 @@ class SettingsActivity : AppCompatActivity() {
         }
 
         btnMicPermission.setOnClickListener { requestMicPermissionIfNeeded() }
+        btnPhotoPermission.setOnClickListener { requestPhotoPermissionIfNeeded() }
         btnOverlayPermission.setOnClickListener { requestOverlayPermissionIfNeeded() }
         btnResetAdaptiveTouch.setOnClickListener {
             com.gremier.gkeys.ime.touch.AdaptiveTouchStore.reset(this)
@@ -482,6 +506,34 @@ class SettingsActivity : AppCompatActivity() {
             "✓ Microphone allowed"
         } else {
             "Allow microphone access"
+        }
+    }
+
+    private fun photoPermission(): String =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            Manifest.permission.READ_MEDIA_IMAGES
+        } else {
+            Manifest.permission.READ_EXTERNAL_STORAGE
+        }
+
+    private fun hasPhotoPermission(): Boolean =
+        ContextCompat.checkSelfPermission(this, photoPermission()) ==
+            PackageManager.PERMISSION_GRANTED
+
+    private fun requestPhotoPermissionIfNeeded() {
+        if (hasPhotoPermission()) {
+            Toast.makeText(this, "Photos already allowed", Toast.LENGTH_SHORT).show()
+            return
+        }
+        photoPermissionLauncher.launch(photoPermission())
+    }
+
+    private fun updatePhotoPermissionButton() {
+        if (!::btnPhotoPermission.isInitialized) return
+        btnPhotoPermission.text = if (hasPhotoPermission()) {
+            "✓ Photos allowed"
+        } else {
+            "Allow photos access"
         }
     }
 

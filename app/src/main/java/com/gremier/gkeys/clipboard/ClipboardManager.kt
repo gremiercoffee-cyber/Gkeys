@@ -498,8 +498,18 @@ class GkeysClipboardManager(
         }
         recentHeader.visibility = if (recent.isEmpty()) View.GONE else View.VISIBLE
 
+        val screenshotColumns = 5
+        screenshotContainer.columnCount = screenshotColumns
         screenshots.forEachIndexed { index, item ->
-            screenshotContainer.addView(createCardView(screenshotContainer, item, index))
+            screenshotContainer.addView(
+                createCardView(
+                    screenshotContainer,
+                    item,
+                    index,
+                    columns = screenshotColumns,
+                    portraitThumbnail = true
+                )
+            )
         }
         val showScreenshots = screenshots.isNotEmpty()
         dividerScreenshots.visibility =
@@ -572,7 +582,13 @@ class GkeysClipboardManager(
         return section
     }
 
-    private fun createCardView(parent: GridLayout, item: ClipboardItem, index: Int): View {
+    private fun createCardView(
+        parent: GridLayout,
+        item: ClipboardItem,
+        index: Int,
+        columns: Int = 2,
+        portraitThumbnail: Boolean = false
+    ): View {
         val card = LayoutInflater.from(context).inflate(R.layout.item_clipboard, parent, false)
         val textView = card.findViewById<TextView>(R.id.tv_clip_text)
         val imageView = card.findViewById<ImageView>(R.id.iv_clip_image)
@@ -587,12 +603,20 @@ class GkeysClipboardManager(
             textView.text = item.text
         }
 
-        val margin = (4 * context.resources.displayMetrics.density).toInt()
+        val density = context.resources.displayMetrics.density
+        val margin = (4 * density).toInt()
         card.layoutParams = GridLayout.LayoutParams().apply {
-            width = 0
-            height = (64 * context.resources.displayMetrics.density).toInt()
-            columnSpec = GridLayout.spec(index % 2, 1f)
-            rowSpec = GridLayout.spec(index / 2)
+            if (portraitThumbnail) {
+                // Small portrait thumbnail (e.g. screenshots) instead of a full-width card.
+                width = (52 * density).toInt()
+                height = (78 * density).toInt()
+                columnSpec = GridLayout.spec(index % columns)
+            } else {
+                width = 0
+                height = (64 * density).toInt()
+                columnSpec = GridLayout.spec(index % columns, 1f)
+            }
+            rowSpec = GridLayout.spec(index / columns)
             setMargins(margin, margin, margin, margin)
         }
         card.setOnClickListener {

@@ -46,6 +46,7 @@ object GkeysSettings {
     val AI_BAR_WAND_ENABLED = booleanPreferencesKey("ai_bar_wand_enabled")
     val AI_BAR_POLISH_BUTTON_ENABLED = booleanPreferencesKey("ai_bar_polish_button_enabled")
     val AI_BAR_LIVE_TRANSCRIBE_ENABLED = booleanPreferencesKey("ai_bar_live_transcribe_enabled")
+    val SPEECH_PROFILE = stringPreferencesKey("speech_profile")
 
     const val LANG_EN = "en"
     const val LANG_HE = "he"
@@ -203,6 +204,9 @@ object GkeysSettings {
 
     fun adaptiveTouchEnabled(context: Context): Flow<Boolean> =
         settingsStore(context).data.map { it[ADAPTIVE_TOUCH_ENABLED] ?: DEFAULT_ADAPTIVE_TOUCH }
+
+    fun speechProfile(context: Context): Flow<String> =
+        settingsStore(context).data.map { it[SPEECH_PROFILE] ?: "" }
 
     fun voiceTranslateFrom(context: Context): Flow<String> =
         settingsStore(context).data.map { it[VOICE_TRANSLATE_FROM] ?: DEFAULT_VOICE_TRANSLATE_FROM }
@@ -379,5 +383,9 @@ object GkeysSettings {
 
     suspend fun saveAiBarLiveTranscribeEnabled(context: Context, enabled: Boolean) {
         settingsStore(context).edit { it[AI_BAR_LIVE_TRANSCRIBE_ENABLED] = enabled }
+    }
+
+    suspend fun saveSpeechProfile(context: Context, profile: String) {
+        settingsStore(context).edit { it[SPEECH_PROFILE] = profile.trim() }
     }
 }

@@ -7,7 +7,7 @@ import android.content.Context
 import com.gremier.gkeys.settings.GkeysSettings
 
 import kotlinx.coroutines.Dispatchers
-
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 
 import okhttp3.*
@@ -184,7 +184,19 @@ You are an AI ghostwriter. The user describes what they want to say — often as
 
         .build()
 
+    private suspend fun speakerProfileContext(): String {
+        val profile = GkeysSettings.speechProfile(context).first().trim()
+        if (profile.isEmpty()) return ""
+        return """
 
+User speech profile — this user often speaks this way; expect dictation and audio to match these patterns:
+$profile"""
+    }
+
+    private suspend fun promptWithProfile(base: String): String {
+        val suffix = speakerProfileContext()
+        return if (suffix.isEmpty()) base.trim() else "${base.trim()}$suffix"
+    }
 
     suspend fun transcribe(
 
@@ -220,7 +232,7 @@ You are an AI ghostwriter. The user describes what they want to say — often as
 
                     .addFormDataPart("temperature", "0")
 
-                    .addFormDataPart("prompt", TRANSCRIBE_PROMPT)
+                    .addFormDataPart("prompt", promptWithProfile(TRANSCRIBE_PROMPT))
 
                 if (!language.isNullOrBlank()) {
 
@@ -290,7 +302,7 @@ You are an AI ghostwriter. The user describes what they want to say — often as
 
         callGpt(
 
-            systemPrompt = prompt,
+            systemPrompt = promptWithProfile(prompt),
 
             userContent = polishUserContent(text, level),
 
@@ -332,9 +344,9 @@ You are an AI ghostwriter. The user describes what they want to say — often as
 
         callGpt(
 
-            systemPrompt = """
+            systemPrompt = promptWithProfile("""
 
-You translate text from $fromName to $toName. The input may be messy voice dictation and may mix languages. Return ONLY the final text in $toName.""".trim(),
+You translate text from $fromName to $toName. The input may be messy voice dictation and may mix languages. Return ONLY the final text in $toName.""".trim()),
 
             userContent = "Clean up and translate from $fromName to $toName.\n\nText: $text",
 
@@ -357,7 +369,7 @@ You translate text from $fromName to $toName. The input may be messy voice dicta
     suspend fun ghostwrite(prompt: String, openAiKey: String): Result<String> =
         withContext(Dispatchers.IO) {
             callGpt(
-                systemPrompt = GHOSTWRITE_PROMPT.trim(),
+                systemPrompt = promptWithProfile(GHOSTWRITE_PROMPT),
                 userContent = prompt,
                 model = "gpt-4o-mini",
                 authHeader = "Bearer $openAiKey",
@@ -398,7 +410,7 @@ You translate text from $fromName to $toName. The input may be messy voice dicta
 
                             put("role", "user")
 
-                            put("content", "$DEEP_POLISH_PROMPT\n\nText: $text")
+                            put("content", "${promptWithProfile(DEEP_POLISH_PROMPT)}\n\nText: $text")
 
                         })
 
