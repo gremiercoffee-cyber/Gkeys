@@ -676,9 +676,16 @@ class GkeysIME : InputMethodService() {
     }
 
     private fun prepareBubbleDictationForCommit() {
-        if (voiceBubbleModeActive && bubbleKeyboardCollapsed) {
+        if (needsSessionRestoreForCommit()) {
             prepareBubbleDictationSession()
         }
+    }
+
+    /** True only when the keyboard is hidden and text must be committed via an invisible IME session. */
+    private fun needsSessionRestoreForCommit(): Boolean {
+        if (!voiceBubbleModeActive || !bubbleKeyboardCollapsed) return false
+        if (!::keyboardView.isInitialized) return true
+        return keyboardView.visibility != View.VISIBLE
     }
 
     /** Bubble overlay shows mic state when keyboard is hidden; keyboard mic button when it is open. */
@@ -893,10 +900,14 @@ class GkeysIME : InputMethodService() {
                 super.onFinishInputView(finishingInput)
                 return
             }
-            cancelRecording()
-            cancelGhostwriter()
-            stopLiveStt()
-            stopMicProcessingAnimation()
+            if (isRecording && !recordingForGhostwriter) {
+                cancelRecording()
+            }
+            if (!micIsProcessing) {
+                cancelGhostwriter()
+                stopLiveStt()
+                stopMicProcessingAnimation()
+            }
             hideVoiceOverlay()
             hideGhostwriterOverlay()
             voiceBubbleController?.hide(animate = false)
@@ -1572,7 +1583,6 @@ class GkeysIME : InputMethodService() {
     private fun handleFloatingBubbleTap() {
         if (isRecording) {
             voiceBubbleController?.setState(VoiceBubbleState.PROCESSING)
-            prepareBubbleDictationForCommit()
             stopRecordingAndProcess(VoiceAction.DEFAULT)
             return
         }
@@ -1631,7 +1641,6 @@ class GkeysIME : InputMethodService() {
         if (bubbleTranslateHoldActive) return
         if (isRecording) {
             voiceBubbleController?.setState(VoiceBubbleState.PROCESSING)
-            prepareBubbleDictationForCommit()
             stopRecordingAndProcess(VoiceAction.DEFAULT)
             return
         }
@@ -1675,34 +1684,45 @@ class GkeysIME : InputMethodService() {
             return
         }
         voiceBubbleController?.setState(VoiceBubbleState.PROCESSING)
-        prepareBubbleDictationForCommit()
         stopRecordingAndProcess(VoiceAction.TRANSLATE)
+    }
+
+    private fun commitTranscriptionResult(text: String, onComplete: (Boolean) -> Unit) {
+        val trimmed = text.trim()
+        if (trimmed.isEmpty()) {
+            onComplete(false)
+            return
+        }
+
+        if (needsSessionRestoreForCommit()) {
+            commitTextAfterSessionRestore(trimmed) { onComplete(it) }
+            return
+        }
+
+        handler.post {
+            fun attempt(attemptsLeft: Int) {
+                activeInputConnection = currentInputConnection ?: activeInputConnection
+                if (tryCommitToField(trimmed)) {
+                    onComplete(true)
+                    return
+                }
+                if (attemptsLeft > 0) {
+                    handler.postDelayed({ attempt(attemptsLeft - 1) }, 80)
+                } else {
+                    android.util.Log.w("GkeysIME", "commitTranscriptionResult: no input connection")
+                    showErrorToast("Couldn't insert text — tap the text field first")
+                    onComplete(false)
+                }
+            }
+            attempt(20)
+        }
     }
 
     private fun commitToActiveField(
         text: String,
         onComplete: ((Boolean) -> Unit)? = null
     ): Boolean {
-        val trimmed = text.trim()
-        if (trimmed.isEmpty()) {
-            onComplete?.invoke(false)
-            return false
-        }
-
-        if (bubbleKeyboardCollapsed && voiceBubbleModeActive) {
-            commitTextAfterSessionRestore(trimmed, onComplete)
-            return false
-        }
-
-        activeInputConnection = currentInputConnection ?: activeInputConnection
-        if (tryCommitToField(trimmed)) {
-            onComplete?.invoke(true)
-            return true
-        }
-
-        android.util.Log.w("GkeysIME", "commitToActiveField: no input connection")
-        showErrorToast("Couldn't insert text — tap the text field first")
-        onComplete?.invoke(false)
+        commitTranscriptionResult(text) { success -> onComplete?.invoke(success) }
         return false
     }
 
@@ -2838,7 +2858,6 @@ class GkeysIME : InputMethodService() {
 
     private fun stopRecordingAndProcess(action: VoiceAction) {
         if (!isRecording || recordingForGhostwriter) return
-        prepareBubbleDictationForCommit()
         val file = audioRecorder.stopRecording()
         isRecording = false
         endMicCapture()
@@ -2853,6 +2872,7 @@ class GkeysIME : InputMethodService() {
         val effectiveAction = action
         refreshApiKeys()
         startMicProcessingAnimation()
+        toastStatus("Transcribing…")
 
         scope.launch {
             if (effectiveAction == VoiceAction.TRANSLATE) {
@@ -2864,6 +2884,7 @@ class GkeysIME : InputMethodService() {
             val transcriptResult = aiManager.transcribe(file, openAiKey, durationMs, transcribeLang)
             file.delete()
             transcriptResult.onFailure { error ->
+                toastStatus("")
                 stopMicProcessingAnimation()
                 showErrorToast(
                     if (error.message == "Nothing heard" || error.message == "Recording too short") {
@@ -2876,11 +2897,13 @@ class GkeysIME : InputMethodService() {
             }
             val transcript = transcriptResult.getOrNull().orEmpty()
             if (transcript.isBlank()) {
+                toastStatus("")
                 stopMicProcessingAnimation()
                 showErrorToast("Nothing heard")
                 return@launch
             }
 
+            toastStatus("Polishing…")
             val activePolishLevel = GkeysSettings.polishLevel(this@GkeysIME).first()
             polishLevel = activePolishLevel
             if (::btnPolishLevel.isInitialized) updatePolishLevelButton()
@@ -2893,11 +2916,13 @@ class GkeysIME : InputMethodService() {
             }
 
             finalText.onSuccess { polished ->
-                commitToActiveField(polished) { success ->
+                toastStatus("")
+                commitTranscriptionResult(polished) { success ->
                     if (success) vibrate()
                     stopMicProcessingAnimation()
                 }
             }.onFailure {
+                toastStatus("")
                 stopMicProcessingAnimation()
                 releaseInputSessionAfterBubbleDictation()
                 showErrorToast(
