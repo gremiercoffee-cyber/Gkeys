@@ -758,9 +758,12 @@ class GkeysIME : InputMethodService() {
         btnWand.isClickable = true
         btnWand.isFocusable = true
 
-        btnLiveTranscribe.setOnClickListener {
-            vibrate()
-            handleLiveTranscribeTap()
+        btnLiveTranscribe.setOnTouchListener { _, event ->
+            if (event.actionMasked == MotionEvent.ACTION_UP) {
+                vibrate()
+                handleLiveTranscribeTap()
+            }
+            true
         }
         btnLiveTranscribe.isClickable = true
         btnLiveTranscribe.isFocusable = true
@@ -849,7 +852,6 @@ class GkeysIME : InputMethodService() {
     private fun handleLiveTranscribeTap() {
         if (isGhostwriterOverlay) return
         refreshApiKeys()
-        activeInputConnection = currentInputConnection ?: activeInputConnection
         if (!hasMicPermission()) {
             showErrorToast("Allow microphone for Gkeys")
             openAppForMicPermission()
@@ -860,16 +862,32 @@ class GkeysIME : InputMethodService() {
             openAppSettings()
             return
         }
+        if (liveSttActive) {
+            stopLiveStt()
+            return
+        }
+        releaseAudioRecorderForGhostwriter()
+        beginLiveTranscribe()
+    }
+
+    private fun beginLiveTranscribe() {
+        if (!isInputViewShown) {
+            requestShowSelf(0)
+        }
+        handler.post { startLiveTranscribeWhenReady(attemptsLeft = 6) }
+    }
+
+    private fun startLiveTranscribeWhenReady(attemptsLeft: Int) {
+        activeInputConnection = currentInputConnection ?: activeInputConnection
         if (activeIc() == null) {
+            if (attemptsLeft > 0) {
+                handler.postDelayed({ startLiveTranscribeWhenReady(attemptsLeft - 1) }, 50)
+                return
+            }
             showErrorToast("Tap a text field first")
             return
         }
-        if (liveSttActive) {
-            stopLiveStt()
-        } else {
-            releaseAudioRecorderForGhostwriter()
-            startLiveStt()
-        }
+        startLiveStt()
     }
 
     private fun activeIc(): InputConnection? {
@@ -883,6 +901,7 @@ class GkeysIME : InputMethodService() {
         btnLiveTranscribe.setBackgroundResource(
             if (liveSttActive) R.drawable.ai_mic_bg_active else R.drawable.btn_circle_bg
         )
+        btnLiveTranscribe.alpha = if (liveSttActive) 1f else 0.92f
     }
 
     private fun sttLanguageCode(): String = when {
@@ -908,7 +927,7 @@ class GkeysIME : InputMethodService() {
             deepgramSpeechClient?.start(scope)
             liveSttActive = true
             updateLiveTranscribeButton()
-            toastStatus("Live transcribe… tap mouth icon to stop")
+            Toast.makeText(this, "Live transcribe on — tap again to stop", Toast.LENGTH_SHORT).show()
         } catch (e: Exception) {
             android.util.Log.e("GkeysIME", "startLiveStt failed", e)
             showErrorToast("Microphone error — check permission in Gkeys app")
@@ -918,35 +937,37 @@ class GkeysIME : InputMethodService() {
 
     private fun updateLiveSttPartial(text: String) {
         val ic = activeIc() ?: return
+        if (text.isEmpty()) {
+            liveSttPartialLen = 0
+            return
+        }
         try {
-            ic.setComposingText(text, 1)
-            liveSttPartialLen = text.length
-        } catch (e: Exception) {
-            android.util.Log.w("GkeysIME", "setComposingText failed, falling back", e)
+            ic.beginBatchEdit()
             try {
+                ic.setComposingText(text, 1)
+            } catch (_: Exception) {
                 if (liveSttPartialLen > 0) {
                     ic.deleteSurroundingText(liveSttPartialLen, 0)
                 }
-                if (text.isNotEmpty()) {
-                    ic.commitText(text, 1)
-                    liveSttPartialLen = text.length
-                } else {
-                    liveSttPartialLen = 0
-                }
-            } catch (e2: Exception) {
-                android.util.Log.e("GkeysIME", "updateLiveSttPartial failed", e2)
+                ic.commitText(text, 1)
             }
+            liveSttPartialLen = text.length
+            ic.endBatchEdit()
+        } catch (e: Exception) {
+            android.util.Log.e("GkeysIME", "updateLiveSttPartial failed", e)
         }
     }
 
     private fun commitLiveSttFinal(text: String) {
         val ic = activeIc() ?: return
         try {
+            ic.beginBatchEdit()
             ic.finishComposingText()
             liveSttPartialLen = 0
             if (text.isNotEmpty()) {
                 ic.commitText("$text ", 1)
             }
+            ic.endBatchEdit()
         } catch (e: Exception) {
             android.util.Log.e("GkeysIME", "commitLiveSttFinal failed", e)
         }
@@ -1291,13 +1312,21 @@ class GkeysIME : InputMethodService() {
             cancelRecording()
         }
         refreshApiKeys()
-        loadSettings()
+        activeInputConnection = currentInputConnection ?: activeInputConnection
+        if (activeInputConnection == null) {
+            bubbleTranslateHoldActive = false
+            showErrorToast("Tap a text field first")
+            voiceBubbleController?.setState(VoiceBubbleState.IDLE)
+            return
+        }
         if (!hasMicPermission()) {
+            bubbleTranslateHoldActive = false
             showErrorToast("Allow microphone for Gkeys")
             openAppForMicPermission()
             return
         }
         if (openAiKey.isBlank()) {
+            bubbleTranslateHoldActive = false
             showErrorToast("Add OpenAI API key in Gkeys settings")
             openAppSettings()
             return
@@ -2520,9 +2549,14 @@ class GkeysIME : InputMethodService() {
         }
 
         val effectiveAction = action
+        refreshApiKeys()
         startMicProcessingAnimation()
 
         scope.launch {
+            if (effectiveAction == VoiceAction.TRANSLATE) {
+                voiceTranslateFrom = GkeysSettings.voiceTranslateFrom(this@GkeysIME).first()
+                voiceTranslateTo = GkeysSettings.voiceTranslateTo(this@GkeysIME).first()
+            }
             val durationMs = audioRecorder.lastRecordingDurationMs()
             val transcribeLang = if (effectiveAction == VoiceAction.TRANSLATE) voiceTranslateFrom else null
             val transcriptResult = aiManager.transcribe(file, openAiKey, durationMs, transcribeLang)

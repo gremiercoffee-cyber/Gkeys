@@ -27,6 +27,7 @@ import android.view.View
 import android.view.WindowManager
 
 import android.view.animation.AccelerateDecelerateInterpolator
+import android.view.animation.LinearInterpolator
 
 import android.widget.FrameLayout
 
@@ -100,6 +101,12 @@ class VoiceBubbleController(
 
     private var bubbleIcon: ImageView? = null
 
+    private var bubbleAiGlow: View? = null
+
+    private var bubbleAiShimmer: View? = null
+
+    private var bubbleAiSparkles: ImageView? = null
+
     private var layoutParams: WindowManager.LayoutParams? = null
 
     private var isAttached = false
@@ -124,9 +131,13 @@ class VoiceBubbleController(
 
     private var translateHoldActive = false
 
+    private var translateHoldPending = false
+
     private val translateHoldRunnable = Runnable {
 
         if (!isAttached) return@Runnable
+
+        translateHoldPending = false
 
         translateHoldActive = true
 
@@ -141,6 +152,12 @@ class VoiceBubbleController(
 
 
     private var pulseAnimator: AnimatorSet? = null
+
+    private var processingAnimator: AnimatorSet? = null
+
+    private var shimmerRotateAnimator: ObjectAnimator? = null
+
+    private var sparkleRotateAnimator: ObjectAnimator? = null
 
 
 
@@ -165,6 +182,12 @@ class VoiceBubbleController(
         bubbleBody = view.findViewById(R.id.bubble_body)
 
         bubbleIcon = view.findViewById(R.id.bubble_icon)
+
+        bubbleAiGlow = view.findViewById(R.id.bubble_ai_glow)
+
+        bubbleAiShimmer = view.findViewById(R.id.bubble_ai_shimmer)
+
+        bubbleAiSparkles = view.findViewById(R.id.bubble_ai_sparkles)
 
 
 
@@ -308,7 +331,7 @@ class VoiceBubbleController(
 
     fun setState(newState: VoiceBubbleState) {
 
-        if (!isAttached || state == newState) return
+        if (!isAttached) return
 
         state = newState
 
@@ -396,11 +419,19 @@ class VoiceBubbleController(
 
         bubbleIcon = null
 
+        bubbleAiGlow = null
+
+        bubbleAiShimmer = null
+
+        bubbleAiSparkles = null
+
         layoutParams = null
 
         state = VoiceBubbleState.IDLE
 
         translateHoldActive = false
+
+        translateHoldPending = false
 
     }
 
@@ -454,6 +485,8 @@ class VoiceBubbleController(
 
                 translateHoldActive = false
 
+                translateHoldPending = true
+
                 touchStartX = event.rawX
 
                 touchStartY = event.rawY
@@ -482,11 +515,31 @@ class VoiceBubbleController(
 
                 val dy = event.rawY - touchStartY
 
+                if (translateHoldPending) {
+
+                    // Allow small finger movement while waiting for translate hold.
+
+                    if (abs(dx) > DRAG_THRESHOLD_PX * 4 || abs(dy) > DRAG_THRESHOLD_PX * 4) {
+
+                        rootView?.removeCallbacks(translateHoldRunnable)
+
+                        translateHoldPending = false
+
+                    } else {
+
+                        return true
+
+                    }
+
+                }
+
                 if (!isDragging && (abs(dx) > DRAG_THRESHOLD_PX || abs(dy) > DRAG_THRESHOLD_PX)) {
 
                     isDragging = true
 
                     rootView?.removeCallbacks(translateHoldRunnable)
+
+                    translateHoldPending = false
 
                 }
 
@@ -519,6 +572,8 @@ class VoiceBubbleController(
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
 
                 rootView?.removeCallbacks(translateHoldRunnable)
+
+                translateHoldPending = false
 
                 val cancelled = event.actionMasked == MotionEvent.ACTION_CANCEL
 
@@ -636,15 +691,23 @@ class VoiceBubbleController(
 
         val body = bubbleBody ?: return
 
+        val icon = bubbleIcon
+
         stopAnimators()
 
-        bubbleIcon?.alpha = 1f
+        icon?.alpha = 1f
+
+        icon?.rotation = 0f
 
         body.setBackgroundResource(R.drawable.voice_bubble_icon_bg)
 
         body.scaleX = 1f
 
         body.scaleY = 1f
+
+        body.alpha = 1f
+
+        hideProcessingLayers()
 
         when (state) {
 
@@ -676,9 +739,133 @@ class VoiceBubbleController(
 
                 rootView?.contentDescription = "Processing dictation."
 
-                startPulseAnimators(slower = true)
+                startProcessingAnimators()
 
             }
+
+        }
+
+    }
+
+
+
+    private fun hideProcessingLayers() {
+
+        bubbleAiGlow?.visibility = View.GONE
+
+        bubbleAiShimmer?.visibility = View.GONE
+
+        bubbleAiSparkles?.visibility = View.GONE
+
+        bubbleAiSparkles?.rotation = 0f
+
+        bubbleAiShimmer?.rotation = 0f
+
+    }
+
+
+
+    private fun startProcessingAnimators() {
+
+        val body = bubbleBody ?: return
+
+        val glow = bubbleAiGlow ?: return
+
+        val shimmer = bubbleAiShimmer ?: return
+
+        val sparkles = bubbleAiSparkles ?: return
+
+        val icon = bubbleIcon ?: return
+
+        body.setBackgroundResource(R.drawable.ai_mic_bg_processing)
+
+        glow.visibility = View.VISIBLE
+
+        shimmer.visibility = View.VISIBLE
+
+        sparkles.visibility = View.VISIBLE
+
+        glow.alpha = 0.4f
+
+        shimmer.alpha = 0.55f
+
+        sparkles.alpha = 0.85f
+
+        val glowPulse = ObjectAnimator.ofFloat(glow, View.ALPHA, 0.25f, 1f).apply {
+
+            duration = 750
+
+            repeatMode = ObjectAnimator.REVERSE
+
+            repeatCount = ObjectAnimator.INFINITE
+
+            interpolator = AccelerateDecelerateInterpolator()
+
+        }
+
+        val containerPulse = ObjectAnimator.ofPropertyValuesHolder(
+
+            body,
+
+            PropertyValuesHolder.ofFloat(View.SCALE_X, 1f, 1.12f),
+
+            PropertyValuesHolder.ofFloat(View.SCALE_Y, 1f, 1.12f)
+
+        ).apply {
+
+            duration = 750
+
+            repeatMode = ObjectAnimator.REVERSE
+
+            repeatCount = ObjectAnimator.INFINITE
+
+            interpolator = AccelerateDecelerateInterpolator()
+
+        }
+
+        processingAnimator = AnimatorSet().apply {
+
+            playTogether(glowPulse, containerPulse)
+
+            start()
+
+        }
+
+        sparkleRotateAnimator = ObjectAnimator.ofFloat(sparkles, View.ROTATION, 0f, 360f).apply {
+
+            duration = 2200
+
+            repeatCount = ObjectAnimator.INFINITE
+
+            interpolator = LinearInterpolator()
+
+            start()
+
+        }
+
+        shimmerRotateAnimator = ObjectAnimator.ofFloat(shimmer, View.ROTATION, 0f, 360f).apply {
+
+            duration = 1400
+
+            repeatCount = ObjectAnimator.INFINITE
+
+            interpolator = LinearInterpolator()
+
+            start()
+
+        }
+
+        ObjectAnimator.ofFloat(icon, View.ALPHA, 0.65f, 1f).apply {
+
+            duration = 600
+
+            repeatMode = ObjectAnimator.REVERSE
+
+            repeatCount = ObjectAnimator.INFINITE
+
+            interpolator = AccelerateDecelerateInterpolator()
+
+            start()
 
         }
 
@@ -732,11 +919,25 @@ class VoiceBubbleController(
 
         pulseAnimator = null
 
+        processingAnimator?.cancel()
+
+        processingAnimator = null
+
+        shimmerRotateAnimator?.cancel()
+
+        shimmerRotateAnimator = null
+
+        sparkleRotateAnimator?.cancel()
+
+        sparkleRotateAnimator = null
+
         bubbleBody?.scaleX = 1f
 
         bubbleBody?.scaleY = 1f
 
         bubbleBody?.alpha = 1f
+
+        hideProcessingLayers()
 
     }
 
