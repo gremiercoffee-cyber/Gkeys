@@ -88,8 +88,7 @@ class GkeysIME : InputMethodService() {
     private var longPressTriggered = false
     private var pendingVoiceAction = VoiceAction.DEFAULT
     private var micGestureTracking = false
-    private var wandGestureTracking = false
-    private var wandLongPressTriggered = false
+    private var suppressBubbleAutoStart = false
     private var liveSttActive = false
     private var liveSttPartialLen = 0
     private var deepgramSpeechClient: DeepgramSpeechStreamingClient? = null
@@ -97,7 +96,6 @@ class GkeysIME : InputMethodService() {
     private val handler = Handler(Looper.getMainLooper())
     private var deleteRunnable: Runnable? = null
     private val longPressRunnable = Runnable { onMicLongPress() }
-    private val wandLongPressRunnable = Runnable { onWandLongPress() }
 
     private lateinit var vibrator: Vibrator
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
@@ -124,6 +122,7 @@ class GkeysIME : InputMethodService() {
     private lateinit var btnVoiceBubble: ImageButton
     private lateinit var btnSettings: ImageButton
     private lateinit var btnWand: ImageButton
+    private lateinit var btnLiveTranscribe: ImageButton
     private lateinit var btnPolishLevel: TextView
     private lateinit var voiceOverlay: View
     private lateinit var voiceStatus: TextView
@@ -277,7 +276,10 @@ class GkeysIME : InputMethodService() {
 
     private val voiceBubbleListener = object : VoiceBubbleListener {
         override fun onBubbleTap() = handleBubbleMicTap()
-        override fun onBubbleSwipeUp() = dismissVoiceBubbleForKeyboard()
+        override fun onBubbleSwipeUp() {
+            suppressBubbleAutoStart = true
+            dismissVoiceBubbleForKeyboard()
+        }
         override fun onBubbleTranslateHoldStart() = handleBubbleTranslateHoldStart()
         override fun onBubbleTranslateHoldEnd(cancelled: Boolean) =
             handleBubbleTranslateHoldEnd(cancelled)
@@ -337,6 +339,7 @@ class GkeysIME : InputMethodService() {
         btnVoiceBubble = keyboardView.findViewById(R.id.btn_voice_bubble)
         btnSettings = keyboardView.findViewById(R.id.btn_settings)
         btnWand = keyboardView.findViewById(R.id.btn_wand)
+        btnLiveTranscribe = keyboardView.findViewById(R.id.btn_live_transcribe)
         btnPolishLevel = keyboardView.findViewById(R.id.btn_polish_level)
         voiceOverlay = keyboardView.findViewById(R.id.voice_overlay)
         voiceStatus = keyboardView.findViewById(R.id.voice_status)
@@ -425,7 +428,6 @@ class GkeysIME : InputMethodService() {
     private fun shouldCollapseKeyboardForBubble(): Boolean =
         voiceBubbleModeActive && voiceBubbleController?.isShowing == true
 
-    /** Collapse the IME window while keeping the input connection alive for bubble dictation. */
     private fun syncBubbleKeyboardWindow() {
         if (!::keyboardView.isInitialized) return
         val collapse = shouldCollapseKeyboardForBubble()
@@ -435,10 +437,11 @@ class GkeysIME : InputMethodService() {
     }
 
     override fun onShowInputRequested(reason: Int, showingForced: Boolean): Boolean {
-        if (voiceBubbleModeActive) {
+        if (voiceBubbleModeActive || voiceBubbleController?.isShowing == true) {
+            suppressBubbleAutoStart = true
             dismissVoiceBubbleForKeyboard()
-            syncBubbleKeyboardWindow()
         }
+        syncBubbleKeyboardWindow()
         return super.onShowInputRequested(reason, showingForced)
     }
 
@@ -450,6 +453,11 @@ class GkeysIME : InputMethodService() {
             scope.launch {
                 voiceBubbleEnabled = GkeysSettings.voiceBubbleEnabled(this@GkeysIME).first()
                 updateVoiceBubbleButtonVisibility()
+                if (suppressBubbleAutoStart) {
+                    suppressBubbleAutoStart = false
+                    syncBubbleKeyboardWindow()
+                    return@launch
+                }
                 if (!voiceBubbleEnabled) {
                     if (voiceBubbleModeActive) {
                         dismissVoiceBubbleForKeyboard()
@@ -647,30 +655,16 @@ class GkeysIME : InputMethodService() {
             enterVoiceBubbleMode(fromKeyboard = true)
         }
 
-        btnWand.setOnTouchListener { _, event ->
-            try {
-                when (event.actionMasked) {
-                    MotionEvent.ACTION_DOWN -> {
-                        wandGestureTracking = true
-                        wandLongPressTriggered = false
-                        handler.postDelayed(wandLongPressRunnable, LONG_PRESS_MS)
-                        true
-                    }
-                    MotionEvent.ACTION_UP -> {
-                        finishWandGesture()
-                        true
-                    }
-                    MotionEvent.ACTION_CANCEL -> {
-                        finishWandGesture(cancelled = true)
-                        true
-                    }
-                    else -> true
-                }
-            } catch (e: Exception) {
-                android.util.Log.e("GkeysIME", "wand touch failed", e)
-                true
-            }
+        btnWand.setOnClickListener {
+            vibrate()
+            handleGhostwriterTap()
         }
+
+        btnLiveTranscribe.setOnClickListener {
+            vibrate()
+            handleLiveTranscribeTap()
+        }
+
         btnPolishLevel.setOnClickListener { cyclePolishLevel() }
         updatePolishLevelButton()
         updateNumpadButton()
@@ -704,40 +698,8 @@ class GkeysIME : InputMethodService() {
             "${GkeysSettings.polishLevelLabel(polishLevel)} dictation — tap to change polish mode"
     }
 
-    private fun finishWandGesture(cancelled: Boolean = false) {
-        handler.removeCallbacks(wandLongPressRunnable)
-        wandGestureTracking = false
-        if (wandLongPressTriggered) {
-            wandLongPressTriggered = false
-        } else if (!cancelled) {
-            handleWandTap()
-        }
-    }
-
-    /** Short tap: toggle Deepgram live speech-to-text into the text field. */
-    private fun handleWandTap() {
-        if (isGhostwriterOverlay) return
-        refreshApiKeys()
-        vibrate()
-        if (!hasMicPermission()) {
-            showErrorToast("Allow microphone for Gkeys")
-            openAppForMicPermission()
-            return
-        }
-        if (deepgramKey.isBlank()) {
-            showErrorToast("Add Deepgram API key in Gkeys settings")
-            openAppSettings()
-            return
-        }
-        if (liveSttActive) {
-            stopLiveStt()
-        } else {
-            startLiveStt()
-        }
-    }
-
-    /** Long press: open AI ghostwriter overlay (stays open until closed). */
-    private fun onWandLongPress() {
+    /** Tap wand: open AI ghostwriter overlay. */
+    private fun handleGhostwriterTap() {
         refreshApiKeys()
         if (!hasMicPermission()) {
             showErrorToast("Allow microphone for Gkeys")
@@ -749,12 +711,52 @@ class GkeysIME : InputMethodService() {
             openAppSettings()
             return
         }
+        if (isGhostwriterOverlay) {
+            cancelGhostwriter()
+            return
+        }
         stopLiveStt()
-        wandLongPressTriggered = true
         vibrate(12)
-        if (isGhostwriterOverlay) return
         showGhostwriterOverlay()
         startGhostwriterRecording()
+    }
+
+    /** Tap live-transcribe button: toggle Deepgram streaming into the text field. */
+    private fun handleLiveTranscribeTap() {
+        if (isGhostwriterOverlay) return
+        refreshApiKeys()
+        if (!hasMicPermission()) {
+            showErrorToast("Allow microphone for Gkeys")
+            openAppForMicPermission()
+            return
+        }
+        if (deepgramKey.isBlank()) {
+            showErrorToast("Add Deepgram API key in Gkeys settings")
+            openAppSettings()
+            return
+        }
+        if (activeIc() == null) {
+            showErrorToast("Tap a text field first")
+            return
+        }
+        if (liveSttActive) {
+            stopLiveStt()
+        } else {
+            startLiveStt()
+        }
+    }
+
+    private fun activeIc(): InputConnection? {
+        val ic = currentInputConnection ?: activeInputConnection
+        if (ic != null) activeInputConnection = ic
+        return ic
+    }
+
+    private fun updateLiveTranscribeButton() {
+        if (!::btnLiveTranscribe.isInitialized) return
+        btnLiveTranscribe.setBackgroundResource(
+            if (liveSttActive) R.drawable.ai_mic_bg_active else R.drawable.btn_circle_bg
+        )
     }
 
     private fun sttLanguageCode(): String = when {
@@ -765,24 +767,31 @@ class GkeysIME : InputMethodService() {
     private fun startLiveStt() {
         if (liveSttActive) return
         liveSttPartialLen = 0
-        deepgramSpeechClient = DeepgramSpeechStreamingClient(
-            apiKey = deepgramKey,
-            languageCode = sttLanguageCode(),
-            onPartial = { text -> updateLiveSttPartial(text) },
-            onFinal = { text -> commitLiveSttFinal(text) },
-            onError = { error ->
-                android.util.Log.e("GkeysIME", "Live STT failed", error)
-                showErrorToast("Live dictation failed")
-                stopLiveStt()
-            }
-        )
-        deepgramSpeechClient?.start(scope)
-        liveSttActive = true
-        toastStatus("Live dictation… tap wand to stop")
+        try {
+            deepgramSpeechClient = DeepgramSpeechStreamingClient(
+                apiKey = deepgramKey,
+                languageCode = sttLanguageCode(),
+                onPartial = { text -> updateLiveSttPartial(text) },
+                onFinal = { text -> commitLiveSttFinal(text) },
+                onError = { error ->
+                    android.util.Log.e("GkeysIME", "Live STT failed", error)
+                    showErrorToast("Live transcribe failed")
+                    stopLiveStt()
+                }
+            )
+            deepgramSpeechClient?.start(scope)
+            liveSttActive = true
+            updateLiveTranscribeButton()
+            toastStatus("Live transcribe… tap mouth icon to stop")
+        } catch (e: Exception) {
+            android.util.Log.e("GkeysIME", "startLiveStt failed", e)
+            showErrorToast("Microphone error — check permission in Gkeys app")
+            stopLiveStt()
+        }
     }
 
     private fun updateLiveSttPartial(text: String) {
-        val ic = currentInputConnection ?: return
+        val ic = activeIc() ?: return
         if (liveSttPartialLen > 0) {
             ic.deleteSurroundingText(liveSttPartialLen, 0)
         }
@@ -795,7 +804,7 @@ class GkeysIME : InputMethodService() {
     }
 
     private fun commitLiveSttFinal(text: String) {
-        val ic = currentInputConnection ?: return
+        val ic = activeIc() ?: return
         if (liveSttPartialLen > 0) {
             ic.deleteSurroundingText(liveSttPartialLen, 0)
         }
@@ -811,6 +820,7 @@ class GkeysIME : InputMethodService() {
         deepgramSpeechClient = null
         liveSttActive = false
         liveSttPartialLen = 0
+        updateLiveTranscribeButton()
         toastStatus("")
     }
 

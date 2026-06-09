@@ -90,7 +90,7 @@
 
                 android:background="@drawable/btn_circle_bg"
 
-                android:contentDescription="Wand — tap for live dictation, long press for AI ghostwriter"
+                android:contentDescription="Wand — tap for AI ghostwriter"
 
                 android:scaleType="centerInside"
 
@@ -224,6 +224,17 @@
                 android:src="@drawable/ic_clear_all"
                 android:background="@drawable/btn_circle_bg"
                 android:contentDescription="Clear all text"
+                android:scaleType="centerInside"
+                android:padding="5dp" />
+
+            <ImageButton
+                android:id="@+id/btn_live_transcribe"
+                android:layout_width="30dp"
+                android:layout_height="30dp"
+                android:layout_marginStart="4dp"
+                android:src="@drawable/ic_live_speech"
+                android:background="@drawable/btn_circle_bg"
+                android:contentDescription="Live transcribe — tap to start and stop"
                 android:scaleType="centerInside"
                 android:padding="5dp" />
 
