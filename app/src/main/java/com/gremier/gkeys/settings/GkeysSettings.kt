@@ -42,6 +42,8 @@ object GkeysSettings {
     val VOICE_BUBBLE_ENABLED = booleanPreferencesKey("voice_bubble_enabled")
     val VOICE_BUBBLE_MODE_ACTIVE = booleanPreferencesKey("voice_bubble_mode_active")
     val DEFAULT_TO_VOICE_BUBBLE = booleanPreferencesKey("default_to_voice_bubble")
+    val VOICE_BUBBLE_POS_X = intPreferencesKey("voice_bubble_pos_x")
+    val VOICE_BUBBLE_POS_Y = intPreferencesKey("voice_bubble_pos_y")
     val AI_BAR_WAND_ENABLED = booleanPreferencesKey("ai_bar_wand_enabled")
     val AI_BAR_POLISH_BUTTON_ENABLED = booleanPreferencesKey("ai_bar_polish_button_enabled")
     val AI_BAR_LIVE_TRANSCRIBE_ENABLED = booleanPreferencesKey("ai_bar_live_transcribe_enabled")
@@ -357,6 +359,23 @@ object GkeysSettings {
     suspend fun saveDefaultToVoiceBubble(context: Context, enabled: Boolean) {
         settingsStore(context).edit { it[DEFAULT_TO_VOICE_BUBBLE] = enabled }
     }
+
+    fun voiceBubblePosition(context: Context): Flow<Pair<Int, Int>?> =
+        settingsStore(context).data.map { prefs ->
+            val x = prefs[VOICE_BUBBLE_POS_X] ?: return@map null
+            val y = prefs[VOICE_BUBBLE_POS_Y] ?: return@map null
+            if (x < 0 || y < 0) null else x to y
+        }
+
+    suspend fun saveVoiceBubblePosition(context: Context, x: Int, y: Int) {
+        settingsStore(context).edit {
+            it[VOICE_BUBBLE_POS_X] = x
+            it[VOICE_BUBBLE_POS_Y] = y
+        }
+    }
+
+    suspend fun loadVoiceBubblePosition(context: Context): Pair<Int, Int>? =
+        voiceBubblePosition(context).first()
 
     suspend fun saveAdaptiveTouchEnabled(context: Context, enabled: Boolean) {
         settingsStore(context).edit { it[ADAPTIVE_TOUCH_ENABLED] = enabled }

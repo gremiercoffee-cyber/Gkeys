@@ -34,6 +34,12 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 
 import com.gremier.gkeys.R
+import com.gremier.gkeys.settings.GkeysSettings
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 
 import kotlin.math.abs
 
@@ -119,7 +125,11 @@ class VoiceBubbleController(
 
 
 
-    private var dockedOnRight = true
+    private val saveScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    init {
+        loadPersistedPosition()
+    }
 
     private var posX = -1
 
@@ -217,15 +227,13 @@ class VoiceBubbleController(
             gravity = Gravity.TOP or Gravity.START
 
             if (posX < 0 || posY < 0) {
-
                 placeDefaultPosition(this)
-
             } else {
-
                 x = posX
-
                 y = posY
-
+                clampToScreen(this)
+                posX = x
+                posY = y
             }
 
         }
@@ -464,7 +472,43 @@ class VoiceBubbleController(
 
         translateHoldPending = false
 
-        dockedOnRight = true
+    }
+
+
+
+    private fun loadPersistedPosition() {
+
+        try {
+
+            runBlocking(Dispatchers.IO) {
+
+                GkeysSettings.loadVoiceBubblePosition(context.applicationContext)?.let { (x, y) ->
+
+                    posX = x
+
+                    posY = y
+
+                }
+
+            }
+
+        } catch (_: Exception) {
+
+        }
+
+    }
+
+
+
+    private fun persistPosition() {
+
+        if (posX < 0 || posY < 0) return
+
+        saveScope.launch {
+
+            GkeysSettings.saveVoiceBubblePosition(context.applicationContext, posX, posY)
+
+        }
 
     }
 
@@ -476,8 +520,6 @@ class VoiceBubbleController(
 
         val (insetTop, insetBottom) = systemBarInsets()
 
-        dockedOnRight = true
-
         params.x = metrics.widthPixels - bubbleWidthPx - edgeInsetPx
 
         val usableHeight = metrics.heightPixels - insetTop - insetBottom
@@ -487,6 +529,8 @@ class VoiceBubbleController(
         posX = params.x
 
         posY = params.y
+
+        persistPosition()
 
     }
 
@@ -644,11 +688,13 @@ class VoiceBubbleController(
 
                 if (isDragging) {
 
-                    snapToNearestEdge(params)
+                    clampToScreen(params)
 
                     posX = params.x
 
                     posY = params.y
+
+                    persistPosition()
 
                     try {
 
@@ -711,34 +757,6 @@ class VoiceBubbleController(
         params.x = params.x.coerceIn(edgeInsetPx, maxX)
 
         params.y = params.y.coerceIn(insetTop + edgeMarginYPx, maxY.coerceAtLeast(insetTop + edgeMarginYPx))
-
-    }
-
-
-
-    private fun snapToNearestEdge(params: WindowManager.LayoutParams) {
-
-        val metrics = context.resources.displayMetrics
-
-        val centerX = params.x + bubbleWidthPx / 2
-
-        val midScreen = metrics.widthPixels / 2
-
-        dockedOnRight = centerX >= midScreen
-
-        params.x = if (dockedOnRight) {
-
-            metrics.widthPixels - bubbleWidthPx - edgeInsetPx
-
-        } else {
-
-            edgeInsetPx
-
-        }
-
-        clampToScreen(params)
-
-        applyStateVisuals()
 
     }
 
