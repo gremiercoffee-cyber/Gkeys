@@ -605,7 +605,8 @@ class GkeysIME : InputMethodService() {
 
     override fun onShowInputRequested(reason: Int, showingForced: Boolean): Boolean {
         // Text field tapped while bubble has the keyboard collapsed — expand keyboard, keep bubble.
-        if (voiceBubbleModeActive && bubbleKeyboardCollapsed) {
+        // Skip when restoring an invisible IME session for bubble dictation (requestShowSelf from bubble tap).
+        if (voiceBubbleModeActive && bubbleKeyboardCollapsed && !bubbleDictationSessionActive) {
             suppressBubbleAutoStart = true
             expandKeyboardFromBubble()
         }
@@ -623,7 +624,7 @@ class GkeysIME : InputMethodService() {
                 if (suppressBubbleAutoStart || userRequestedKeyboard) {
                     suppressBubbleAutoStart = false
                     userRequestedKeyboard = false
-                    if (voiceBubbleModeActive && bubbleKeyboardCollapsed) {
+                    if (voiceBubbleModeActive && bubbleKeyboardCollapsed && !bubbleDictationSessionActive) {
                         expandKeyboardFromBubble()
                     } else {
                         syncBubbleKeyboardWindow()
@@ -638,7 +639,7 @@ class GkeysIME : InputMethodService() {
                 }
                 // Refocusing the same field (e.g. tap to reopen keyboard) must not re-enter bubble.
                 if (restarting) {
-                    if (voiceBubbleModeActive && bubbleKeyboardCollapsed) {
+                    if (voiceBubbleModeActive && bubbleKeyboardCollapsed && !bubbleDictationSessionActive) {
                         expandKeyboardFromBubble()
                     } else {
                         syncBubbleKeyboardWindow()
