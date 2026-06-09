@@ -98,6 +98,7 @@ class GkeysIME : InputMethodService() {
     private var suppressBubbleAutoStart = false
     /** Set when the user taps the field or swipes up to leave bubble mode for the keyboard. */
     private var userRequestedKeyboard = false
+    private var bubbleAutoListenRunnable: Runnable? = null
     /** Cached so onShowInputRequested (which can't suspend) knows the bubble-first preference. */
     private var defaultToVoiceBubbleCached = false
     /** Prevents requestHideSelf while restoring IME session to commit bubble dictation. */
@@ -608,13 +609,47 @@ class GkeysIME : InputMethodService() {
     }
 
     override fun onShowInputRequested(reason: Int, showingForced: Boolean): Boolean {
-        // Text field tapped while bubble has the keyboard collapsed — expand keyboard, keep bubble.
-        // Skip when restoring an invisible IME session for bubble dictation (requestShowSelf from bubble tap).
+        // Second tap on an already-focused field expands the keyboard; skip internal dictation restore.
         if (voiceBubbleModeActive && bubbleKeyboardCollapsed && !bubbleDictationSessionActive) {
+            cancelScheduledBubbleAutoListen()
             suppressBubbleAutoStart = true
             expandKeyboardFromBubble()
         }
         return super.onShowInputRequested(reason, showingForced)
+    }
+
+    private fun cancelScheduledBubbleAutoListen() {
+        bubbleAutoListenRunnable?.let { handler.removeCallbacks(it) }
+        bubbleAutoListenRunnable = null
+    }
+
+    /** New field focus in bubble mode: show bubble and start listening like a bubble tap. */
+    private fun scheduleBubbleAutoListen() {
+        cancelScheduledBubbleAutoListen()
+        val runnable = Runnable {
+            bubbleAutoListenRunnable = null
+            if (!voiceBubbleModeActive || !bubbleKeyboardCollapsed) return@Runnable
+            if (isRecording || micIsProcessing || bubbleTranslateHoldActive) return@Runnable
+            if (userRequestedKeyboard || suppressBubbleAutoStart) return@Runnable
+            handleBubbleMicTap()
+        }
+        bubbleAutoListenRunnable = runnable
+        handler.postDelayed(runnable, 250)
+    }
+
+    private suspend fun activateBubbleOnFieldFocus(autoListen: Boolean) {
+        bubbleKeyboardCollapsed = true
+        userRequestedKeyboard = false
+        if (tryActivateVoiceBubbleMode()) {
+            handler.post { syncBubbleKeyboardWindow() }
+            if (autoListen) scheduleBubbleAutoListen()
+        } else if (GkeysSettings.voiceBubbleModeActive(this@GkeysIME).first()) {
+            handler.post { syncBubbleKeyboardWindow() }
+        } else {
+            voiceBubbleModeActive = false
+            GkeysSettings.saveVoiceBubbleModeActive(this@GkeysIME, false)
+            handler.post { syncBubbleKeyboardWindow() }
+        }
     }
 
     override fun onStartInput(attribute: EditorInfo?, restarting: Boolean) {
@@ -625,24 +660,21 @@ class GkeysIME : InputMethodService() {
             scope.launch {
                 voiceBubbleEnabled = GkeysSettings.voiceBubbleEnabled(this@GkeysIME).first()
                 updateVoiceBubbleButtonVisibility()
-                if (suppressBubbleAutoStart || userRequestedKeyboard) {
-                    suppressBubbleAutoStart = false
-                    userRequestedKeyboard = false
-                    if (voiceBubbleModeActive && bubbleKeyboardCollapsed && !bubbleDictationSessionActive) {
-                        expandKeyboardFromBubble()
-                    } else {
-                        syncBubbleKeyboardWindow()
-                    }
-                    return@launch
-                }
                 if (!voiceBubbleEnabled) {
                     if (voiceBubbleModeActive) {
                         exitVoiceBubbleMode()
                     }
                     return@launch
                 }
-                // Refocusing the same field (e.g. tap to reopen keyboard) must not re-enter bubble.
-                if (restarting) {
+
+                val persistedActive = GkeysSettings.voiceBubbleModeActive(this@GkeysIME).first()
+                defaultToVoiceBubbleCached = GkeysSettings.defaultToVoiceBubble(this@GkeysIME).first()
+
+                // Second tap on the same field — expand keyboard, keep bubble.
+                if (suppressBubbleAutoStart || userRequestedKeyboard || restarting) {
+                    suppressBubbleAutoStart = false
+                    userRequestedKeyboard = false
+                    cancelScheduledBubbleAutoListen()
                     if (voiceBubbleModeActive && bubbleKeyboardCollapsed && !bubbleDictationSessionActive) {
                         expandKeyboardFromBubble()
                     } else {
@@ -650,16 +682,20 @@ class GkeysIME : InputMethodService() {
                     }
                     return@launch
                 }
-                val preferBubble = GkeysSettings.defaultToVoiceBubble(this@GkeysIME).first()
-                defaultToVoiceBubbleCached = preferBubble
-                val persistedActive = GkeysSettings.voiceBubbleModeActive(this@GkeysIME).first()
-                if (!persistedActive && !preferBubble) return@launch
-                bubbleKeyboardCollapsed = true
-                if (!tryActivateVoiceBubbleMode()) {
-                    voiceBubbleModeActive = false
-                    GkeysSettings.saveVoiceBubbleModeActive(this@GkeysIME, false)
-                    handler.post { syncBubbleKeyboardWindow() }
+
+                // New field while bubble mode is on — collapsed bubble + auto-listen.
+                if (persistedActive || voiceBubbleModeActive) {
+                    activateBubbleOnFieldFocus(autoListen = true)
+                    return@launch
                 }
+
+                // First-time entry when "default to bubble" setting is enabled.
+                if (defaultToVoiceBubbleCached) {
+                    activateBubbleOnFieldFocus(autoListen = true)
+                    return@launch
+                }
+
+                syncBubbleKeyboardWindow()
             }
         } catch (e: Throwable) {
             android.util.Log.e("GkeysIME", "onStartInput failed", e)
@@ -668,8 +704,14 @@ class GkeysIME : InputMethodService() {
 
     override fun onFinishInput() {
         try {
-            if (!isRecording && !micIsProcessing) {
+            cancelScheduledBubbleAutoListen()
+            if (isRecording && !recordingForGhostwriter) {
+                cancelRecording()
+            }
+            if (!voiceBubbleModeActive && !isRecording && !micIsProcessing) {
                 voiceBubbleController?.hide(animate = true)
+            } else if (voiceBubbleModeActive && !isRecording && !micIsProcessing) {
+                voiceBubbleController?.show()
             }
         } catch (e: Exception) {
             android.util.Log.e("GkeysIME", "onFinishInput failed", e)
@@ -787,9 +829,7 @@ class GkeysIME : InputMethodService() {
                 if (!voiceBubbleEnabled && voiceBubbleModeActive) {
                     exitVoiceBubbleMode()
                 } else if (voiceBubbleModeActive && voiceBubbleController?.isShowing != true) {
-                    voiceBubbleModeActive = false
-                    bubbleKeyboardCollapsed = false
-                    GkeysSettings.saveVoiceBubbleModeActive(this@GkeysIME, false)
+                    handler.post { tryActivateVoiceBubbleMode() }
                 }
                 updateVoiceBubbleButtonVisibility()
                 aiBarSettingsEnabled = GkeysSettings.aiBarSettingsEnabled(this@GkeysIME).first()
@@ -1313,6 +1353,7 @@ class GkeysIME : InputMethodService() {
         }
         scope.launch { GkeysSettings.saveVoiceBubbleModeActive(this@GkeysIME, true) }
         syncBubbleKeyboardWindow()
+        scheduleBubbleAutoListen()
     }
 
     /** @return true if bubble mode is active and the overlay is visible. */
@@ -1334,6 +1375,7 @@ class GkeysIME : InputMethodService() {
     /** Expand keyboard while keeping the floating bubble visible. */
     private fun expandKeyboardFromBubble() {
         if (!voiceBubbleModeActive) return
+        cancelScheduledBubbleAutoListen()
         bubbleKeyboardCollapsed = false
         if (::keyboardView.isInitialized) {
             keyboardView.visibility = View.VISIBLE
@@ -1368,6 +1410,7 @@ class GkeysIME : InputMethodService() {
 
     /** Turn off bubble mode entirely and return to the normal keyboard. */
     private fun exitVoiceBubbleMode() {
+        cancelScheduledBubbleAutoListen()
         if (!voiceBubbleModeActive && voiceBubbleController?.isShowing != true) {
             bubbleKeyboardCollapsed = false
             syncBubbleKeyboardWindow()
