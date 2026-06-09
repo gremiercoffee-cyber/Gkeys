@@ -40,6 +40,8 @@ import com.gremier.gkeys.ime.emoji.EmojiCatalog
 import com.gremier.gkeys.ime.emoji.EmojiUsageStore
 import com.gremier.gkeys.ime.layout.KeyboardLayoutMetrics
 import com.gremier.gkeys.ime.layout.KeyboardLayoutMetrics.Profile
+import com.gremier.gkeys.ime.suggestions.SuggestionEngine
+import com.gremier.gkeys.ime.suggestions.SuggestionStripController
 import com.gremier.gkeys.ime.touch.AdaptiveTouchIntelligence
 import com.gremier.gkeys.ime.touch.TouchInputResolver
 import com.gremier.gkeys.ime.touch.TouchPersonalization
@@ -153,6 +155,13 @@ class GkeysIME : InputMethodService() {
 
     private lateinit var keyboardView: View
     private lateinit var keyboardContent: LinearLayout
+    private lateinit var suggestionStrip: LinearLayout
+    private lateinit var suggestionLeft: TextView
+    private lateinit var suggestionCenter: TextView
+    private lateinit var suggestionRight: TextView
+    private lateinit var suggestionDividerLeft: View
+    private lateinit var suggestionDividerRight: View
+    private var suggestionStripController: SuggestionStripController? = null
     private lateinit var aiStrip: LinearLayout
     private lateinit var keyboardPanel: FrameLayout
     private lateinit var keyboardKeysHost: FrameLayout
@@ -194,6 +203,7 @@ class GkeysIME : InputMethodService() {
     private val touchKeyViews = mutableListOf<Triple<View, String, Int>>()
     private var lastTypedChar: Char? = null
     private var currentWordPrefix = ""
+    private var lastCompletedWord = ""
     private var awaitingTouchCorrection = false
     private var adaptiveTouchEnabled = GkeysSettings.DEFAULT_ADAPTIVE_TOUCH
 
@@ -424,6 +434,9 @@ class GkeysIME : InputMethodService() {
         if (::keyboardPanel.isInitialized) keyboardPanel.setBackgroundColor(bg)
         if (::keyboardKeysHost.isInitialized) keyboardKeysHost.setBackgroundColor(bg)
         if (::aiStrip.isInitialized) aiStrip.setBackgroundColor(themeColor(R.color.gkeys_toolbar))
+        if (::suggestionStrip.isInitialized) {
+            suggestionStrip.setBackgroundColor(themeColor(R.color.gkeys_suggestion_bar))
+        }
         if (::tvStatus.isInitialized) tvStatus.setTextColor(themeColor(R.color.gkeys_text_secondary))
         if (::tvClipboard.isInitialized) tvClipboard.setTextColor(themeColor(R.color.gkeys_text_primary))
         if (::tvClipboardHint.isInitialized && tvClipboardHint.visibility == View.VISIBLE) {
@@ -446,6 +459,21 @@ class GkeysIME : InputMethodService() {
         keyboardView.layoutDirection = View.LAYOUT_DIRECTION_LTR
 
         keyboardContent = keyboardView.findViewById(R.id.keyboard_content)
+        suggestionStrip = keyboardView.findViewById(R.id.suggestion_strip)
+        suggestionLeft = keyboardView.findViewById(R.id.suggestion_left)
+        suggestionCenter = keyboardView.findViewById(R.id.suggestion_center)
+        suggestionRight = keyboardView.findViewById(R.id.suggestion_right)
+        suggestionDividerLeft = keyboardView.findViewById(R.id.suggestion_divider_left)
+        suggestionDividerRight = keyboardView.findViewById(R.id.suggestion_divider_right)
+        suggestionStripController = SuggestionStripController(
+            strip = suggestionStrip,
+            leftView = suggestionLeft,
+            centerView = suggestionCenter,
+            rightView = suggestionRight,
+            dividerLeft = suggestionDividerLeft,
+            dividerRight = suggestionDividerRight,
+            onSuggestionPicked = { word -> applySuggestion(word) }
+        )
         aiStrip = keyboardView.findViewById(R.id.ai_strip)
         keyboardPanel = keyboardView.findViewById(R.id.keyboard_panel)
         keyboardKeysHost = keyboardView.findViewById(R.id.keyboard_keys_host)
@@ -1124,6 +1152,7 @@ class GkeysIME : InputMethodService() {
                 voiceBubbleController?.show()
             }
             liveTranscribe.flushPendingPartial()
+            refreshSuggestions()
         } catch (e: Throwable) {
             android.util.Log.e("GkeysIME", "onStartInputView failed", e)
         }
@@ -2115,7 +2144,12 @@ class GkeysIME : InputMethodService() {
     private fun applyUniversalShellHeight() {
         if (!::keyboardPanel.isInitialized) return
         val keysPx = dp(effectiveKeyboardHeightDp())
-        val shellPx = dp(KeyboardLayoutMetrics.shellHeightDp(effectiveKeyboardHeightDp()))
+        val shellPx = dp(
+            KeyboardLayoutMetrics.shellHeightDp(
+                effectiveKeyboardHeightDp(),
+                includeSuggestions = suggestionsActive()
+            )
+        )
 
         keyboardPanel.layoutParams = keyboardPanel.layoutParams.apply { height = keysPx }
         keyboardKeysHost.layoutParams = keyboardKeysHost.layoutParams.apply { height = keysPx }
@@ -2525,6 +2559,8 @@ class GkeysIME : InputMethodService() {
         if (::keyboardRows.isInitialized) {
             applyOneHandedMode()
         }
+        applyUniversalShellHeight()
+        refreshSuggestions()
     }
 
     /** Builds a compact 5-column numpad grid with equal column widths. */
@@ -2966,6 +3002,82 @@ class GkeysIME : InputMethodService() {
         }
     }
 
+    private fun suggestionsActive(): Boolean =
+        !isHebrew && !isSymbols && !isNumpad && !emojiPanelVisible &&
+            ::keyboardView.isInitialized && keyboardView.visibility == View.VISIBLE
+
+    private fun personalVocab(): Map<String, Int> =
+        if (::adaptiveTouch.isInitialized) adaptiveTouch.profile().vocabFrequency else emptyMap()
+
+    private fun refreshSuggestions() {
+        val controller = suggestionStripController ?: return
+        if (!suggestionsActive()) {
+            controller.setActive(false)
+            controller.clear()
+            applyUniversalShellHeight()
+            return
+        }
+        controller.setActive(true)
+        val model = SuggestionEngine.build(currentWordPrefix, lastCompletedWord, personalVocab())
+        controller.render(
+            model,
+            primaryColor = themeColor(R.color.gkeys_text_primary),
+            secondaryColor = themeColor(R.color.gkeys_text_secondary)
+        )
+    }
+
+    private fun applySuggestion(word: String) {
+        val ic = currentInputConnection ?: return
+        val pick = word.trim()
+        if (pick.isEmpty()) return
+        hapticKeyTap()
+        val replaceLen = currentWordPrefix.length
+        if (replaceLen > 0) {
+            ic.deleteSurroundingText(replaceLen, 0)
+        }
+        ic.commitText("$pick ", 1)
+        fieldUndo.recordInsert("$pick ")
+        lastCompletedWord = pick.lowercase()
+        currentWordPrefix = ""
+        if (::adaptiveTouch.isInitialized) {
+            adaptiveTouch.setWordPrefix("")
+            if (pick.length >= 2) {
+                adaptiveTouch.recordWordCompleted(pick.lowercase())
+            }
+        }
+        updateTouchContext(" ")
+        updateUndoButtonState()
+        refreshSuggestions()
+    }
+
+    private fun handleSpaceKey(ic: InputConnection) {
+        val prefix = currentWordPrefix
+        val corrected = if (suggestionsActive() && prefix.length >= 2) {
+            SuggestionEngine.autocorrectOnSpace(prefix, personalVocab())
+        } else {
+            null
+        }
+
+        if (corrected != null && corrected != prefix) {
+            if (prefix.isNotEmpty()) {
+                ic.deleteSurroundingText(prefix.length, 0)
+            }
+            ic.commitText("$corrected ", 1)
+            fieldUndo.recordInsert("$corrected ")
+            lastCompletedWord = corrected
+        } else {
+            ic.commitText(" ", 1)
+            fieldUndo.recordInsert(" ")
+            if (prefix.isNotEmpty()) {
+                lastCompletedWord = prefix
+            }
+        }
+        updateTouchContext(" ")
+        completeCurrentWord()
+        updateUndoButtonState()
+        refreshSuggestions()
+    }
+
     private fun handleKeyInternal(key: String) {
         val ic = currentInputConnection ?: return
         when (key) {
@@ -2977,12 +3089,14 @@ class GkeysIME : InputMethodService() {
                 awaitingTouchCorrection = true
                 trimWordPrefixAfterBackspace()
                 updateUndoButtonState()
+                refreshSuggestions()
             }
             "↵" -> {
                 ic.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER))
                 ic.sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER))
                 completeCurrentWord()
                 awaitingTouchCorrection = false
+                refreshSuggestions()
             }
             "⇧" -> {
                 if (isShifted && !capsLock) capsLock = true
@@ -2990,13 +3104,16 @@ class GkeysIME : InputMethodService() {
                 else isShifted = true
                 handler.post { refreshLetterCaseOnKeys() }
             }
-            "?123" -> { isSymbols = true; isNumpad = false; emojiPanelVisible = false; buildKeyboard() }
-            "ABC" -> { isSymbols = false; isNumpad = false; emojiPanelVisible = false; buildKeyboard() }
+            "?123" -> { isSymbols = true; isNumpad = false; emojiPanelVisible = false; buildKeyboard(); refreshSuggestions() }
+            "ABC" -> { isSymbols = false; isNumpad = false; emojiPanelVisible = false; buildKeyboard(); refreshSuggestions() }
             "NUMPAD_BACK" -> { closeEmojiPanel() }
-            "🌐" -> { isHebrew = !isHebrew; isSymbols = false; isNumpad = false; emojiPanelVisible = false; buildKeyboard() }
+            "🌐" -> { isHebrew = !isHebrew; isSymbols = false; isNumpad = false; emojiPanelVisible = false; buildKeyboard(); refreshSuggestions() }
             else -> {
-                val toInsert = if (key == "SPACE") " "
-                else if (isShifted && !isHebrew && key.length == 1 && key[0].isLetter()) key.uppercase()
+                if (key == "SPACE") {
+                    handleSpaceKey(ic)
+                    return
+                }
+                val toInsert = if (isShifted && !isHebrew && key.length == 1 && key[0].isLetter()) key.uppercase()
                 else key
 
                 ic.commitText(toInsert, 1)
@@ -3004,9 +3121,7 @@ class GkeysIME : InputMethodService() {
                 updateTouchContext(toInsert)
                 updateUndoButtonState()
 
-                if (toInsert == " ") {
-                    completeCurrentWord()
-                } else if (toInsert.length == 1 && toInsert[0].isLetter()) {
+                if (toInsert.length == 1 && toInsert[0].isLetter()) {
                     currentWordPrefix = (currentWordPrefix + toInsert.lowercase()).take(24)
                     if (::adaptiveTouch.isInitialized) {
                         adaptiveTouch.setWordPrefix(currentWordPrefix)
@@ -3034,12 +3149,16 @@ class GkeysIME : InputMethodService() {
                 if (EmojiCatalog.isEmoji(toInsert)) {
                     scope.launch { EmojiUsageStore.record(this@GkeysIME, toInsert) }
                 }
+                refreshSuggestions()
             }
         }
     }
 
     private fun completeCurrentWord() {
         val word = currentWordPrefix
+        if (word.isNotEmpty()) {
+            lastCompletedWord = word
+        }
         currentWordPrefix = ""
         if (::adaptiveTouch.isInitialized) {
             adaptiveTouch.setWordPrefix("")

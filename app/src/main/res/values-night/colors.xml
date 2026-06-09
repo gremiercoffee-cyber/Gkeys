@@ -15,6 +15,7 @@
     <color name="gkeys_divider">#2A2A2C</color>
     <color name="gkeys_overlay_scrim">#E6121214</color>
     <color name="gkeys_accent">#4A9EFF</color>
+    <color name="gkeys_suggestion_bar">#1E1E22</color>
     <color name="gkeys_ripple">#334A9EFF</color>
     <color name="gkeys_clipboard_card">#2A2A40</color>
     <color name="gkeys_clipboard_tab">#3A3A55</color>

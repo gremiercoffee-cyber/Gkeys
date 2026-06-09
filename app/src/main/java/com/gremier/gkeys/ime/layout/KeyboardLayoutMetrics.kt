@@ -43,6 +43,8 @@ object KeyboardLayoutMetrics {
 
     const val AI_STRIP_HEIGHT_DP = 46
 
+    const val SUGGESTION_STRIP_HEIGHT_DP = 40
+
     const val SHELL_DIVIDER_DP = 1
 
     const val SHELL_BOTTOM_PADDING_DP = 6
@@ -103,11 +105,11 @@ object KeyboardLayoutMetrics {
 
 
 
-    /** Total IME key-shell height: toolbar + divider + keys + bottom padding. */
-
-    fun shellHeightDp(keyboardHeightDp: Int): Int =
-
-        AI_STRIP_HEIGHT_DP + SHELL_DIVIDER_DP + clampKeyboardHeightDp(keyboardHeightDp) + SHELL_BOTTOM_PADDING_DP
+    fun shellHeightDp(keyboardHeightDp: Int, includeSuggestions: Boolean = true): Int {
+        val suggestion = if (includeSuggestions) SUGGESTION_STRIP_HEIGHT_DP else 0
+        return suggestion + AI_STRIP_HEIGHT_DP + SHELL_DIVIDER_DP +
+            clampKeyboardHeightDp(keyboardHeightDp) + SHELL_BOTTOM_PADDING_DP
+    }
 
 
 

@@ -32,6 +32,158 @@
 
 
 
+        <!-- Word suggestions (Gboard-style, above AI bar) -->
+
+        <LinearLayout
+
+            android:id="@+id/suggestion_strip"
+
+            android:layout_width="match_parent"
+
+            android:layout_height="40dp"
+
+            android:orientation="horizontal"
+
+            android:background="@color/gkeys_suggestion_bar"
+
+            android:gravity="center_vertical"
+
+            android:visibility="gone"
+
+            android:layoutDirection="ltr">
+
+
+
+            <TextView
+
+                android:id="@+id/suggestion_left"
+
+                android:layout_width="0dp"
+
+                android:layout_height="match_parent"
+
+                android:layout_weight="1"
+
+                android:gravity="center"
+
+                android:textSize="15sp"
+
+                android:textColor="@color/gkeys_text_secondary"
+
+                android:maxLines="1"
+
+                android:ellipsize="end"
+
+                android:background="@drawable/suggestion_chip_ripple"
+
+                android:clickable="true"
+
+                android:focusable="true"
+
+                android:paddingStart="6dp"
+
+                android:paddingEnd="6dp" />
+
+
+
+            <View
+
+                android:id="@+id/suggestion_divider_left"
+
+                android:layout_width="1dp"
+
+                android:layout_height="22dp"
+
+                android:background="@color/gkeys_divider"
+
+                android:visibility="gone" />
+
+
+
+            <TextView
+
+                android:id="@+id/suggestion_center"
+
+                android:layout_width="0dp"
+
+                android:layout_height="match_parent"
+
+                android:layout_weight="1.15"
+
+                android:gravity="center"
+
+                android:textSize="16sp"
+
+                android:textStyle="bold"
+
+                android:textColor="@color/gkeys_text_primary"
+
+                android:maxLines="1"
+
+                android:ellipsize="end"
+
+                android:background="@drawable/suggestion_chip_ripple"
+
+                android:clickable="true"
+
+                android:focusable="true"
+
+                android:paddingStart="6dp"
+
+                android:paddingEnd="6dp" />
+
+
+
+            <View
+
+                android:id="@+id/suggestion_divider_right"
+
+                android:layout_width="1dp"
+
+                android:layout_height="22dp"
+
+                android:background="@color/gkeys_divider"
+
+                android:visibility="gone" />
+
+
+
+            <TextView
+
+                android:id="@+id/suggestion_right"
+
+                android:layout_width="0dp"
+
+                android:layout_height="match_parent"
+
+                android:layout_weight="1"
+
+                android:gravity="center"
+
+                android:textSize="15sp"
+
+                android:textColor="@color/gkeys_text_secondary"
+
+                android:maxLines="1"
+
+                android:ellipsize="end"
+
+                android:background="@drawable/suggestion_chip_ripple"
+
+                android:clickable="true"
+
+                android:focusable="true"
+
+                android:paddingStart="6dp"
+
+                android:paddingEnd="6dp" />
+
+
+
+        </LinearLayout>
+
+
+
         <!-- Toolbar: wand | polish | clipboard | mic | numpad -->
 
         <LinearLayout
