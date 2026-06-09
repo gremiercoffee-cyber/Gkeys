@@ -159,6 +159,8 @@ class VoiceBubbleController(
 
     private var sparkleRotateAnimator: ObjectAnimator? = null
 
+    private var idleSparkleRotateAnimator: ObjectAnimator? = null
+
 
 
     fun canDrawOverlay(): Boolean = Settings.canDrawOverlays(context)
@@ -733,6 +735,8 @@ class VoiceBubbleController(
 
                     "Gkeys voice bubble. Tap to dictate. Hold to translate. Tap the text field for keyboard."
 
+                startIdleSparkleAnimation()
+
             }
 
             VoiceBubbleState.RECORDING -> {
@@ -765,17 +769,49 @@ class VoiceBubbleController(
 
 
 
+    private fun startIdleSparkleAnimation() {
+
+        val sparkles = bubbleAiSparkles ?: return
+
+        sparkles.visibility = View.VISIBLE
+
+        sparkles.alpha = 0.88f
+
+        sparkles.setImageResource(R.drawable.mic_sparkle_cluster_gold)
+
+        idleSparkleRotateAnimator = ObjectAnimator.ofFloat(sparkles, View.ROTATION, 0f, 360f).apply {
+
+            duration = 8000
+
+            repeatCount = ObjectAnimator.INFINITE
+
+            interpolator = LinearInterpolator()
+
+            start()
+
+        }
+
+    }
+
+
+
     private fun hideProcessingLayers() {
 
         bubbleAiGlow?.visibility = View.GONE
 
         bubbleAiShimmer?.visibility = View.GONE
 
+        bubbleAiShimmer?.rotation = 0f
+
+    }
+
+
+
+    private fun hideSparkles() {
+
         bubbleAiSparkles?.visibility = View.GONE
 
         bubbleAiSparkles?.rotation = 0f
-
-        bubbleAiShimmer?.rotation = 0f
 
     }
 
@@ -800,6 +836,8 @@ class VoiceBubbleController(
         shimmer.visibility = View.VISIBLE
 
         sparkles.visibility = View.VISIBLE
+
+        sparkles.setImageResource(R.drawable.mic_sparkle_cluster_gold)
 
         glow.alpha = 0.4f
 
@@ -891,6 +929,8 @@ class VoiceBubbleController(
 
     private fun startPulseAnimators(slower: Boolean = false) {
 
+        hideSparkles()
+
         val body = bubbleBody ?: return
 
         val duration = if (slower) 900L else 700L
@@ -946,6 +986,10 @@ class VoiceBubbleController(
         sparkleRotateAnimator?.cancel()
 
         sparkleRotateAnimator = null
+
+        idleSparkleRotateAnimator?.cancel()
+
+        idleSparkleRotateAnimator = null
 
         bubbleBody?.scaleX = 1f
 

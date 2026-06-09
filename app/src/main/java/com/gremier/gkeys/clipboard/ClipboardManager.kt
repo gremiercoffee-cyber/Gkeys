@@ -40,6 +40,8 @@ class GkeysClipboardManager(
         const val UNPINNED_RETENTION_MS = 15 * 60 * 1000L
         /** Unpinned screenshots expire after this duration. */
         const val SCREENSHOT_RETENTION_MS = 5 * 60 * 1000L
+        /** AI bar preview only shows recent unpinned copies/screenshots within this window. */
+        const val PREVIEW_MAX_AGE_MS = 5 * 60 * 1000L
         private const val MAX_UNPINNED_ITEMS = 2000
         private const val PREFS = "gkeys_clipboard"
         private const val KEY_BLOCKED = "blocked_texts"
@@ -417,6 +419,12 @@ class GkeysClipboardManager(
         }
     }
 
+    /** Preview shows only unpinned items copied or screenshotted within [PREVIEW_MAX_AGE_MS]. */
+    private fun isPreviewEligible(item: ClipboardItem): Boolean {
+        if (item.isPinned) return false
+        return System.currentTimeMillis() - item.timestamp <= PREVIEW_MAX_AGE_MS
+    }
+
     private fun updatePreview(items: List<ClipboardItem>) {
         val latest = resolvePreviewItem(items)
 
@@ -448,32 +456,9 @@ class GkeysClipboardManager(
         }
     }
 
-    /** Preview matches the system clipboard when possible — the most recently copied item. */
-    private fun resolvePreviewItem(items: List<ClipboardItem>): ClipboardItem? {
-        val capture = try {
-            readSystemClip()
-        } catch (e: Exception) {
-            Log.w(TAG, "Unable to read clipboard for preview", e)
-            null
-        }
-        if (capture != null && !isBlockedKey(captureKey(capture))) {
-            findItemForCapture(items, capture)?.let { return it }
-            return when (capture) {
-                is ClipCapture.Text -> ClipboardItem(text = capture.text)
-                is ClipCapture.Image -> ClipboardItem(
-                    imageUri = capture.uri.toString(),
-                    itemType = ClipboardItem.TYPE_IMAGE
-                )
-            }
-        }
-        return items.maxByOrNull { it.timestamp }
-    }
-
-    private fun findItemForCapture(items: List<ClipboardItem>, capture: ClipCapture): ClipboardItem? =
-        when (capture) {
-            is ClipCapture.Text -> items.find { !it.isImage && it.text == capture.text }
-            is ClipCapture.Image -> items.find { it.isImage && it.imageUri == capture.uri.toString() }
-        }
+    /** Most recent unpinned copy or screenshot from the last five minutes. */
+    private fun resolvePreviewItem(items: List<ClipboardItem>): ClipboardItem? =
+        items.filter { isPreviewEligible(it) }.maxByOrNull { it.timestamp }
 
     private fun loadThumbnail(imageView: ImageView, uriString: String?) {
         if (uriString.isNullOrBlank()) return

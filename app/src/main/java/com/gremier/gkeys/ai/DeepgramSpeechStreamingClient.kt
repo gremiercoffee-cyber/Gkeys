@@ -69,13 +69,25 @@ class DeepgramSpeechStreamingClient(
             request,
             object : WebSocketListener() {
                 override fun onOpen(webSocket: WebSocket, response: Response) {
-                    Log.d(TAG, "Deepgram WebSocket open")
-                    val activeScope = captureScope ?: return
+                    Log.d(TAG, "Deepgram WebSocket open HTTP ${response.code}")
+                    val activeScope = captureScope
+                    if (activeScope == null) {
+                        mainHandler.post {
+                            onError(IllegalStateException("Live transcribe was cancelled before it could start"))
+                            stop()
+                        }
+                        return
+                    }
                     // AudioRecord must be created on the main thread on many devices.
                     mainHandler.post {
-                        if (captureScope == null) return@post
+                        if (captureScope == null) {
+                            onError(IllegalStateException("Live transcribe was cancelled before mic could start"))
+                            stop()
+                            return@post
+                        }
                         try {
                             pcmRecorder.start(activeScope) { chunk ->
+                                if (!connected) return@start
                                 try {
                                     webSocket.send(chunk.toByteString())
                                 } catch (e: Exception) {
@@ -121,11 +133,11 @@ class DeepgramSpeechStreamingClient(
         try {
             val json = JSONObject(text)
             val type = json.optString("type")
-            if (type == "Metadata") {
+            if (type.equals("Metadata", ignoreCase = true)) {
                 Log.d(TAG, "Deepgram metadata received")
                 return
             }
-            if (type != "Results") return
+            if (!type.equals("Results", ignoreCase = true)) return
 
             val transcript = json.optJSONObject("channel")
                 ?.optJSONArray("alternatives")

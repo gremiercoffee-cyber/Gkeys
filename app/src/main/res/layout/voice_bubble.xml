@@ -36,17 +36,17 @@
             android:id="@+id/bubble_ai_sparkles"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:src="@drawable/mic_sparkle_cluster"
-            android:visibility="gone"
+            android:src="@drawable/mic_sparkle_cluster_gold"
+            android:visibility="visible"
+            android:alpha="0.9"
             android:importantForAccessibility="no" />
 
         <ImageView
             android:id="@+id/bubble_icon"
-            android:layout_width="28dp"
-            android:layout_height="28dp"
+            android:layout_width="30dp"
+            android:layout_height="30dp"
             android:layout_gravity="center"
-            android:src="@drawable/ic_voice_bubble"
-            android:tint="#FFFFFF"
+            android:src="@drawable/ic_gkeys_mark"
             android:scaleType="centerInside"
             android:importantForAccessibility="no" />
 

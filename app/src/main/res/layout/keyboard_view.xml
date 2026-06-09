@@ -301,9 +301,11 @@
 
                     android:layout_height="match_parent"
 
-                    android:src="@drawable/mic_sparkle_cluster"
+                    android:src="@drawable/mic_sparkle_cluster_gold"
 
-                    android:visibility="gone"
+                    android:visibility="visible"
+
+                    android:alpha="0.9"
 
                     android:importantForAccessibility="no" />
 
@@ -313,13 +315,13 @@
 
                     android:id="@+id/btn_mic"
 
-                    android:layout_width="24dp"
+                    android:layout_width="26dp"
 
-                    android:layout_height="24dp"
+                    android:layout_height="26dp"
 
                     android:layout_gravity="center"
 
-                    android:src="@drawable/ic_mic_white"
+                    android:src="@drawable/ic_gkeys_mark"
 
                     android:contentDescription="Voice dictation"
 
@@ -345,7 +347,7 @@
 
                 android:layout_marginStart="5dp"
 
-                android:src="@drawable/ic_voice_bubble"
+                android:src="@drawable/ic_gkeys_mark"
 
                 android:background="@drawable/btn_circle_bg"
 
