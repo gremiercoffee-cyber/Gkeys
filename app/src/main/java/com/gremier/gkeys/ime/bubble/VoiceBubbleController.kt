@@ -77,6 +77,7 @@ class VoiceBubbleController(
 
         private const val BUBBLE_WIDTH_DP = 40
         private const val BUBBLE_HEIGHT_DP = 57
+        private const val BUBBLE_EDGE_INSET_DP = 3
         private const val EDGE_MARGIN_Y_DP = 12
 
         private const val DRAG_THRESHOLD_PX = 10
@@ -95,6 +96,7 @@ class VoiceBubbleController(
 
     private val bubbleWidthPx = (BUBBLE_WIDTH_DP * density).roundToInt()
     private val bubbleHeightPx = (BUBBLE_HEIGHT_DP * density).roundToInt()
+    private val edgeInsetPx = (BUBBLE_EDGE_INSET_DP * density).roundToInt()
     private val edgeMarginYPx = (EDGE_MARGIN_Y_DP * density).roundToInt()
 
 
@@ -476,7 +478,7 @@ class VoiceBubbleController(
 
         dockedOnRight = true
 
-        params.x = metrics.widthPixels - bubbleWidthPx
+        params.x = metrics.widthPixels - bubbleWidthPx - edgeInsetPx
 
         val usableHeight = metrics.heightPixels - insetTop - insetBottom
 
@@ -516,25 +518,11 @@ class VoiceBubbleController(
 
 
 
-    private fun listeningBackgroundRes(): Int =
+    private fun listeningBackgroundRes(): Int = R.drawable.voice_bubble_listening_bg
 
-        if (dockedOnRight) R.drawable.voice_bubble_listening_bg
+    private fun idleBackgroundRes(): Int = R.drawable.voice_bubble_icon_bg
 
-        else R.drawable.voice_bubble_listening_bg_left
-
-
-
-    private fun idleBackgroundRes(): Int =
-
-        if (dockedOnRight) R.drawable.voice_bubble_icon_bg else R.drawable.voice_bubble_icon_bg_left
-
-
-
-    private fun processingBackgroundRes(): Int =
-
-        if (dockedOnRight) R.drawable.voice_bubble_processing_bg
-
-        else R.drawable.voice_bubble_processing_bg_left
+    private fun processingBackgroundRes(): Int = R.drawable.voice_bubble_processing_bg
 
 
 
@@ -716,11 +704,11 @@ class VoiceBubbleController(
 
         val (insetTop, insetBottom) = systemBarInsets()
 
-        val maxX = metrics.widthPixels - bubbleWidthPx
+        val maxX = metrics.widthPixels - bubbleWidthPx - edgeInsetPx
 
         val maxY = metrics.heightPixels - bubbleHeightPx - insetBottom - edgeMarginYPx
 
-        params.x = params.x.coerceIn(0, maxX)
+        params.x = params.x.coerceIn(edgeInsetPx, maxX)
 
         params.y = params.y.coerceIn(insetTop + edgeMarginYPx, maxY.coerceAtLeast(insetTop + edgeMarginYPx))
 
@@ -740,11 +728,11 @@ class VoiceBubbleController(
 
         params.x = if (dockedOnRight) {
 
-            metrics.widthPixels - bubbleWidthPx
+            metrics.widthPixels - bubbleWidthPx - edgeInsetPx
 
         } else {
 
-            0
+            edgeInsetPx
 
         }
 

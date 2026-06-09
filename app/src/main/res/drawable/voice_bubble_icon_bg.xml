@@ -1,14 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Docked on the right screen edge: rounded on the inner (left) side only -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
     <solid android:color="@color/ic_launcher_background" />
     <stroke
         android:width="1.5dp"
         android:color="#55FFFFFF" />
-    <corners
-        android:topLeftRadius="16dp"
-        android:bottomLeftRadius="16dp"
-        android:topRightRadius="0dp"
-        android:bottomRightRadius="0dp" />
+    <corners android:radius="14dp" />
 </shape>

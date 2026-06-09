@@ -114,6 +114,8 @@ class GkeysIME : InputMethodService() {
     private var bubbleDictationSessionActive = false
     /** IME session kept alive invisibly while live transcribe runs without the keyboard. */
     private var liveSttSessionActive = false
+    /** When true, live transcribe started with the keyboard visible — do not collapse it. */
+    private var liveSttKeepKeyboardOpen = false
     private var pendingBubbleCommit: Pair<String, ((Boolean) -> Unit)?>? = null
     private var pendingSessionReadyAction: (() -> Unit)? = null
     private var pendingSessionReadyFailed: (() -> Unit)? = null
@@ -569,15 +571,30 @@ class GkeysIME : InputMethodService() {
 
     /** Keep the IME input session alive (invisibly) so live transcribe can stream without the keyboard. */
     private fun prepareLiveSttSession() {
+        if (!shouldUseInvisibleLiveSttSession()) {
+            liveSttKeepKeyboardOpen = ::keyboardView.isInitialized &&
+                (!bubbleKeyboardCollapsed || keyboardView.visibility == View.VISIBLE)
+            if (liveSttKeepKeyboardOpen) {
+                suspendBubbleCollapse = true
+            }
+            return
+        }
+        liveSttKeepKeyboardOpen = false
         liveSttSessionActive = true
         suspendBubbleCollapse = true
-        if (shouldUseInvisibleLiveSttSession() && ::keyboardView.isInitialized) {
+        if (::keyboardView.isInitialized) {
             keyboardView.visibility = View.GONE
         }
     }
 
     private fun releaseLiveSttSession() {
-        if (!liveSttSessionActive) return
+        liveSttKeepKeyboardOpen = false
+        if (!liveSttSessionActive) {
+            if (!bubbleDictationSessionActive) {
+                suspendBubbleCollapse = false
+            }
+            return
+        }
         liveSttSessionActive = false
         if (!bubbleDictationSessionActive) {
             suspendBubbleCollapse = false
@@ -957,10 +974,14 @@ class GkeysIME : InputMethodService() {
 
                 // Live transcribe is running — keep keyboard hidden only when bubble is collapsed.
                 if (liveSttActive || liveSttConnecting) {
-                    prepareLiveSttSession()
+                    if (shouldUseInvisibleLiveSttSession() && !liveSttKeepKeyboardOpen && !userRequestedKeyboard) {
+                        prepareLiveSttSession()
+                    }
                     cancelBubbleShowRequestConsume()
                     handler.post {
-                        if (voiceBubbleEnabled && shouldUseInvisibleLiveSttSession()) {
+                        if (voiceBubbleEnabled && shouldUseInvisibleLiveSttSession() &&
+                            !liveSttKeepKeyboardOpen && !userRequestedKeyboard
+                        ) {
                             userRequestedKeyboard = false
                             bubbleKeyboardCollapsed = true
                             tryActivateVoiceBubbleMode(showOverlay = true)
@@ -1037,7 +1058,7 @@ class GkeysIME : InputMethodService() {
         refreshBubbleModeCacheSync()
         val collapseForBubble = voiceBubbleModeActive && bubbleKeyboardCollapsed &&
             !bubbleDictationSessionActive && !liveSttSessionActive && !restarting &&
-            !userRequestedKeyboard &&
+            !userRequestedKeyboard && !liveSttKeepKeyboardOpen &&
             !isRecording && !micIsProcessing && !liveSttActive && !liveSttConnecting
         if (collapseForBubble) {
             armBubbleShowRequestConsume()
@@ -1045,7 +1066,7 @@ class GkeysIME : InputMethodService() {
                 keyboardView.visibility = View.GONE
             }
         }
-        if (liveSttSessionActive && ::keyboardView.isInitialized) {
+        if (liveSttSessionActive && shouldUseInvisibleLiveSttSession() && ::keyboardView.isInitialized) {
             keyboardView.visibility = View.GONE
         }
         super.onStartInputView(info, restarting)
@@ -1072,7 +1093,9 @@ class GkeysIME : InputMethodService() {
                 showErrorToast("Gkeys updated — pick Gkeys again in your keyboard switcher")
             }
             refreshApiKeys()
-            if (!(bubbleDictationSessionActive && bubbleKeyboardCollapsed)) {
+            if (!(bubbleDictationSessionActive && bubbleKeyboardCollapsed) &&
+                !liveSttConnecting && !liveSttActive
+            ) {
                 loadSettings()
             }
             if (!restarting) {
@@ -1093,8 +1116,12 @@ class GkeysIME : InputMethodService() {
         try {
             refreshBubbleModeCacheSync()
             if (voiceBubbleModeActive) {
-                if (bubbleKeyboardCollapsed || bubbleDictationSessionActive || liveSttSessionActive) {
+                if (bubbleKeyboardCollapsed || bubbleDictationSessionActive ||
+                    (liveSttSessionActive && shouldUseInvisibleLiveSttSession())
+                ) {
                     bubbleKeyboardCollapsed = true
+                } else if (liveSttKeepKeyboardOpen || userRequestedKeyboard) {
+                    bubbleKeyboardCollapsed = false
                 }
                 hideVoiceOverlay()
                 hideGhostwriterOverlay()
@@ -1397,7 +1424,7 @@ class GkeysIME : InputMethodService() {
         ensureInputForLiveStt {
             prepareLiveSttSession()
             syncLiveSttWindow()
-            if (voiceBubbleModeActive && bubbleKeyboardCollapsed) {
+            if (voiceBubbleModeActive && shouldUseInvisibleLiveSttSession()) {
                 voiceBubbleController?.show()
             }
             startLiveStt()
@@ -1502,6 +1529,7 @@ class GkeysIME : InputMethodService() {
         liveSttPartialLen = 0
         liveSttPendingPartial = null
         try {
+            beginMicCapture()
             deepgramSpeechClient = DeepgramSpeechStreamingClient(
                 apiKey = deepgramKey.trim(),
                 languageCode = sttLanguageCode(),
@@ -1511,7 +1539,6 @@ class GkeysIME : InputMethodService() {
                     cancelLiveSttConnectTimeout()
                     liveSttConnecting = false
                     liveSttActive = true
-                    beginMicCapture()
                     updateLiveTranscribeButton()
                     showLiveSttStatus("Listening… tap icon to stop")
                 },
@@ -1618,11 +1645,12 @@ class GkeysIME : InputMethodService() {
         deepgramSpeechClient?.stop()
         deepgramSpeechClient = null
         val wasCapturing = liveSttActive
+        val wasConnecting = liveSttConnecting
         liveSttActive = false
         liveSttConnecting = false
         liveSttPartialLen = 0
         liveSttPendingPartial = null
-        if (wasCapturing) {
+        if (wasCapturing || wasConnecting) {
             endMicCapture()
         }
         releaseLiveSttSession()
