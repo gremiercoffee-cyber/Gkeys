@@ -466,12 +466,16 @@ class GkeysIME : InputMethodService() {
     }
 
     override fun onEvaluateInputViewShown(): Boolean {
+        // Input view must be "shown" (invisibly) while bubble dictation restores the IME session.
+        if (bubbleDictationSessionActive) return true
         if (shouldCollapseKeyboardForBubble()) return false
         return super.onEvaluateInputViewShown()
     }
 
     override fun onComputeInsets(outInsets: Insets) {
-        if (shouldCollapseKeyboardForBubble()) {
+        if (shouldCollapseKeyboardForBubble() ||
+            (bubbleDictationSessionActive && bubbleKeyboardCollapsed)
+        ) {
             outInsets.contentTopInsets = outInsets.visibleTopInsets
             outInsets.touchableRegion.setEmpty()
             outInsets.touchableInsets = Insets.TOUCHABLE_INSETS_CONTENT

@@ -107,7 +107,7 @@ class GkeysClipboardManager(
 
     fun onPreviewTap() {
         val item = previewItem ?: return
-        if (!isRetained(item)) return
+        if (item.id != 0L && !isRetained(item)) return
         onPasteItem(item)
         onVibrate()
     }
@@ -308,8 +308,7 @@ class GkeysClipboardManager(
             dao.update(
                 item.copy(
                     isPinned = true,
-                    folderId = folderId,
-                    timestamp = System.currentTimeMillis()
+                    folderId = folderId
                 )
             )
         }
@@ -320,8 +319,7 @@ class GkeysClipboardManager(
             dao.update(
                 item.copy(
                     isPinned = false,
-                    folderId = null,
-                    timestamp = System.currentTimeMillis()
+                    folderId = null
                 )
             )
         }
@@ -419,7 +417,7 @@ class GkeysClipboardManager(
     }
 
     private fun updatePreview(items: List<ClipboardItem>) {
-        val latest = items.maxByOrNull { it.timestamp }
+        val latest = resolvePreviewItem(items)
 
         previewItem = latest
         if (latest == null) {
@@ -448,6 +446,33 @@ class GkeysClipboardManager(
         }
     }
 
+    /** Preview matches the system clipboard when possible — the most recently copied item. */
+    private fun resolvePreviewItem(items: List<ClipboardItem>): ClipboardItem? {
+        val capture = try {
+            readSystemClip()
+        } catch (e: Exception) {
+            Log.w(TAG, "Unable to read clipboard for preview", e)
+            null
+        }
+        if (capture != null && !isBlockedKey(captureKey(capture))) {
+            findItemForCapture(items, capture)?.let { return it }
+            return when (capture) {
+                is ClipCapture.Text -> ClipboardItem(text = capture.text)
+                is ClipCapture.Image -> ClipboardItem(
+                    imageUri = capture.uri.toString(),
+                    itemType = ClipboardItem.TYPE_IMAGE
+                )
+            }
+        }
+        return items.maxByOrNull { it.timestamp }
+    }
+
+    private fun findItemForCapture(items: List<ClipboardItem>, capture: ClipCapture): ClipboardItem? =
+        when (capture) {
+            is ClipCapture.Text -> items.find { !it.isImage && it.text == capture.text }
+            is ClipCapture.Image -> items.find { it.isImage && it.imageUri == capture.uri.toString() }
+        }
+
     private fun loadThumbnail(imageView: ImageView, uriString: String?) {
         if (uriString.isNullOrBlank()) return
         try {
@@ -469,6 +494,7 @@ class GkeysClipboardManager(
         val panel = overlayView ?: return
 
         val recent = items.filter { !it.isPinned && !it.isScreenshot }
+            .sortedByDescending { it.timestamp }
         val screenshots = items.filter { !it.isPinned && it.isScreenshot }
         val pinnedRoot = items.filter { it.isPinned && it.folderId == null }
         val pinnedByFolder = folders.associateWith { folder ->
