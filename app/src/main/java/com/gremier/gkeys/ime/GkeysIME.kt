@@ -559,20 +559,6 @@ class GkeysIME : InputMethodService() {
         }
     }
 
-    private fun startBubbleRecording(onStarted: () -> Unit, onFailed: () -> Unit) {
-        runWhenBubbleSessionReady(
-            onReady = {
-                try {
-                    onStarted()
-                } catch (_: Exception) {
-                    releaseInputSessionAfterBubbleDictation()
-                    onFailed()
-                }
-            },
-            onFailed = onFailed
-        )
-    }
-
     private fun completePendingBubbleCommit() {
         val pending = pendingBubbleCommit ?: return
         pendingBubbleCommit = null
@@ -637,13 +623,12 @@ class GkeysIME : InputMethodService() {
     /** Load persisted bubble mode before the first input view frame to avoid keyboard flash. */
     private fun refreshBubbleModeCacheSync() {
         try {
-            runBlocking {
+            runBlocking(Dispatchers.IO) {
                 voiceBubbleEnabled = GkeysSettings.voiceBubbleEnabled(this@GkeysIME).first()
                 defaultToVoiceBubbleCached = GkeysSettings.defaultToVoiceBubble(this@GkeysIME).first()
                 val persistedActive = GkeysSettings.voiceBubbleModeActive(this@GkeysIME).first()
                 if (voiceBubbleEnabled && persistedActive) {
                     voiceBubbleModeActive = true
-                    // Keep the full keyboard open when the user expanded it or is using the mic.
                     if (!userRequestedKeyboard && !bubbleDictationSessionActive &&
                         !isRecording && !micIsProcessing
                     ) {
@@ -653,6 +638,46 @@ class GkeysIME : InputMethodService() {
             }
         } catch (e: Exception) {
             android.util.Log.w("GkeysIME", "refreshBubbleModeCacheSync failed", e)
+        }
+    }
+
+    /**
+     * Start microphone capture. Recording does not require a live [InputConnection];
+     * text is committed after transcription (with session restore when the keyboard is collapsed).
+     */
+    private fun beginDictationRecording(onStarted: () -> Unit = {}): Boolean {
+        if (micIsProcessing && !isRecording) {
+            micIsProcessing = false
+            stopMicProcessingAnimatorsOnly()
+        }
+        refreshApiKeys()
+        if (!hasMicPermission()) {
+            showErrorToast("Allow microphone for Gkeys")
+            openAppForMicPermission()
+            return false
+        }
+        if (openAiKey.isBlank()) {
+            showErrorToast("Add OpenAI API key in Gkeys settings")
+            openAppSettings()
+            return false
+        }
+        stopLiveStt()
+        return try {
+            audioRecorder.startRecording()
+            isRecording = true
+            recordingForGhostwriter = false
+            beginMicCapture()
+            onStarted()
+            true
+        } catch (_: Exception) {
+            showErrorToast("Microphone error — check permission in Gkeys app")
+            false
+        }
+    }
+
+    private fun prepareBubbleDictationForCommit() {
+        if (voiceBubbleModeActive && bubbleKeyboardCollapsed) {
+            prepareBubbleDictationSession()
         }
     }
 
@@ -1425,28 +1450,12 @@ class GkeysIME : InputMethodService() {
 
     private fun handleMicTap() {
         if (isGhostwriterOverlay) return
-        refreshApiKeys()
         vibrate()
-        activeInputConnection = currentInputConnection ?: activeInputConnection
-        if (activeInputConnection == null) {
-            showErrorToast("Tap a text field first")
-            return
-        }
-        if (!hasMicPermission()) {
-            showErrorToast("Allow microphone for Gkeys")
-            openAppForMicPermission()
-            return
-        }
-        if (openAiKey.isBlank()) {
-            showErrorToast("Add OpenAI API key in Gkeys settings")
-            openAppSettings()
-            return
-        }
         if (isRecording) {
             stopRecordingAndProcess(VoiceAction.DEFAULT)
-        } else {
-            stopLiveStt()
-            startRecording()
+            return
+        }
+        if (beginDictationRecording()) {
             updateMicVisuals(recording = true)
         }
     }
@@ -1563,6 +1572,7 @@ class GkeysIME : InputMethodService() {
     private fun handleFloatingBubbleTap() {
         if (isRecording) {
             voiceBubbleController?.setState(VoiceBubbleState.PROCESSING)
+            prepareBubbleDictationForCommit()
             stopRecordingAndProcess(VoiceAction.DEFAULT)
             return
         }
@@ -1619,45 +1629,17 @@ class GkeysIME : InputMethodService() {
 
     private fun handleBubbleMicTap() {
         if (bubbleTranslateHoldActive) return
-        refreshApiKeys()
-        if (!bubbleKeyboardCollapsed) {
-            activeInputConnection = currentInputConnection ?: activeInputConnection
-            if (activeInputConnection == null) {
-                showErrorToast("Tap a text field first")
-                return
-            }
-        }
-        if (!hasMicPermission()) {
-            showErrorToast("Allow microphone for Gkeys")
-            openAppForMicPermission()
-            return
-        }
-        if (openAiKey.isBlank()) {
-            showErrorToast("Add OpenAI API key in Gkeys settings")
-            openAppSettings()
-            return
-        }
         if (isRecording) {
             voiceBubbleController?.setState(VoiceBubbleState.PROCESSING)
-            if (bubbleKeyboardCollapsed) {
-                prepareBubbleDictationSession()
-            }
+            prepareBubbleDictationForCommit()
             stopRecordingAndProcess(VoiceAction.DEFAULT)
-        } else {
-            stopLiveStt()
-            startBubbleRecording(
-                onStarted = {
-                    audioRecorder.startRecording()
-                    isRecording = true
-                    recordingForGhostwriter = false
-                    beginMicCapture()
-                    voiceBubbleController?.setState(VoiceBubbleState.RECORDING)
-                },
-                onFailed = {
-                    showErrorToast("Microphone error — check permission in Gkeys app")
-                    voiceBubbleController?.setState(VoiceBubbleState.IDLE)
-                }
-            )
+            return
+        }
+        val started = beginDictationRecording {
+            voiceBubbleController?.setState(VoiceBubbleState.RECORDING)
+        }
+        if (!started) {
+            voiceBubbleController?.setState(VoiceBubbleState.IDLE)
         }
     }
 
@@ -1667,45 +1649,16 @@ class GkeysIME : InputMethodService() {
         if (isRecording) {
             cancelRecording()
         }
-        refreshApiKeys()
-        if (!bubbleKeyboardCollapsed) {
-            activeInputConnection = currentInputConnection ?: activeInputConnection
-            if (activeInputConnection == null) {
-                bubbleTranslateHoldActive = false
-                showErrorToast("Tap a text field first")
-                voiceBubbleController?.setState(VoiceBubbleState.IDLE)
-                return
-            }
-        }
-        if (!hasMicPermission()) {
-            bubbleTranslateHoldActive = false
-            showErrorToast("Allow microphone for Gkeys")
-            openAppForMicPermission()
-            return
-        }
-        if (openAiKey.isBlank()) {
-            bubbleTranslateHoldActive = false
-            showErrorToast("Add OpenAI API key in Gkeys settings")
-            openAppSettings()
-            return
-        }
         bubbleTranslateHoldActive = true
         pendingVoiceAction = VoiceAction.TRANSLATE
         vibrate(12)
-        startBubbleRecording(
-            onStarted = {
-                audioRecorder.startRecording()
-                isRecording = true
-                recordingForGhostwriter = false
-                beginMicCapture()
-                voiceBubbleController?.setState(VoiceBubbleState.RECORDING)
-            },
-            onFailed = {
-                bubbleTranslateHoldActive = false
-                showErrorToast("Microphone error — check permission in Gkeys app")
-                voiceBubbleController?.setState(VoiceBubbleState.IDLE)
-            }
-        )
+        val started = beginDictationRecording {
+            voiceBubbleController?.setState(VoiceBubbleState.RECORDING)
+        }
+        if (!started) {
+            bubbleTranslateHoldActive = false
+            voiceBubbleController?.setState(VoiceBubbleState.IDLE)
+        }
     }
 
     private fun handleBubbleTranslateHoldEnd(cancelled: Boolean) {
@@ -1722,6 +1675,7 @@ class GkeysIME : InputMethodService() {
             return
         }
         voiceBubbleController?.setState(VoiceBubbleState.PROCESSING)
+        prepareBubbleDictationForCommit()
         stopRecordingAndProcess(VoiceAction.TRANSLATE)
     }
 
@@ -2884,6 +2838,7 @@ class GkeysIME : InputMethodService() {
 
     private fun stopRecordingAndProcess(action: VoiceAction) {
         if (!isRecording || recordingForGhostwriter) return
+        prepareBubbleDictationForCommit()
         val file = audioRecorder.stopRecording()
         isRecording = false
         endMicCapture()
