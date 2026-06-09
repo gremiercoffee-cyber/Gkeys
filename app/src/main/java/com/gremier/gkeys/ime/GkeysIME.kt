@@ -102,6 +102,11 @@ class GkeysIME : InputMethodService() {
     private var defaultToVoiceBubbleCached = false
     /** Prevents requestHideSelf while restoring IME session to commit bubble dictation. */
     private var suspendBubbleCollapse = false
+    /** IME session kept alive invisibly while bubble dictates with keyboard collapsed. */
+    private var bubbleDictationSessionActive = false
+    private var pendingBubbleCommit: Pair<String, ((Boolean) -> Unit)?>? = null
+    private var pendingSessionReadyAction: (() -> Unit)? = null
+    private var pendingSessionReadyFailed: (() -> Unit)? = null
     private var liveSttActive = false
     private var liveSttPartialLen = 0
     private var deepgramSpeechClient: DeepgramSpeechStreamingClient? = null
@@ -478,6 +483,107 @@ class GkeysIME : InputMethodService() {
     private fun shouldCollapseKeyboardForBubble(): Boolean =
         voiceBubbleModeActive && bubbleKeyboardCollapsed && voiceBubbleController?.isShowing == true
 
+    /** Keep the IME input session alive (invisibly) so bubble dictation can commit text. */
+    private fun prepareBubbleDictationSession() {
+        if (!voiceBubbleModeActive || !bubbleKeyboardCollapsed) return
+        bubbleDictationSessionActive = true
+        suspendBubbleCollapse = true
+        if (::keyboardView.isInitialized) {
+            keyboardView.visibility = View.GONE
+        }
+    }
+
+    /** Return to fully collapsed bubble after dictation finishes. */
+    private fun releaseInputSessionAfterBubbleDictation() {
+        if (!bubbleDictationSessionActive) return
+        bubbleDictationSessionActive = false
+        suspendBubbleCollapse = false
+        pendingBubbleCommit = null
+        pendingSessionReadyAction = null
+        pendingSessionReadyFailed = null
+        if (bubbleKeyboardCollapsed && voiceBubbleModeActive) {
+            syncBubbleKeyboardWindow()
+        }
+    }
+
+    /**
+     * Waits until [currentInputConnection] is live after [requestShowSelf], then runs [onReady].
+     * Required because [requestHideSelf] invalidates the connection when the keyboard is collapsed.
+     */
+    private fun runWhenBubbleSessionReady(onReady: () -> Unit, onFailed: (() -> Unit)? = null) {
+        if (!voiceBubbleModeActive || !bubbleKeyboardCollapsed) {
+            onReady()
+            return
+        }
+        prepareBubbleDictationSession()
+
+        fun attemptReady(attemptsLeft: Int) {
+            val live = currentInputConnection
+            if (live != null) {
+                activeInputConnection = live
+                syncBubbleKeyboardWindow()
+                onReady()
+                return
+            }
+            if (attemptsLeft > 0) {
+                handler.postDelayed({ attemptReady(attemptsLeft - 1) }, 60)
+            } else {
+                releaseInputSessionAfterBubbleDictation()
+                showErrorToast("Tap a text field first")
+                onFailed?.invoke()
+            }
+        }
+
+        if (!isInputViewShown) {
+            pendingSessionReadyAction = { attemptReady(15) }
+            pendingSessionReadyFailed = onFailed
+            requestShowSelf(0)
+        } else {
+            handler.post { attemptReady(15) }
+        }
+    }
+
+    private fun startBubbleRecording(onStarted: () -> Unit, onFailed: () -> Unit) {
+        runWhenBubbleSessionReady(
+            onReady = {
+                try {
+                    onStarted()
+                } catch (_: Exception) {
+                    releaseInputSessionAfterBubbleDictation()
+                    onFailed()
+                }
+            },
+            onFailed = onFailed
+        )
+    }
+
+    private fun completePendingBubbleCommit() {
+        val pending = pendingBubbleCommit ?: return
+        pendingBubbleCommit = null
+        val (text, onComplete) = pending
+        handler.post {
+            val live = currentInputConnection
+            if (live != null) activeInputConnection = live
+            val success = tryCommitToField(text.trim())
+            if (!success) {
+                showErrorToast("Couldn't insert text — tap the text field first")
+            }
+            onComplete?.invoke(success)
+            releaseInputSessionAfterBubbleDictation()
+        }
+    }
+
+    private fun commitTextAfterSessionRestore(text: String, onComplete: ((Boolean) -> Unit)?) {
+        pendingBubbleCommit = text to onComplete
+        runWhenBubbleSessionReady(
+            onReady = { completePendingBubbleCommit() },
+            onFailed = {
+                pendingBubbleCommit = null
+                onComplete?.invoke(false)
+            }
+        )
+    }
+
     private fun syncBubbleKeyboardWindow() {
         if (!::keyboardView.isInitialized) return
         val collapse = shouldCollapseKeyboardForBubble()
@@ -574,12 +680,39 @@ class GkeysIME : InputMethodService() {
         super.onStartInputView(info, restarting)
         activeInputConnection = currentInputConnection
         try {
+            val sessionPending = pendingSessionReadyAction
+            val sessionFailed = pendingSessionReadyFailed
+            if (sessionPending != null) {
+                pendingSessionReadyAction = null
+                pendingSessionReadyFailed = null
+                syncBubbleKeyboardWindow()
+                handler.post {
+                    activeInputConnection = currentInputConnection ?: activeInputConnection
+                    if (currentInputConnection != null) {
+                        sessionPending()
+                    } else {
+                        releaseInputSessionAfterBubbleDictation()
+                        showErrorToast("Tap a text field first")
+                        sessionFailed?.invoke()
+                    }
+                }
+                refreshApiKeys()
+                return
+            }
+            if (pendingBubbleCommit != null) {
+                syncBubbleKeyboardWindow()
+                completePendingBubbleCommit()
+                refreshApiKeys()
+                return
+            }
             syncBubbleKeyboardWindow()
             if (AppVersionTracker.noteCurrentVersion(this)) {
                 showErrorToast("Gkeys updated — pick Gkeys again in your keyboard switcher")
             }
             refreshApiKeys()
-            loadSettings()
+            if (!(bubbleDictationSessionActive && bubbleKeyboardCollapsed)) {
+                loadSettings()
+            }
             if (!restarting) {
                 fieldUndo.clear()
                 if (::btnClipboardUndo.isInitialized) updateUndoButtonState()
@@ -1273,10 +1406,12 @@ class GkeysIME : InputMethodService() {
     private fun handleBubbleMicTap() {
         if (bubbleTranslateHoldActive) return
         refreshApiKeys()
-        activeInputConnection = currentInputConnection ?: activeInputConnection
-        if (activeInputConnection == null) {
-            showErrorToast("Tap a text field first")
-            return
+        if (!bubbleKeyboardCollapsed) {
+            activeInputConnection = currentInputConnection ?: activeInputConnection
+            if (activeInputConnection == null) {
+                showErrorToast("Tap a text field first")
+                return
+            }
         }
         if (!hasMicPermission()) {
             showErrorToast("Allow microphone for Gkeys")
@@ -1290,18 +1425,24 @@ class GkeysIME : InputMethodService() {
         }
         if (isRecording) {
             voiceBubbleController?.setState(VoiceBubbleState.PROCESSING)
+            if (bubbleKeyboardCollapsed) {
+                prepareBubbleDictationSession()
+            }
             stopRecordingAndProcess(VoiceAction.DEFAULT)
         } else {
             stopLiveStt()
-            try {
-                audioRecorder.startRecording()
-                isRecording = true
-                recordingForGhostwriter = false
-                voiceBubbleController?.setState(VoiceBubbleState.RECORDING)
-            } catch (_: Exception) {
-                showErrorToast("Microphone error — check permission in Gkeys app")
-                voiceBubbleController?.setState(VoiceBubbleState.IDLE)
-            }
+            startBubbleRecording(
+                onStarted = {
+                    audioRecorder.startRecording()
+                    isRecording = true
+                    recordingForGhostwriter = false
+                    voiceBubbleController?.setState(VoiceBubbleState.RECORDING)
+                },
+                onFailed = {
+                    showErrorToast("Microphone error — check permission in Gkeys app")
+                    voiceBubbleController?.setState(VoiceBubbleState.IDLE)
+                }
+            )
         }
     }
 
@@ -1312,12 +1453,14 @@ class GkeysIME : InputMethodService() {
             cancelRecording()
         }
         refreshApiKeys()
-        activeInputConnection = currentInputConnection ?: activeInputConnection
-        if (activeInputConnection == null) {
-            bubbleTranslateHoldActive = false
-            showErrorToast("Tap a text field first")
-            voiceBubbleController?.setState(VoiceBubbleState.IDLE)
-            return
+        if (!bubbleKeyboardCollapsed) {
+            activeInputConnection = currentInputConnection ?: activeInputConnection
+            if (activeInputConnection == null) {
+                bubbleTranslateHoldActive = false
+                showErrorToast("Tap a text field first")
+                voiceBubbleController?.setState(VoiceBubbleState.IDLE)
+                return
+            }
         }
         if (!hasMicPermission()) {
             bubbleTranslateHoldActive = false
@@ -1334,16 +1477,19 @@ class GkeysIME : InputMethodService() {
         bubbleTranslateHoldActive = true
         pendingVoiceAction = VoiceAction.TRANSLATE
         vibrate(12)
-        try {
-            audioRecorder.startRecording()
-            isRecording = true
-            recordingForGhostwriter = false
-            voiceBubbleController?.setState(VoiceBubbleState.RECORDING)
-        } catch (_: Exception) {
-            bubbleTranslateHoldActive = false
-            showErrorToast("Microphone error — check permission in Gkeys app")
-            voiceBubbleController?.setState(VoiceBubbleState.IDLE)
-        }
+        startBubbleRecording(
+            onStarted = {
+                audioRecorder.startRecording()
+                isRecording = true
+                recordingForGhostwriter = false
+                voiceBubbleController?.setState(VoiceBubbleState.RECORDING)
+            },
+            onFailed = {
+                bubbleTranslateHoldActive = false
+                showErrorToast("Microphone error — check permission in Gkeys app")
+                voiceBubbleController?.setState(VoiceBubbleState.IDLE)
+            }
+        )
     }
 
     private fun handleBubbleTranslateHoldEnd(cancelled: Boolean) {
@@ -1373,15 +1519,15 @@ class GkeysIME : InputMethodService() {
             return false
         }
 
+        if (bubbleKeyboardCollapsed && voiceBubbleModeActive) {
+            commitTextAfterSessionRestore(trimmed, onComplete)
+            return false
+        }
+
+        activeInputConnection = currentInputConnection ?: activeInputConnection
         if (tryCommitToField(trimmed)) {
             onComplete?.invoke(true)
             return true
-        }
-
-        // After requestHideSelf the IME session is torn down; briefly restore it to commit.
-        if (needsInputSessionRestoreForCommit()) {
-            restoreInputSessionForCommit(trimmed, onComplete)
-            return false
         }
 
         android.util.Log.w("GkeysIME", "commitToActiveField: no input connection")
@@ -1390,11 +1536,8 @@ class GkeysIME : InputMethodService() {
         return false
     }
 
-    private fun needsInputSessionRestoreForCommit(): Boolean =
-        bubbleKeyboardCollapsed || (!isInputViewShown && voiceBubbleModeActive)
-
     private fun tryCommitToField(trimmed: String): Boolean {
-        val ic = activeIc() ?: return false
+        val ic = currentInputConnection ?: activeInputConnection ?: return false
         return try {
             ic.finishComposingText()
             ic.commitText("$trimmed ", 1)
@@ -1402,41 +1545,20 @@ class GkeysIME : InputMethodService() {
             true
         } catch (e: Exception) {
             android.util.Log.w("GkeysIME", "tryCommitToField failed", e)
+            val retry = currentInputConnection
+            if (retry != null && retry !== ic) {
+                return try {
+                    retry.finishComposingText()
+                    retry.commitText("$trimmed ", 1)
+                    activeInputConnection = retry
+                    true
+                } catch (e2: Exception) {
+                    android.util.Log.w("GkeysIME", "tryCommitToField retry failed", e2)
+                    false
+                }
+            }
             false
         }
-    }
-
-    private fun restoreInputSessionForCommit(
-        text: String,
-        onComplete: ((Boolean) -> Unit)? = null
-    ) {
-        suspendBubbleCollapse = true
-        bubbleKeyboardCollapsed = false
-        requestShowSelf(0)
-        if (::keyboardView.isInitialized) {
-            keyboardView.visibility = View.VISIBLE
-        }
-
-        fun attemptCommit(attemptsLeft: Int) {
-            activeInputConnection = currentInputConnection ?: activeInputConnection
-            if (tryCommitToField(text)) {
-                suspendBubbleCollapse = false
-                bubbleKeyboardCollapsed = true
-                handler.postDelayed({ syncBubbleKeyboardWindow() }, 250)
-                onComplete?.invoke(true)
-                return
-            }
-            if (attemptsLeft > 0) {
-                handler.postDelayed({ attemptCommit(attemptsLeft - 1) }, 60)
-            } else {
-                suspendBubbleCollapse = false
-                bubbleKeyboardCollapsed = true
-                syncBubbleKeyboardWindow()
-                showErrorToast("Couldn't insert text — tap the text field first")
-                onComplete?.invoke(false)
-            }
-        }
-        handler.post { attemptCommit(8) }
     }
 
     private fun openAppForMicPermission() {
@@ -1644,12 +1766,14 @@ class GkeysIME : InputMethodService() {
             if (voiceBubbleModeActive) {
                 voiceBubbleController?.setState(VoiceBubbleState.IDLE)
             }
+            releaseInputSessionAfterBubbleDictation()
             return
         }
         micIsProcessing = false
         stopMicProcessingAnimatorsOnly()
         if (voiceBubbleModeActive || !isInputViewShown) {
             voiceBubbleController?.setState(VoiceBubbleState.IDLE)
+            releaseInputSessionAfterBubbleDictation()
             return
         }
         micAiGlow.visibility = View.GONE
@@ -2535,6 +2659,7 @@ class GkeysIME : InputMethodService() {
         }
         bubbleTranslateHoldActive = false
         toastStatus("")
+        releaseInputSessionAfterBubbleDictation()
     }
 
     private fun stopRecordingAndProcess(action: VoiceAction) {
@@ -2545,6 +2670,7 @@ class GkeysIME : InputMethodService() {
             updateMicVisuals(recording = false)
             voiceBubbleController?.setState(VoiceBubbleState.IDLE)
             toastStatus("⚠ Recording failed")
+            releaseInputSessionAfterBubbleDictation()
             return
         }
 
@@ -2597,6 +2723,7 @@ class GkeysIME : InputMethodService() {
                 }
             }.onFailure {
                 stopMicProcessingAnimation()
+                releaseInputSessionAfterBubbleDictation()
                 showErrorToast(
                     if (effectiveAction == VoiceAction.TRANSLATE) "Translation failed — text unchanged"
                     else "Polish failed — text unchanged"
