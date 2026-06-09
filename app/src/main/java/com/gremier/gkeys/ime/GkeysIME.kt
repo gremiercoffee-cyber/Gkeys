@@ -563,16 +563,23 @@ class GkeysIME : InputMethodService() {
         val pending = pendingBubbleCommit ?: return
         pendingBubbleCommit = null
         val (text, onComplete) = pending
-        handler.post {
-            val live = currentInputConnection
-            if (live != null) activeInputConnection = live
-            val success = tryCommitToField(text.trim())
-            if (!success) {
+        ensureInputConnectionForCommit(
+            onReady = {
+                handler.post {
+                    val success = tryCommitToField(text.trim())
+                    if (!success) {
+                        showErrorToast("Couldn't insert text — tap the text field first")
+                    }
+                    onComplete?.invoke(success)
+                    releaseInputSessionAfterBubbleDictation()
+                }
+            },
+            onFailed = {
                 showErrorToast("Couldn't insert text — tap the text field first")
+                onComplete?.invoke(false)
+                releaseInputSessionAfterBubbleDictation()
             }
-            onComplete?.invoke(success)
-            releaseInputSessionAfterBubbleDictation()
-        }
+        )
     }
 
     private fun commitTextAfterSessionRestore(text: String, onComplete: ((Boolean) -> Unit)?) {
@@ -634,6 +641,9 @@ class GkeysIME : InputMethodService() {
                     ) {
                         bubbleKeyboardCollapsed = true
                     }
+                } else {
+                    voiceBubbleModeActive = false
+                    bubbleKeyboardCollapsed = false
                 }
             }
         } catch (e: Exception) {
@@ -683,9 +693,43 @@ class GkeysIME : InputMethodService() {
 
     /** True only when the keyboard is hidden and text must be committed via an invisible IME session. */
     private fun needsSessionRestoreForCommit(): Boolean {
-        if (!voiceBubbleModeActive || !bubbleKeyboardCollapsed) return false
+        if (!voiceBubbleEnabled || !voiceBubbleModeActive || !bubbleKeyboardCollapsed) return false
         if (!::keyboardView.isInitialized) return true
         return keyboardView.visibility != View.VISIBLE
+    }
+
+    /** Fresh connection from the framework — never a stale cached reference. */
+    private fun liveInputConnection(): InputConnection? {
+        val live = currentInputConnection
+        if (live != null) activeInputConnection = live
+        return live
+    }
+
+    /** Wait for a live [InputConnection] before inserting dictated text. */
+    private fun ensureInputConnectionForCommit(onReady: () -> Unit, onFailed: () -> Unit) {
+        if (needsSessionRestoreForCommit()) {
+            runWhenBubbleSessionReady(onReady = onReady, onFailed = onFailed)
+            return
+        }
+        if (liveInputConnection() != null) {
+            onReady()
+            return
+        }
+        if (!isInputViewShown) {
+            requestShowSelf(0)
+        }
+        fun attempt(remaining: Int) {
+            if (liveInputConnection() != null) {
+                onReady()
+                return
+            }
+            if (remaining > 0) {
+                handler.postDelayed({ attempt(remaining - 1) }, 80)
+            } else {
+                onFailed()
+            }
+        }
+        handler.post { attempt(30) }
     }
 
     /** Bubble overlay shows mic state when keyboard is hidden; keyboard mic button when it is open. */
@@ -1694,28 +1738,23 @@ class GkeysIME : InputMethodService() {
             return
         }
 
-        if (needsSessionRestoreForCommit()) {
-            commitTextAfterSessionRestore(trimmed) { onComplete(it) }
-            return
-        }
-
-        handler.post {
-            fun attempt(attemptsLeft: Int) {
-                activeInputConnection = currentInputConnection ?: activeInputConnection
-                if (tryCommitToField(trimmed)) {
-                    onComplete(true)
-                    return
+        ensureInputConnectionForCommit(
+            onReady = {
+                handler.post {
+                    if (tryCommitToField(trimmed)) {
+                        onComplete(true)
+                    } else {
+                        android.util.Log.w("GkeysIME", "commitTranscriptionResult: commit failed")
+                        showErrorToast("Couldn't insert text — tap the text field first")
+                        onComplete(false)
+                    }
                 }
-                if (attemptsLeft > 0) {
-                    handler.postDelayed({ attempt(attemptsLeft - 1) }, 80)
-                } else {
-                    android.util.Log.w("GkeysIME", "commitTranscriptionResult: no input connection")
-                    showErrorToast("Couldn't insert text — tap the text field first")
-                    onComplete(false)
-                }
+            },
+            onFailed = {
+                showErrorToast("Couldn't insert text — tap the text field first")
+                onComplete(false)
             }
-            attempt(20)
-        }
+        )
     }
 
     private fun commitToActiveField(
@@ -1727,26 +1766,13 @@ class GkeysIME : InputMethodService() {
     }
 
     private fun tryCommitToField(trimmed: String): Boolean {
-        val ic = currentInputConnection ?: activeInputConnection ?: return false
+        val ic = liveInputConnection() ?: return false
         return try {
             ic.finishComposingText()
             ic.commitText("$trimmed ", 1)
-            activeInputConnection = ic
             true
         } catch (e: Exception) {
             android.util.Log.w("GkeysIME", "tryCommitToField failed", e)
-            val retry = currentInputConnection
-            if (retry != null && retry !== ic) {
-                return try {
-                    retry.finishComposingText()
-                    retry.commitText("$trimmed ", 1)
-                    activeInputConnection = retry
-                    true
-                } catch (e2: Exception) {
-                    android.util.Log.w("GkeysIME", "tryCommitToField retry failed", e2)
-                    false
-                }
-            }
             false
         }
     }
@@ -1964,19 +1990,18 @@ class GkeysIME : InputMethodService() {
         if (shouldUseBubbleMicVisuals()) {
             voiceBubbleController?.setState(VoiceBubbleState.IDLE)
         }
-        if (bubbleKeyboardCollapsed || !isInputViewShown) {
-            releaseInputSessionAfterBubbleDictation()
-            return
+        releaseInputSessionAfterBubbleDictation()
+        if (::keyboardView.isInitialized && keyboardView.visibility == View.VISIBLE) {
+            micAiGlow.visibility = View.GONE
+            micAiShimmer.visibility = View.GONE
+            micAiSparkles.visibility = View.GONE
+            micAiSparkles.rotation = 0f
+            micAiShimmer.rotation = 0f
+            btnMic.alpha = 1f
+            btnMicContainer.scaleX = 1f
+            btnMicContainer.scaleY = 1f
+            updateMicVisuals(recording = isRecording)
         }
-        micAiGlow.visibility = View.GONE
-        micAiShimmer.visibility = View.GONE
-        micAiSparkles.visibility = View.GONE
-        micAiSparkles.rotation = 0f
-        micAiShimmer.rotation = 0f
-        btnMic.alpha = 1f
-        btnMicContainer.scaleX = 1f
-        btnMicContainer.scaleY = 1f
-        updateMicVisuals(recording = isRecording)
     }
 
     private fun applyOneHandedMode() {
@@ -2858,6 +2883,7 @@ class GkeysIME : InputMethodService() {
 
     private fun stopRecordingAndProcess(action: VoiceAction) {
         if (!isRecording || recordingForGhostwriter) return
+        val durationMs = audioRecorder.lastRecordingDurationMs()
         val file = audioRecorder.stopRecording()
         isRecording = false
         endMicCapture()
@@ -2879,7 +2905,6 @@ class GkeysIME : InputMethodService() {
                 voiceTranslateFrom = GkeysSettings.voiceTranslateFrom(this@GkeysIME).first()
                 voiceTranslateTo = GkeysSettings.voiceTranslateTo(this@GkeysIME).first()
             }
-            val durationMs = audioRecorder.lastRecordingDurationMs()
             val transcribeLang = if (effectiveAction == VoiceAction.TRANSLATE) voiceTranslateFrom else null
             val transcriptResult = aiManager.transcribe(file, openAiKey, durationMs, transcribeLang)
             file.delete()
@@ -2890,7 +2915,7 @@ class GkeysIME : InputMethodService() {
                     if (error.message == "Nothing heard" || error.message == "Recording too short") {
                         "Nothing heard"
                     } else {
-                        "Transcription failed"
+                        error.message ?: "Transcription failed"
                     }
                 )
                 return@launch
@@ -2917,18 +2942,22 @@ class GkeysIME : InputMethodService() {
 
             finalText.onSuccess { polished ->
                 toastStatus("")
-                commitTranscriptionResult(polished) { success ->
+                val textToCommit = polished.trim().ifEmpty { transcript.trim() }
+                commitTranscriptionResult(textToCommit) { success ->
                     if (success) vibrate()
                     stopMicProcessingAnimation()
                 }
             }.onFailure {
                 toastStatus("")
-                stopMicProcessingAnimation()
-                releaseInputSessionAfterBubbleDictation()
-                showErrorToast(
-                    if (effectiveAction == VoiceAction.TRANSLATE) "Translation failed — text unchanged"
-                    else "Polish failed — text unchanged"
-                )
+                commitTranscriptionResult(transcript) { success ->
+                    if (success) {
+                        vibrate()
+                        showErrorToast("Polish failed — inserted raw transcript")
+                    } else {
+                        showErrorToast("Polish failed — text unchanged")
+                    }
+                    stopMicProcessingAnimation()
+                }
             }
         }
     }
