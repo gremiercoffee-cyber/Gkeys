@@ -100,9 +100,9 @@ You are an AI ghostwriter. The user describes what they want to say — often as
 
 
 
-        private const val MIN_AUDIO_BYTES = 4096L
+        private const val MIN_AUDIO_BYTES = 512L
 
-        private const val MIN_RECORDING_MS = 700L
+        private const val MIN_RECORDING_MS = 450L
 
 
 

@@ -118,6 +118,7 @@ class GkeysIME : InputMethodService() {
     private var deepgramSpeechClient: DeepgramSpeechStreamingClient? = null
 
     private val handler = Handler(Looper.getMainLooper())
+    private var dictationStatusClearRunnable: Runnable? = null
     private var deleteRunnable: Runnable? = null
     private val longPressRunnable = Runnable { onMicLongPress() }
 
@@ -454,7 +455,8 @@ class GkeysIME : InputMethodService() {
             onPasteItem = { item -> pasteClipboardItem(item) },
             onVibrate = { hapticKeyTap() },
             onPanelOpen = { keyboardKeysHost.visibility = View.GONE },
-            onPanelClose = { keyboardKeysHost.visibility = View.VISIBLE }
+            onPanelClose = { keyboardKeysHost.visibility = View.VISIBLE },
+            shouldPreservePreviewHint = { isRecording || micIsProcessing }
         )
         clipboardManager?.setupPreviewInteractions()
         btnClipboardUndo.setOnClickListener {
@@ -677,6 +679,7 @@ class GkeysIME : InputMethodService() {
             isRecording = true
             recordingForGhostwriter = false
             beginMicCapture()
+            showDictationStatus("Listening… tap mic when done")
             onStarted()
             true
         } catch (_: Exception) {
@@ -1910,10 +1913,11 @@ class GkeysIME : InputMethodService() {
     private fun startMicProcessingAnimation() {
         if (micIsProcessing) return
         micIsProcessing = true
+        val keyboardVisible = ::keyboardView.isInitialized && keyboardView.visibility == View.VISIBLE
         if (shouldUseBubbleMicVisuals()) {
             voiceBubbleController?.setState(VoiceBubbleState.PROCESSING)
-            if (bubbleKeyboardCollapsed || !isInputViewShown) return
         }
+        if (!keyboardVisible) return
         stopMicProcessingAnimatorsOnly()
 
         micAiGlow.visibility = View.VISIBLE
@@ -2898,9 +2902,10 @@ class GkeysIME : InputMethodService() {
         val effectiveAction = action
         refreshApiKeys()
         startMicProcessingAnimation()
-        toastStatus("Transcribing…")
+        showDictationStatus("Transcribing…")
 
-        scope.launch {
+        handler.post {
+            scope.launch {
             if (effectiveAction == VoiceAction.TRANSLATE) {
                 voiceTranslateFrom = GkeysSettings.voiceTranslateFrom(this@GkeysIME).first()
                 voiceTranslateTo = GkeysSettings.voiceTranslateTo(this@GkeysIME).first()
@@ -2909,26 +2914,25 @@ class GkeysIME : InputMethodService() {
             val transcriptResult = aiManager.transcribe(file, openAiKey, durationMs, transcribeLang)
             file.delete()
             transcriptResult.onFailure { error ->
-                toastStatus("")
+                val message = when (error.message) {
+                    "Recording too short" -> "Recording too short — speak longer, then tap mic again"
+                    "Nothing heard" -> "Nothing heard — try again"
+                    else -> error.message ?: "Transcription failed"
+                }
+                showDictationStatus(message, autoClearMs = 5000L)
                 stopMicProcessingAnimation()
-                showErrorToast(
-                    if (error.message == "Nothing heard" || error.message == "Recording too short") {
-                        "Nothing heard"
-                    } else {
-                        error.message ?: "Transcription failed"
-                    }
-                )
+                showErrorToast(message)
                 return@launch
             }
             val transcript = transcriptResult.getOrNull().orEmpty()
             if (transcript.isBlank()) {
-                toastStatus("")
+                showDictationStatus("Nothing heard — try again", autoClearMs = 5000L)
                 stopMicProcessingAnimation()
                 showErrorToast("Nothing heard")
                 return@launch
             }
 
-            toastStatus("Polishing…")
+            showDictationStatus("Polishing…")
             val activePolishLevel = GkeysSettings.polishLevel(this@GkeysIME).first()
             polishLevel = activePolishLevel
             if (::btnPolishLevel.isInitialized) updatePolishLevelButton()
@@ -2941,23 +2945,28 @@ class GkeysIME : InputMethodService() {
             }
 
             finalText.onSuccess { polished ->
-                toastStatus("")
                 val textToCommit = polished.trim().ifEmpty { transcript.trim() }
                 commitTranscriptionResult(textToCommit) { success ->
-                    if (success) vibrate()
+                    if (success) {
+                        vibrate()
+                        clearDictationStatus()
+                    } else {
+                        showDictationStatus("Couldn't insert text — tap the field first", autoClearMs = 5000L)
+                    }
                     stopMicProcessingAnimation()
                 }
             }.onFailure {
-                toastStatus("")
                 commitTranscriptionResult(transcript) { success ->
                     if (success) {
                         vibrate()
-                        showErrorToast("Polish failed — inserted raw transcript")
+                        showDictationStatus("Polish failed — inserted raw text", autoClearMs = 3000L)
                     } else {
+                        showDictationStatus("Polish failed — couldn't insert text", autoClearMs = 5000L)
                         showErrorToast("Polish failed — text unchanged")
                     }
                     stopMicProcessingAnimation()
                 }
+            }
             }
         }
     }
@@ -3072,6 +3081,35 @@ class GkeysIME : InputMethodService() {
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
     }
 
+    private fun showDictationStatus(message: String, autoClearMs: Long = 0L) {
+        dictationStatusClearRunnable?.let { handler.removeCallbacks(it) }
+        dictationStatusClearRunnable = null
+        if (isVoiceOverlay && ::voiceStatus.isInitialized) {
+            voiceStatus.text = message
+            return
+        }
+        if (!::tvClipboardHint.isInitialized) return
+        tvClipboard.visibility = View.GONE
+        ivClipboardPreview.visibility = View.GONE
+        tvClipboardHint.visibility = View.VISIBLE
+        tvClipboardHint.setTextColor(0xFF4A9EFF.toInt())
+        tvClipboardHint.text = message
+        if (autoClearMs > 0L) {
+            val clear = Runnable { clearDictationStatus() }
+            dictationStatusClearRunnable = clear
+            handler.postDelayed(clear, autoClearMs)
+        }
+    }
+
+    private fun clearDictationStatus() {
+        dictationStatusClearRunnable?.let { handler.removeCallbacks(it) }
+        dictationStatusClearRunnable = null
+        if (isRecording || micIsProcessing) return
+        if (!::tvClipboardHint.isInitialized) return
+        tvClipboardHint.setTextColor(0xFF9CA3AF.toInt())
+        toastStatus("")
+    }
+
     private fun toastStatus(msg: String) {
         if (isVoiceOverlay && ::voiceStatus.isInitialized) {
             voiceStatus.text = if (msg.isBlank()) "Listening…" else msg
@@ -3079,11 +3117,15 @@ class GkeysIME : InputMethodService() {
         }
         if (!::tvClipboardHint.isInitialized) return
         if (msg.isBlank()) {
-            clipboardManager?.refreshPreview()
+            if (!isRecording && !micIsProcessing) {
+                tvClipboardHint.setTextColor(0xFF9CA3AF.toInt())
+                clipboardManager?.refreshPreview()
+            }
         } else {
             tvClipboard.visibility = View.GONE
             ivClipboardPreview.visibility = View.GONE
             tvClipboardHint.visibility = View.VISIBLE
+            tvClipboardHint.setTextColor(0xFF9CA3AF.toInt())
             tvClipboardHint.text = msg
         }
     }

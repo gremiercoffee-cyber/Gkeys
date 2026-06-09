@@ -31,7 +31,8 @@ class GkeysClipboardManager(
     private val onPasteItem: (ClipboardItem) -> Unit,
     private val onVibrate: () -> Unit,
     private val onPanelOpen: () -> Unit = {},
-    private val onPanelClose: () -> Unit = {}
+    private val onPanelClose: () -> Unit = {},
+    private val shouldPreservePreviewHint: () -> Boolean = { false }
 ) {
     companion object {
         private const val TAG = "GkeysClipboard"
@@ -420,6 +421,7 @@ class GkeysClipboardManager(
         val latest = resolvePreviewItem(items)
 
         previewItem = latest
+        if (shouldPreservePreviewHint()) return
         if (latest == null) {
             previewView.visibility = View.GONE
             previewImage.visibility = View.GONE
