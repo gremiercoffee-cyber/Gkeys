@@ -209,8 +209,8 @@
                             android:layout_weight="1"
                             android:text="Clipboard"
                             android:textColor="#9CA3AF"
-                            android:textSize="12sp"
-                            android:singleLine="true"
+                            android:textSize="11sp"
+                            android:maxLines="2"
                             android:ellipsize="end" />
 
                     </LinearLayout>

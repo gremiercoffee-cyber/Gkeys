@@ -2901,6 +2901,13 @@ class GkeysIME : InputMethodService() {
 
         val effectiveAction = action
         refreshApiKeys()
+        if (openAiKey.isBlank()) {
+            updateMicVisuals(recording = false)
+            val message = "Add OpenAI API key in Gkeys settings"
+            showDictationStatus(message, autoClearMs = 6000L)
+            showErrorToast(message)
+            return
+        }
         startMicProcessingAnimation()
         showDictationStatus("Transcribing…")
 
@@ -2914,21 +2921,15 @@ class GkeysIME : InputMethodService() {
             val transcriptResult = aiManager.transcribe(file, openAiKey, durationMs, transcribeLang)
             file.delete()
             transcriptResult.onFailure { error ->
-                val message = when (error.message) {
-                    "Recording too short" -> "Recording too short — speak longer, then tap mic again"
-                    "Nothing heard" -> "Nothing heard — try again"
-                    else -> error.message ?: "Transcription failed"
-                }
-                showDictationStatus(message, autoClearMs = 5000L)
+                val message = userFriendlyDictationError(error)
+                showDictationStatus(message, autoClearMs = 6000L)
                 stopMicProcessingAnimation()
-                showErrorToast(message)
                 return@launch
             }
             val transcript = transcriptResult.getOrNull().orEmpty()
             if (transcript.isBlank()) {
-                showDictationStatus("Nothing heard — try again", autoClearMs = 5000L)
+                showDictationStatus("Nothing heard — try again", autoClearMs = 6000L)
                 stopMicProcessingAnimation()
-                showErrorToast("Nothing heard")
                 return@launch
             }
 
@@ -3078,7 +3079,29 @@ class GkeysIME : InputMethodService() {
     }
 
     private fun showErrorToast(message: String) {
-        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+    }
+
+    private fun userFriendlyDictationError(error: Throwable): String {
+        val raw = error.message.orEmpty()
+        return when {
+            raw == "Recording too short" ->
+                "Recording too short — speak longer, then tap mic again"
+            raw == "Nothing heard" -> "Nothing heard — try again"
+            raw.contains("permission", ignoreCase = true) ->
+                "Network blocked — update Gkeys (needs internet permission)"
+            raw.contains("Unable to resolve host", ignoreCase = true) ||
+                raw.contains("Failed to connect", ignoreCase = true) ||
+                raw.contains("Network is unreachable", ignoreCase = true) ->
+                "No internet — check your connection"
+            raw.startsWith("Transcription failed (401") ->
+                "Invalid OpenAI API key — check Gkeys settings"
+            raw.startsWith("Transcription failed (403") ->
+                "OpenAI access denied — check your API key billing"
+            raw.startsWith("Transcription failed") -> raw
+            raw.isNotBlank() -> raw
+            else -> "Transcription failed"
+        }
     }
 
     private fun showDictationStatus(message: String, autoClearMs: Long = 0L) {
@@ -3095,6 +3118,7 @@ class GkeysIME : InputMethodService() {
         tvClipboardHint.setTextColor(0xFF4A9EFF.toInt())
         tvClipboardHint.text = message
         if (autoClearMs > 0L) {
+            showErrorToast(message)
             val clear = Runnable { clearDictationStatus() }
             dictationStatusClearRunnable = clear
             handler.postDelayed(clear, autoClearMs)
