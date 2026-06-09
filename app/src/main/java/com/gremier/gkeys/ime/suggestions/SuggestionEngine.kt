@@ -6,6 +6,7 @@ data class SuggestionChip(
     val text: String,
     val isPrimary: Boolean = false,
     val isCorrection: Boolean = false,
+    val isUndo: Boolean = false,
 )
 
 data class SuggestionStripModel(
@@ -18,108 +19,92 @@ object SuggestionEngine {
 
     fun build(
         context: Context,
+        language: DictionaryManager.Language,
         prefix: String,
-        lastWord: String,
-        personalVocab: Map<String, Int>,
+        userWords: Map<String, Int>,
     ): SuggestionStripModel {
-        WordLexicon.ensureLoaded(context)
-        val p = prefix.lowercase()
-        return if (p.isEmpty()) {
-            buildNextWord(lastWord, personalVocab)
-        } else {
-            buildCompletions(context, p, lastWord, personalVocab)
+        DictionaryManager.ensureLoaded(context, language)
+        val normalizedPrefix = normalize(prefix, language)
+        if (normalizedPrefix.isEmpty()) {
+            return SuggestionStripModel(null, null, null)
         }
-    }
 
-    fun autocorrectOnSpace(
-        context: Context,
-        prefix: String,
-        previousWord: String,
-        personalVocab: Map<String, Int>,
-    ): String? {
-        if (prefix.length < 2) return null
-        WordLexicon.ensureLoaded(context)
-        return rankCorrection(prefix, previousWord, personalVocab)?.word
-    }
+        val typedIsWord = DictionaryManager.isKnown(language, normalizedPrefix) ||
+            userWords.containsKey(normalizedPrefix)
+        val correction = if (!typedIsWord) {
+            rankCorrection(language, normalizedPrefix, userWords)
+        } else {
+            null
+        }
 
-    private data class Scored(val word: String, val score: Double, val isCorrection: Boolean)
-
-    private fun buildCompletions(
-        context: Context,
-        prefix: String,
-        lastWord: String,
-        personalVocab: Map<String, Int>,
-    ): SuggestionStripModel {
-        val typedIsWord = WordLexicon.isKnown(prefix)
-        val correction = if (!typedIsWord) rankCorrection(prefix, lastWord, personalVocab) else null
-
-        val completions = rankCompletions(prefix, lastWord, personalVocab)
-            .filter { it.word != prefix }
+        val completions = rankCompletions(language, normalizedPrefix, userWords)
+            .filter { it.word != normalizedPrefix }
             .distinctBy { it.word }
 
         val centerPick = when {
-            correction != null && correction.score > (completions.firstOrNull()?.score ?: 0.0) + 5.0 ->
+            correction != null && correction.score > (completions.firstOrNull()?.score ?: 0.0) + 4.0 ->
                 correction
             completions.isNotEmpty() -> completions.first()
             correction != null -> correction
-            prefix.length >= 1 -> Scored(prefix, 0.0, false)
+            normalizedPrefix.isNotEmpty() -> Scored(normalizedPrefix, 0.0, false)
             else -> return SuggestionStripModel(null, null, null)
         }
 
         val center = SuggestionChip(
             centerPick.word,
             isPrimary = true,
-            isCorrection = centerPick.isCorrection && centerPick.word != prefix
+            isCorrection = centerPick.isCorrection && centerPick.word != normalizedPrefix,
         )
 
+        val literalUndo = if (center.isCorrection && normalizedPrefix != centerPick.word) {
+            SuggestionChip(normalizedPrefix, isUndo = true)
+        } else {
+            null
+        }
+
         val alts = (completions + listOfNotNull(correction))
-            .filter { it.word != centerPick.word }
+            .filter { it.word != centerPick.word && it.word != normalizedPrefix }
             .distinctBy { it.word }
             .sortedByDescending { it.score }
 
-        val left = alts.getOrNull(0)?.let { SuggestionChip(it.word) }
-        val right = alts.getOrNull(1)?.let { SuggestionChip(it.word) }
-        return SuggestionStripModel(left, center, right)
+        val sideChips = buildList {
+            literalUndo?.let { add(it) }
+            alts.take(2).forEach { add(SuggestionChip(it.word)) }
+        }
+
+        return SuggestionStripModel(
+            left = sideChips.getOrNull(0),
+            center = center,
+            right = sideChips.getOrNull(1),
+        )
     }
 
-    private fun buildNextWord(lastWord: String, personalVocab: Map<String, Int>): SuggestionStripModel {
-        val fromContext = WordBigramModel.nextWordCandidates(lastWord)
-        val fromPersonal = personalVocab.entries
-            .sortedByDescending { it.value }
-            .map { it.key }
-            .filter { it.length >= 2 }
-        val merged = (fromContext + fromPersonal)
-            .distinct()
-            .take(20)
-
-        if (merged.isEmpty()) return SuggestionStripModel(null, null, null)
-
-        val ranked = merged.map { word ->
-            Scored(
-                word = word,
-                score = scoreWord(word, lastWord, personalVocab, editDistance = 0),
-                isCorrection = false
-            )
-        }.sortedByDescending { it.score }
-
-        val center = SuggestionChip(ranked.first().word, isPrimary = true)
-        val left = ranked.getOrNull(1)?.let { SuggestionChip(it.word) }
-        val right = ranked.getOrNull(2)?.let { SuggestionChip(it.word) }
-        return SuggestionStripModel(left, center, right)
+    fun autocorrectOnSpace(
+        context: Context,
+        language: DictionaryManager.Language,
+        prefix: String,
+        userWords: Map<String, Int>,
+    ): String? {
+        if (prefix.length < 2) return null
+        DictionaryManager.ensureLoaded(context, language)
+        val normalized = normalize(prefix, language)
+        if (DictionaryManager.isKnown(language, normalized) || userWords.containsKey(normalized)) {
+            return null
+        }
+        return rankCorrection(language, normalized, userWords)?.word
     }
+
+    private data class Scored(val word: String, val score: Double, val isCorrection: Boolean)
 
     private fun rankCorrection(
+        language: DictionaryManager.Language,
         typed: String,
-        previousWord: String,
-        personalVocab: Map<String, Int>,
+        userWords: Map<String, Int>,
     ): Scored? {
-        val lower = typed.lowercase()
-        if (WordLexicon.isKnown(lower)) return null
-
-        return WordLexicon.correctionCandidates(lower)
+        return DictionaryManager.correctionCandidates(language, typed)
             .mapNotNull { candidate ->
-                val dist = editDistance(lower, candidate)
-                val score = scoreWord(candidate, previousWord, personalVocab, dist, lower)
+                val dist = editDistance(typed, candidate)
+                val score = scoreWord(language, candidate, userWords, dist, typed)
                 if (score < MIN_CORRECTION_SCORE) null
                 else Scored(candidate, score, isCorrection = true)
             }
@@ -127,23 +112,24 @@ object SuggestionEngine {
     }
 
     private fun rankCompletions(
+        language: DictionaryManager.Language,
         prefix: String,
-        lastWord: String,
-        personalVocab: Map<String, Int>,
+        userWords: Map<String, Int>,
     ): List<Scored> {
-        val fromLexicon = WordLexicon.completions(prefix, 24)
-        val fromPersonal = personalVocab.entries
+        val fromUser = userWords.entries
             .filter { it.key.startsWith(prefix) && it.key.length > prefix.length }
             .sortedByDescending { it.value }
             .map { it.key }
 
-        return (fromPersonal + fromLexicon)
+        val fromDict = DictionaryManager.prefixMatches(language, prefix, 24)
+
+        return (fromUser + fromDict)
             .distinct()
             .map { word ->
                 Scored(
                     word = word,
-                    score = scoreWord(word, lastWord, personalVocab, editDistance = 0),
-                    isCorrection = false
+                    score = scoreWord(language, word, userWords, editDistance = 0),
+                    isCorrection = false,
                 )
             }
             .sortedByDescending { it.score }
@@ -151,19 +137,18 @@ object SuggestionEngine {
     }
 
     private fun scoreWord(
+        language: DictionaryManager.Language,
         candidate: String,
-        previousWord: String,
-        personalVocab: Map<String, Int>,
+        userWords: Map<String, Int>,
         editDistance: Int,
         typed: String? = null,
     ): Double {
         var score = 0.0
-        score += WordLexicon.frequencyScore(candidate) * 1.2
-        score += (personalVocab[candidate] ?: 0) * 12.0
-        score += WordBigramModel.contextScore(previousWord, candidate) * 90.0
+        score += DictionaryManager.frequencyScore(language, candidate) * 1.2
+        score += (userWords[candidate] ?: 0) * 120.0
         score -= editDistance * 110.0
 
-        if (typed != null) {
+        if (typed != null && language == DictionaryManager.Language.EN) {
             score += KeyboardProximity.wordProximityScore(typed, candidate) * 35.0
             if (candidate.length >= 2 && typed.length >= 2 && candidate[0] == typed[0]) {
                 score += 12.0
@@ -174,6 +159,11 @@ object SuggestionEngine {
         }
 
         return score
+    }
+
+    private fun normalize(word: String, language: DictionaryManager.Language): String = when (language) {
+        DictionaryManager.Language.EN -> word.lowercase()
+        DictionaryManager.Language.HE -> word
     }
 
     private const val MIN_CORRECTION_SCORE = 25.0

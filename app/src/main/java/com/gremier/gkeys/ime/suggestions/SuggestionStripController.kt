@@ -68,6 +68,11 @@ class SuggestionStripController(
         view.setTextColor(color)
         view.paint.isFakeBoldText = primary || chip.isPrimary
         view.textSize = if (primary) 16f else 15f
+        if (chip.isUndo) {
+            view.setTypeface(view.typeface, android.graphics.Typeface.ITALIC)
+        } else {
+            view.setTypeface(view.typeface, android.graphics.Typeface.NORMAL)
+        }
         if (chip.isCorrection) {
             val span = SpannableString(chip.text)
             span.setSpan(UnderlineSpan(), 0, chip.text.length, 0)
