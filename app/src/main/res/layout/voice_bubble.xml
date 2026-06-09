@@ -6,7 +6,7 @@
 
     android:layout_width="40dp"
 
-    android:layout_height="104dp"
+    android:layout_height="57dp"
 
     android:contentDescription="Gkeys voice bubble. Tap to dictate. Hold to translate. Tap the text field for keyboard."
 

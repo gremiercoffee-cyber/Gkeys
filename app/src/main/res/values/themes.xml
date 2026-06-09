@@ -1,11 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="Theme.Gkeys" parent="Theme.MaterialComponents.DayNight.DarkActionBar">
-        <item name="colorPrimary">#1A1A2E</item>
-        <item name="colorPrimaryVariant">#16213E</item>
-        <item name="colorOnPrimary">#FFFFFF</item>
-        <item name="colorSecondary">#4A9EFF</item>
-        <item name="colorOnSecondary">#000000</item>
-        <item name="android:statusBarColor">#0F0F1A</item>
+        <item name="colorPrimary">@color/gkeys_surface</item>
+        <item name="colorPrimaryVariant">@color/gkeys_toolbar</item>
+        <item name="colorOnPrimary">@color/gkeys_text_primary</item>
+        <item name="colorSecondary">@color/gkeys_accent</item>
+        <item name="colorOnSecondary">@color/gkeys_text_primary</item>
+        <item name="android:statusBarColor">@color/gkeys_bg</item>
+        <item name="android:windowBackground">@color/gkeys_bg</item>
+        <item name="android:textColorPrimary">@color/gkeys_text_primary</item>
+        <item name="android:textColorSecondary">@color/gkeys_text_secondary</item>
     </style>
 </resources>

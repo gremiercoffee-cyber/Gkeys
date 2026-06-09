@@ -41,6 +41,8 @@ import com.gremier.gkeys.settings.GkeysSettings
 import com.gremier.gkeys.settings.OverlayPermissionHelper
 import com.gremier.gkeys.settings.SecureApiKeyStore
 import com.gremier.gkeys.settings.SettingsActivity
+import com.gremier.gkeys.ui.GkeysTheme
+import androidx.annotation.ColorRes
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.combine
@@ -83,6 +85,7 @@ class GkeysIME : InputMethodService() {
     private var aiBarWandEnabled = GkeysSettings.DEFAULT_AI_BAR_FEATURE_ENABLED
     private var aiBarPolishButtonEnabled = GkeysSettings.DEFAULT_AI_BAR_FEATURE_ENABLED
     private var aiBarLiveTranscribeEnabled = GkeysSettings.DEFAULT_AI_BAR_FEATURE_ENABLED
+    private var darkTheme = true
     private var voiceBubbleController: VoiceBubbleController? = null
     private var activeInputConnection: InputConnection? = null
 
@@ -131,6 +134,7 @@ class GkeysIME : InputMethodService() {
 
     private lateinit var keyboardView: View
     private lateinit var keyboardContent: LinearLayout
+    private lateinit var aiStrip: LinearLayout
     private lateinit var keyboardPanel: FrameLayout
     private lateinit var keyboardKeysHost: FrameLayout
     private lateinit var keyboardRows: KeyboardTouchLayout
@@ -376,11 +380,54 @@ class GkeysIME : InputMethodService() {
         }
     }
 
+    private fun refreshThemeCacheSync() {
+        try {
+            runBlocking(Dispatchers.IO) {
+                darkTheme = GkeysSettings.isDarkTheme(this@GkeysIME)
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("GkeysIME", "refreshThemeCacheSync failed", e)
+        }
+    }
+
+    private fun themedContext(): Context = GkeysTheme.wrap(this, darkTheme)
+
+    private fun themeColor(@ColorRes colorRes: Int): Int = themedContext().getColor(colorRes)
+
+    private fun themeDrawable(@androidx.annotation.DrawableRes drawableRes: Int) =
+        themedContext().getDrawable(drawableRes)
+
+    private fun applyKeyboardTheme() {
+        if (!::keyboardView.isInitialized) return
+        val bg = themeColor(R.color.gkeys_bg)
+        keyboardView.setBackgroundColor(bg)
+        if (::keyboardContent.isInitialized) keyboardContent.setBackgroundColor(bg)
+        if (::keyboardPanel.isInitialized) keyboardPanel.setBackgroundColor(bg)
+        if (::keyboardKeysHost.isInitialized) keyboardKeysHost.setBackgroundColor(bg)
+        if (::aiStrip.isInitialized) aiStrip.setBackgroundColor(themeColor(R.color.gkeys_toolbar))
+        if (::tvStatus.isInitialized) tvStatus.setTextColor(themeColor(R.color.gkeys_text_secondary))
+        if (::tvClipboard.isInitialized) tvClipboard.setTextColor(themeColor(R.color.gkeys_text_primary))
+        if (::tvClipboardHint.isInitialized && tvClipboardHint.visibility == View.VISIBLE) {
+            tvClipboardHint.setTextColor(themeColor(R.color.gkeys_text_secondary))
+        }
+        if (::btnPolishLevel.isInitialized) btnPolishLevel.setTextColor(themeColor(R.color.gkeys_text_primary))
+        if (::clipboardArea.isInitialized) {
+            clipboardArea.background = themeDrawable(R.drawable.clipboard_pill_bg)
+        }
+        if (::voiceOverlay.isInitialized) voiceOverlay.setBackgroundColor(themeColor(R.color.gkeys_overlay_scrim))
+        if (::ghostwriterOverlay.isInitialized) {
+            ghostwriterOverlay.setBackgroundColor(themeColor(R.color.gkeys_overlay_scrim))
+        }
+        clipboardManager?.updateTheme(darkTheme)
+    }
+
     private fun buildInputView(): View {
-        keyboardView = layoutInflater.inflate(R.layout.keyboard_view, null)
+        refreshThemeCacheSync()
+        keyboardView = LayoutInflater.from(themedContext()).inflate(R.layout.keyboard_view, null)
         keyboardView.layoutDirection = View.LAYOUT_DIRECTION_LTR
 
         keyboardContent = keyboardView.findViewById(R.id.keyboard_content)
+        aiStrip = keyboardView.findViewById(R.id.ai_strip)
         keyboardPanel = keyboardView.findViewById(R.id.keyboard_panel)
         keyboardKeysHost = keyboardView.findViewById(R.id.keyboard_keys_host)
         keyboardRows = keyboardView.findViewById(R.id.keyboard_rows)
@@ -452,6 +499,7 @@ class GkeysIME : InputMethodService() {
         val overlayContainer = keyboardView.findViewById<FrameLayout>(R.id.clipboard_overlay_container)
         clipboardManager = GkeysClipboardManager(
             context = this,
+            themeContext = themedContext(),
             overlayContainer = overlayContainer,
             previewTapTarget = clipboardPreviewStrip,
             previewView = tvClipboard,
@@ -476,6 +524,7 @@ class GkeysIME : InputMethodService() {
 
         setupAiStrip()
         applyAiBarVisibility()
+        applyKeyboardTheme()
         applyUniversalShellHeight()
         buildKeyboard()
         attachTouchTargetLayoutWatcher(keyboardRows)
@@ -484,8 +533,9 @@ class GkeysIME : InputMethodService() {
     }
 
     override fun onEvaluateInputViewShown(): Boolean {
-        // Input view must be "shown" (invisibly) while dictation or live transcribe need a session.
-        if (bubbleDictationSessionActive || liveSttSessionActive) return true
+        // Input view must be "shown" (invisibly) while dictation or collapsed-bubble live STT need a session.
+        if (bubbleDictationSessionActive) return true
+        if (liveSttSessionActive && shouldUseInvisibleLiveSttSession()) return true
         if (shouldCollapseKeyboardForBubble()) return false
         return super.onEvaluateInputViewShown()
     }
@@ -513,15 +563,15 @@ class GkeysIME : InputMethodService() {
     private fun shouldCollapseKeyboardForBubble(): Boolean =
         voiceBubbleModeActive && bubbleKeyboardCollapsed && voiceBubbleController?.isShowing == true
 
+    /** Live STT runs invisibly only when the bubble keyboard is already collapsed. */
+    private fun shouldUseInvisibleLiveSttSession(): Boolean =
+        voiceBubbleModeActive && bubbleKeyboardCollapsed
+
     /** Keep the IME input session alive (invisibly) so live transcribe can stream without the keyboard. */
     private fun prepareLiveSttSession() {
         liveSttSessionActive = true
         suspendBubbleCollapse = true
-        if (voiceBubbleModeActive) {
-            userRequestedKeyboard = false
-            bubbleKeyboardCollapsed = true
-        }
-        if (::keyboardView.isInitialized) {
+        if (shouldUseInvisibleLiveSttSession() && ::keyboardView.isInitialized) {
             keyboardView.visibility = View.GONE
         }
     }
@@ -541,10 +591,10 @@ class GkeysIME : InputMethodService() {
 
     private fun syncLiveSttWindow() {
         if (!liveSttSessionActive) return
-        if (::keyboardView.isInitialized) {
-            keyboardView.visibility = View.GONE
-        }
-        if (voiceBubbleModeActive && bubbleKeyboardCollapsed) {
+        if (shouldUseInvisibleLiveSttSession()) {
+            if (::keyboardView.isInitialized) {
+                keyboardView.visibility = View.GONE
+            }
             syncBubbleKeyboardWindow()
         }
     }
@@ -664,14 +714,18 @@ class GkeysIME : InputMethodService() {
     }
 
     override fun onShowInputRequested(reason: Int, showingForced: Boolean): Boolean {
-        // Invisible IME session while bubble dictation or live transcribe runs without the keyboard.
-        if (bubbleDictationSessionActive || liveSttSessionActive) return true
+        // Invisible IME session while bubble dictation or collapsed-bubble live transcribe runs.
+        if (bubbleDictationSessionActive || (liveSttSessionActive && shouldUseInvisibleLiveSttSession())) {
+            return true
+        }
         if (voiceBubbleModeActive && bubbleKeyboardCollapsed) {
+            val explicitShow = showingForced || (reason and SHOW_SOFT_INPUT_REASON != 0)
             if (bubbleConsumeNextShowRequest) {
                 cancelBubbleShowRequestConsume()
-                return false
+                if (!explicitShow && !shouldOpenKeyboardForBubbleShowRequest(reason, showingForced)) {
+                    return false
+                }
             }
-            // Only expand when the user explicitly tapped the text field — not on navigation auto-show.
             if (!shouldOpenKeyboardForBubbleShowRequest(reason, showingForced)) {
                 return false
             }
@@ -689,6 +743,9 @@ class GkeysIME : InputMethodService() {
     private fun shouldOpenKeyboardForBubbleShowRequest(reason: Int, showingForced: Boolean): Boolean {
         if (showingForced) return true
         if (reason and SHOW_SOFT_INPUT_REASON != 0) return true
+        if (userRequestedKeyboard) return true
+        // After requestHideSelf the input view is gone — any show request is a user tap or app edit field.
+        if (!isInputViewShown && voiceBubbleModeActive && bubbleKeyboardCollapsed) return true
         val sinceFocus = System.currentTimeMillis() - lastBubbleFieldFocusMs
         return sinceFocus >= BUBBLE_AUTO_SHOW_BLOCK_MS
     }
@@ -846,11 +903,23 @@ class GkeysIME : InputMethodService() {
         voiceBubbleController?.show()
     }
 
+    /** Keep bubble visible and collapsed when the IME rebinds to a new field in bubble mode. */
+    private fun prepareBubbleFieldBinding(restarting: Boolean) {
+        if (!voiceBubbleEnabled || !voiceBubbleModeActive) return
+        if (liveSttActive || liveSttConnecting || suppressBubbleAutoStart) return
+        if (restarting && userRequestedKeyboard) return
+        bubbleKeyboardCollapsed = true
+        if (!restarting) {
+            userRequestedKeyboard = false
+        }
+        markBubbleFieldFocused()
+        tryActivateVoiceBubbleMode(showOverlay = true)
+    }
+
     private suspend fun activateBubbleOnFieldFocus() {
         bubbleKeyboardCollapsed = true
         userRequestedKeyboard = false
         markBubbleFieldFocused()
-        armBubbleShowRequestConsume()
         if (tryActivateVoiceBubbleMode(showOverlay = true)) {
             handler.post { syncBubbleKeyboardWindow() }
         } else if (GkeysSettings.voiceBubbleModeActive(this@GkeysIME).first()) {
@@ -867,6 +936,10 @@ class GkeysIME : InputMethodService() {
         refreshBubbleModeCacheSync()
         super.onStartInput(attribute, restarting)
         activeInputConnection = currentInputConnection
+        prepareBubbleFieldBinding(restarting)
+        if (voiceBubbleModeActive && bubbleKeyboardCollapsed) {
+            handler.post { syncBubbleKeyboardWindow() }
+        }
         try {
             refreshApiKeys()
             scope.launch {
@@ -882,14 +955,14 @@ class GkeysIME : InputMethodService() {
                 val persistedActive = GkeysSettings.voiceBubbleModeActive(this@GkeysIME).first()
                 defaultToVoiceBubbleCached = GkeysSettings.defaultToVoiceBubble(this@GkeysIME).first()
 
-                // Live transcribe is running — keep keyboard hidden and bubble visible.
+                // Live transcribe is running — keep keyboard hidden only when bubble is collapsed.
                 if (liveSttActive || liveSttConnecting) {
                     prepareLiveSttSession()
-                    userRequestedKeyboard = false
-                    bubbleKeyboardCollapsed = true
                     cancelBubbleShowRequestConsume()
                     handler.post {
-                        if (voiceBubbleEnabled) {
+                        if (voiceBubbleEnabled && shouldUseInvisibleLiveSttSession()) {
+                            userRequestedKeyboard = false
+                            bubbleKeyboardCollapsed = true
                             tryActivateVoiceBubbleMode(showOverlay = true)
                         }
                         syncLiveSttWindow()
@@ -905,14 +978,14 @@ class GkeysIME : InputMethodService() {
                     return@launch
                 }
 
-                // Field re-bound while still focused (not a user tap) — keep bubble collapsed.
+                // Field re-bound while still focused (e.g. WhatsApp edit message).
                 if (restarting) {
                     cancelBubbleShowRequestConsume()
                     if (voiceBubbleModeActive) {
-                        bubbleKeyboardCollapsed = true
-                        handler.post {
-                            tryActivateVoiceBubbleMode(showOverlay = true)
-                            syncBubbleKeyboardWindow()
+                        if (userRequestedKeyboard) {
+                            handler.post { expandKeyboardFromBubble() }
+                        } else {
+                            handler.post { syncBubbleKeyboardWindow() }
                         }
                     } else {
                         syncBubbleKeyboardWindow()
@@ -945,9 +1018,9 @@ class GkeysIME : InputMethodService() {
             if (isRecording && !recordingForGhostwriter) {
                 cancelRecording()
             }
-            if (!voiceBubbleModeActive && !isRecording && !micIsProcessing && !liveSttActive && !liveSttConnecting) {
-                hideBubbleOverlay(animate = true)
-            } else if (voiceBubbleModeActive && !isRecording && !micIsProcessing && !liveSttActive && !liveSttConnecting) {
+            // Keep the bubble across field rebinds (chat → edit message). Only hide when leaving bubble mode.
+            val stayInBubbleMode = voiceBubbleModeActive && voiceBubbleEnabled
+            if (!stayInBubbleMode && !isRecording && !micIsProcessing && !liveSttActive && !liveSttConnecting) {
                 hideBubbleOverlay(animate = true)
             }
         } catch (e: Exception) {
@@ -1087,6 +1160,10 @@ class GkeysIME : InputMethodService() {
                 aiBarWandEnabled = GkeysSettings.aiBarWandEnabled(this@GkeysIME).first()
                 aiBarPolishButtonEnabled = GkeysSettings.aiBarPolishButtonEnabled(this@GkeysIME).first()
                 aiBarLiveTranscribeEnabled = GkeysSettings.aiBarLiveTranscribeEnabled(this@GkeysIME).first()
+                val themeMode = GkeysSettings.themeMode(this@GkeysIME).first()
+                val newDarkTheme = GkeysSettings.isDarkThemeMode(themeMode)
+                val themeChanged = newDarkTheme != darkTheme
+                darkTheme = newDarkTheme
                 applyAiBarVisibility()
                 adaptiveTouchEnabled = GkeysSettings.adaptiveTouchEnabled(this@GkeysIME).first()
                 if (::adaptiveTouch.isInitialized) {
@@ -1098,6 +1175,7 @@ class GkeysIME : InputMethodService() {
                     touchResolver.rightHandedMode = isLayoutRightBiased()
                 }
                 if (::keyboardView.isInitialized) {
+                    if (themeChanged) applyKeyboardTheme()
                     applyUniversalShellHeight()
                     applyOneHandedMode()
                     updatePolishLevelButton()
@@ -1319,7 +1397,7 @@ class GkeysIME : InputMethodService() {
         ensureInputForLiveStt {
             prepareLiveSttSession()
             syncLiveSttWindow()
-            if (voiceBubbleModeActive) {
+            if (voiceBubbleModeActive && bubbleKeyboardCollapsed) {
                 voiceBubbleController?.show()
             }
             startLiveStt()
@@ -1802,7 +1880,11 @@ class GkeysIME : InputMethodService() {
             }
         }
         showBubbleOverlayIfFieldActive()
-        requestShowSelf(0)
+        if (!isInputViewShown) {
+            requestShowSelf(0)
+        } else {
+            window?.window?.decorView?.requestLayout()
+        }
         syncBubbleKeyboardWindow()
     }
 
@@ -2302,7 +2384,7 @@ class GkeysIME : InputMethodService() {
             text = label
             textSize = 18f
             gravity = Gravity.CENTER
-            setTextColor(0xFF9CA3AF.toInt())
+            setTextColor(themeColor(R.color.gkeys_text_secondary))
             setBackgroundResource(R.drawable.btn_circle_bg)
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -2615,7 +2697,7 @@ class GkeysIME : InputMethodService() {
         TextView(this).apply {
             text = name
             textSize = 10f
-            setTextColor(0xFF6B7280.toInt())
+            setTextColor(themeColor(R.color.gkeys_text_muted))
             setPadding(dp(6), dp(3), dp(6), dp(1))
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -2655,7 +2737,7 @@ class GkeysIME : InputMethodService() {
             textSize = KeyboardLayoutMetrics.EMOJI_TEXT_SP * profile.textScale
             gravity = Gravity.CENTER
             layoutDirection = View.LAYOUT_DIRECTION_LTR
-            setBackgroundResource(R.drawable.key_tile_ripple)
+            background = themeDrawable(R.drawable.key_tile_ripple)
             layoutParams = FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT
@@ -2688,7 +2770,7 @@ class GkeysIME : InputMethodService() {
 
     private fun addLongPressIndicator(cell: FrameLayout, label: String) {
         val alt = longPressAltFor(label) ?: return
-        val indicatorColor = 0xFF9CA3AF.toInt()
+        val indicatorColor = themeColor(R.color.gkeys_text_secondary)
         val params = FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.WRAP_CONTENT,
             FrameLayout.LayoutParams.WRAP_CONTENT,
@@ -2767,18 +2849,18 @@ class GkeysIME : InputMethodService() {
             }
         }
 
-        val bgRes = if (isSpecial || (isNumpadMode && label in listOf("ABC", "⌫", "↵", "NUMPAD_BACK"))) {
-            R.drawable.key_tile_special_ripple
+        val bgDrawable = if (isSpecial || (isNumpadMode && label in listOf("ABC", "⌫", "↵", "NUMPAD_BACK"))) {
+            themeDrawable(R.drawable.key_tile_special_ripple)
         } else {
-            R.drawable.key_tile_ripple
+            themeDrawable(R.drawable.key_tile_ripple)
         }
 
         if (label == "⌫") {
             val iconPad = dp(6)
             val backIcon = ImageView(this).apply {
-                setImageResource(R.drawable.ic_back_arrow)
+                setImageDrawable(themeDrawable(R.drawable.ic_back_arrow))
                 scaleType = ImageView.ScaleType.CENTER_INSIDE
-                setBackgroundResource(bgRes)
+                background = bgDrawable
                 layoutParams = FrameLayout.LayoutParams(
                     FrameLayout.LayoutParams.MATCH_PARENT,
                     FrameLayout.LayoutParams.MATCH_PARENT
@@ -2803,8 +2885,8 @@ class GkeysIME : InputMethodService() {
                 gravity = Gravity.CENTER
                 layoutDirection = View.LAYOUT_DIRECTION_LTR
                 textDirection = View.TEXT_DIRECTION_LTR
-                setTextColor(0xFFE8EAF0.toInt())
-                setBackgroundResource(bgRes)
+                setTextColor(themeColor(R.color.gkeys_text_primary))
+                background = bgDrawable
                 layoutParams = FrameLayout.LayoutParams(
                     FrameLayout.LayoutParams.MATCH_PARENT,
                     FrameLayout.LayoutParams.MATCH_PARENT
@@ -3319,7 +3401,7 @@ class GkeysIME : InputMethodService() {
         tvClipboard.visibility = View.GONE
         ivClipboardPreview.visibility = View.GONE
         tvClipboardHint.visibility = View.VISIBLE
-        tvClipboardHint.setTextColor(0xFF4A9EFF.toInt())
+        tvClipboardHint.setTextColor(themeColor(R.color.gkeys_accent))
         tvClipboardHint.text = message
         if (autoClearMs > 0L) {
             showErrorToast(message)
@@ -3334,7 +3416,7 @@ class GkeysIME : InputMethodService() {
         dictationStatusClearRunnable = null
         if (isRecording || micIsProcessing || liveSttActive || liveSttConnecting) return
         if (!::tvClipboardHint.isInitialized) return
-        tvClipboardHint.setTextColor(0xFF9CA3AF.toInt())
+        tvClipboardHint.setTextColor(themeColor(R.color.gkeys_text_secondary))
         toastStatus("")
     }
 
@@ -3346,14 +3428,14 @@ class GkeysIME : InputMethodService() {
         if (!::tvClipboardHint.isInitialized) return
         if (msg.isBlank()) {
             if (!isRecording && !micIsProcessing && !liveSttActive && !liveSttConnecting) {
-                tvClipboardHint.setTextColor(0xFF9CA3AF.toInt())
+                tvClipboardHint.setTextColor(themeColor(R.color.gkeys_text_secondary))
                 clipboardManager?.refreshPreview()
             }
         } else {
             tvClipboard.visibility = View.GONE
             ivClipboardPreview.visibility = View.GONE
             tvClipboardHint.visibility = View.VISIBLE
-            tvClipboardHint.setTextColor(0xFF9CA3AF.toInt())
+            tvClipboardHint.setTextColor(themeColor(R.color.gkeys_text_secondary))
             tvClipboardHint.text = msg
         }
     }

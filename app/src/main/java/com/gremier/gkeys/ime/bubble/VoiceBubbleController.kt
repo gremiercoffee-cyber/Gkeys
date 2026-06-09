@@ -76,7 +76,7 @@ class VoiceBubbleController(
         private const val BUBBLE_ALPHA_PROCESSING = 0.72f
 
         private const val BUBBLE_WIDTH_DP = 40
-        private const val BUBBLE_HEIGHT_DP = 104
+        private const val BUBBLE_HEIGHT_DP = 57
         private const val EDGE_MARGIN_Y_DP = 12
 
         private const val DRAG_THRESHOLD_PX = 10
@@ -173,7 +173,10 @@ class VoiceBubbleController(
 
         if (!canDrawOverlay()) return
 
-        if (isAttached) return
+        if (isAttached) {
+            revealIfHidden()
+            return
+        }
 
 
 
@@ -285,6 +288,18 @@ class VoiceBubbleController(
             windowManager.updateViewLayout(view, params)
         } catch (_: Exception) {
         }
+    }
+
+
+
+    /** Cancel an in-progress hide animation and restore the bubble (field rebind while overlay stays attached). */
+    private fun revealIfHidden() {
+        val view = rootView ?: return
+        view.animate().cancel()
+        stopAnimators()
+        view.scaleX = 1f
+        view.scaleY = 1f
+        applyStateVisuals()
     }
 
 
@@ -498,6 +513,14 @@ class VoiceBubbleController(
         return 0 to 0
 
     }
+
+
+
+    private fun listeningBackgroundRes(): Int =
+
+        if (dockedOnRight) R.drawable.voice_bubble_listening_bg
+
+        else R.drawable.voice_bubble_listening_bg_left
 
 
 
@@ -781,7 +804,9 @@ class VoiceBubbleController(
 
                 }
 
-                rootView?.alpha = BUBBLE_ALPHA_RECORDING
+                body.setBackgroundResource(listeningBackgroundRes())
+
+                rootView?.alpha = 1f
 
                 startPulseAnimators()
 
@@ -791,7 +816,9 @@ class VoiceBubbleController(
 
                 rootView?.contentDescription = "Processing dictation."
 
-                rootView?.alpha = BUBBLE_ALPHA_PROCESSING
+                body.setBackgroundResource(listeningBackgroundRes())
+
+                rootView?.alpha = 1f
 
                 startProcessingAnimators()
 
@@ -825,15 +852,15 @@ class VoiceBubbleController(
 
         val icon = bubbleIcon ?: return
 
-        body.setBackgroundResource(processingBackgroundRes())
+        body.setBackgroundResource(listeningBackgroundRes())
 
         glow.visibility = View.VISIBLE
 
         shimmer.visibility = View.VISIBLE
 
-        glow.alpha = 0.4f
+        glow.alpha = 0.35f
 
-        shimmer.alpha = 0.55f
+        shimmer.alpha = 0.65f
 
         val glowPulse = ObjectAnimator.ofFloat(glow, View.ALPHA, 0.25f, 1f).apply {
 
@@ -911,16 +938,17 @@ class VoiceBubbleController(
 
         val duration = if (slower) 900L else 700L
 
-        val bodyPulse = ObjectAnimator.ofPropertyValuesHolder(
-
-            body,
-
+        val holders = mutableListOf(
             PropertyValuesHolder.ofFloat(View.SCALE_X, 1f, 1.04f),
-
             PropertyValuesHolder.ofFloat(View.SCALE_Y, 1f, 1.07f),
+        )
+        if (state != VoiceBubbleState.RECORDING) {
+            holders.add(PropertyValuesHolder.ofFloat(View.ALPHA, 1f, 0.82f))
+        }
 
-            PropertyValuesHolder.ofFloat(View.ALPHA, 1f, 0.82f)
-
+        val bodyPulse = ObjectAnimator.ofPropertyValuesHolder(
+            body,
+            *holders.toTypedArray()
         ).apply {
 
             this.duration = duration

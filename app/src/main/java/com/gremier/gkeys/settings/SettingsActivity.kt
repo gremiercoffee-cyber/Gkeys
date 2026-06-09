@@ -23,8 +23,10 @@ import com.google.android.material.button.MaterialButton
 import com.google.android.material.slider.Slider
 import com.google.android.material.switchmaterial.SwitchMaterial
 import com.google.android.material.textfield.TextInputEditText
+import com.gremier.gkeys.ui.GkeysTheme
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 
 class SettingsActivity : AppCompatActivity() {
 
@@ -74,6 +76,8 @@ class SettingsActivity : AppCompatActivity() {
     private var overlayRestrictedStep = 0
     private var settingsLoaded = false
     private var suppressPolishAutoSave = false
+    private var suppressThemeAutoSave = false
+    private lateinit var radioTheme: RadioGroup
 
     private val micPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -98,6 +102,9 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        runBlocking {
+            GkeysTheme.applyAppCompatNightMode(GkeysSettings.isDarkTheme(this@SettingsActivity))
+        }
         super.onCreate(savedInstanceState)
 
         try {
@@ -265,6 +272,7 @@ class SettingsActivity : AppCompatActivity() {
         tvCrashLog = findViewById(R.id.tv_crash_log)
         btnCopyCrash = findViewById(R.id.btn_copy_crash)
         btnClearCrash = findViewById(R.id.btn_clear_crash)
+        radioTheme = findViewById(R.id.radio_theme)
     }
 
     private fun refreshCrashCard() {
@@ -305,6 +313,12 @@ class SettingsActivity : AppCompatActivity() {
                 GkeysSettings.keyboardHeightDp(this@SettingsActivity).first().toFloat()
             )
             updateKeyboardHeightLabel(sliderKeyboardHeight.value.toInt())
+            suppressThemeAutoSave = true
+            when (GkeysSettings.themeMode(this@SettingsActivity).first()) {
+                GkeysSettings.THEME_LIGHT -> radioTheme.check(R.id.radio_theme_light)
+                else -> radioTheme.check(R.id.radio_theme_dark)
+            }
+            suppressThemeAutoSave = false
             switchVoiceBubbleEnabled.isChecked =
                 GkeysSettings.voiceBubbleEnabled(this@SettingsActivity).first()
             switchAiBarWand.isChecked =
@@ -418,6 +432,19 @@ class SettingsActivity : AppCompatActivity() {
         }
         switchDefaultVoiceBubble.setOnCheckedChangeListener { _, _ ->
             autoSave { saveVoiceBubbleSettings() }
+        }
+
+        radioTheme.setOnCheckedChangeListener { _, checkedId ->
+            if (!settingsLoaded || suppressThemeAutoSave) return@setOnCheckedChangeListener
+            lifecycleScope.launch {
+                val mode = when (checkedId) {
+                    R.id.radio_theme_light -> GkeysSettings.THEME_LIGHT
+                    else -> GkeysSettings.THEME_DARK
+                }
+                GkeysSettings.saveThemeMode(this@SettingsActivity, mode)
+                GkeysTheme.applyAppCompatNightMode(GkeysSettings.isDarkThemeMode(mode))
+                recreate()
+            }
         }
 
         switchAiBarWand.setOnCheckedChangeListener { _, checked ->

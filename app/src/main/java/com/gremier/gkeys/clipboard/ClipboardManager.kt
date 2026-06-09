@@ -17,12 +17,14 @@ import android.widget.LinearLayout
 import android.widget.PopupMenu
 import android.widget.TextView
 import com.gremier.gkeys.R
+import com.gremier.gkeys.ui.GkeysTheme
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 
 class GkeysClipboardManager(
     private val context: Context,
+    themeContext: Context,
     private val overlayContainer: ViewGroup,
     private val previewTapTarget: View,
     private val previewView: TextView,
@@ -51,6 +53,7 @@ class GkeysClipboardManager(
     private val dao = ClipboardDatabase.getInstance(context).clipboardDao()
     private val folderDao = ClipboardDatabase.getInstance(context).clipboardFolderDao()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private var themeContext: Context = themeContext
     private var overlayView: View? = null
     private var isListening = false
     private var lastCapturedKey: String? = null
@@ -93,7 +96,24 @@ class GkeysClipboardManager(
         }
     }
 
+    fun updateTheme(dark: Boolean) {
+        themeContext = GkeysTheme.wrap(context, dark)
+        applyPreviewTheme()
+        if (isPanelOpen()) {
+            hidePanel()
+            showPanel()
+        }
+    }
+
+    private fun applyPreviewTheme() {
+        previewView.setTextColor(themeContext.getColor(R.color.gkeys_text_primary))
+        previewHint.setTextColor(themeContext.getColor(R.color.gkeys_text_secondary))
+    }
+
+    private fun themedInflater(): LayoutInflater = LayoutInflater.from(themeContext)
+
     fun setupPreviewInteractions() {
+        applyPreviewTheme()
         previewTapTarget.setOnClickListener { onPreviewTap() }
         previewTapTarget.setOnLongClickListener {
             showPanel()
@@ -175,7 +195,7 @@ class GkeysClipboardManager(
             scope.launch { refreshFromStore() }
             return
         }
-        val panel = LayoutInflater.from(context).inflate(R.layout.clipboard_overlay, overlayContainer, false)
+        val panel = themedInflater().inflate(R.layout.clipboard_overlay, overlayContainer, false)
         panel.layoutDirection = View.LAYOUT_DIRECTION_LTR
         panel.findViewById<View>(R.id.btn_close_clipboard).setOnClickListener {
             hidePanel()
@@ -566,7 +586,7 @@ class GkeysClipboardManager(
 
         val header = TextView(context).apply {
             text = folder.name
-            setTextColor(0xFF4A9EFF.toInt())
+            setTextColor(themeContext.getColor(R.color.gkeys_accent))
             textSize = 13f
             setTypeface(typeface, android.graphics.Typeface.BOLD)
             letterSpacing = 0.05f
@@ -602,7 +622,7 @@ class GkeysClipboardManager(
         columns: Int = 2,
         portraitThumbnail: Boolean = false
     ): View {
-        val card = LayoutInflater.from(context).inflate(R.layout.item_clipboard, parent, false)
+        val card = themedInflater().inflate(R.layout.item_clipboard, parent, false)
         val textView = card.findViewById<TextView>(R.id.tv_clip_text)
         val imageView = card.findViewById<ImageView>(R.id.iv_clip_image)
 
@@ -756,14 +776,14 @@ class GkeysClipboardManager(
         (value * context.resources.displayMetrics.density).toInt()
 
     private fun showInlineOptionPicker(title: String, options: List<Pair<String, () -> Unit>>) {
-        val picker = LayoutInflater.from(context)
+        val picker = themedInflater()
             .inflate(R.layout.clipboard_folder_picker, modalHost(), false)
         picker.findViewById<TextView>(R.id.tv_picker_title).text = title
         val optionsHost = picker.findViewById<LinearLayout>(R.id.picker_options)
         options.forEach { (label, action) ->
             val row = TextView(context).apply {
                 text = label
-                setTextColor(0xFFE8EAF0.toInt())
+                setTextColor(themeContext.getColor(R.color.gkeys_text_primary))
                 textSize = 15f
                 setPadding(dp(16), dp(14), dp(16), dp(14))
                 isClickable = true
@@ -793,7 +813,7 @@ class GkeysClipboardManager(
         initialText: String = "",
         onConfirm: (String) -> Unit
     ) {
-        val prompt = LayoutInflater.from(context)
+        val prompt = themedInflater()
             .inflate(R.layout.clipboard_text_prompt, modalHost(), false)
         prompt.findViewById<TextView>(R.id.tv_prompt_title).text = title
         val input = prompt.findViewById<EditText>(R.id.et_prompt_input)

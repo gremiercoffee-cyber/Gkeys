@@ -46,6 +46,11 @@ object GkeysSettings {
     val AI_BAR_POLISH_BUTTON_ENABLED = booleanPreferencesKey("ai_bar_polish_button_enabled")
     val AI_BAR_LIVE_TRANSCRIBE_ENABLED = booleanPreferencesKey("ai_bar_live_transcribe_enabled")
     val SPEECH_PROFILE = stringPreferencesKey("speech_profile")
+    val THEME_MODE = stringPreferencesKey("theme_mode")
+
+    const val THEME_DARK = "dark"
+    const val THEME_LIGHT = "light"
+    const val DEFAULT_THEME_MODE = THEME_DARK
 
     const val LANG_EN = "en"
     const val LANG_HE = "he"
@@ -379,5 +384,17 @@ object GkeysSettings {
 
     suspend fun saveSpeechProfile(context: Context, profile: String) {
         settingsStore(context).edit { it[SPEECH_PROFILE] = profile.trim() }
+    }
+
+    fun themeMode(context: Context): Flow<String> =
+        settingsStore(context).data.map { it[THEME_MODE] ?: DEFAULT_THEME_MODE }
+
+    suspend fun isDarkTheme(context: Context): Boolean =
+        isDarkThemeMode(themeMode(context).first())
+
+    fun isDarkThemeMode(mode: String): Boolean = mode != THEME_LIGHT
+
+    suspend fun saveThemeMode(context: Context, mode: String) {
+        settingsStore(context).edit { it[THEME_MODE] = mode }
     }
 }

@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Dark theme: dark gray, almost black -->
+    <color name="gkeys_bg">#121214</color>
+    <color name="gkeys_surface">#1C1C1E</color>
+    <color name="gkeys_toolbar">#242426</color>
+    <color name="gkeys_key">#2C2C2E</color>
+    <color name="gkeys_key_special">#3A3A3C</color>
+    <color name="gkeys_key_stroke">#40FFFFFF</color>
+    <color name="gkeys_text_primary">#FFFFFF</color>
+    <color name="gkeys_text_secondary">#9CA3AF</color>
+    <color name="gkeys_text_muted">#6B7280</color>
+    <color name="gkeys_clipboard_pill">#2C2C2E</color>
+    <color name="gkeys_clipboard_stroke">#3A3A3C</color>
+    <color name="gkeys_divider">#2A2A2C</color>
+    <color name="gkeys_overlay_scrim">#E6121214</color>
+    <color name="gkeys_accent">#4A9EFF</color>
+    <color name="gkeys_ripple">#334A9EFF</color>
+    <color name="gkeys_clipboard_card">#2A2A40</color>
+    <color name="gkeys_clipboard_tab">#3A3A55</color>
+    <color name="ic_launcher_background">#242426</color>
+    <color name="keyboard_bg">#121214</color>
+    <color name="text_primary">#FFFFFF</color>
+    <color name="text_muted">#6B7280</color>
+    <color name="accent_blue">#4A9EFF</color>
+</resources>

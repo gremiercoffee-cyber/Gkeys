@@ -8,7 +8,7 @@
 
     android:layout_height="wrap_content"
 
-    android:background="#0F0F1A"
+    android:background="@color/gkeys_bg"
 
     android:layoutDirection="ltr">
 
@@ -24,7 +24,7 @@
 
         android:orientation="vertical"
 
-        android:background="#0F0F1A"
+        android:background="@color/gkeys_bg"
 
         android:layoutDirection="ltr"
 
@@ -44,7 +44,7 @@
 
             android:orientation="horizontal"
 
-            android:background="#1A1A2E"
+            android:background="@color/gkeys_toolbar"
 
             android:paddingStart="8dp"
 
@@ -174,7 +174,7 @@
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:text=""
-                            android:textColor="#E8EAF0"
+                            android:textColor="@color/gkeys_text_primary"
                             android:textSize="12sp"
                             android:singleLine="true"
                             android:ellipsize="end"
@@ -186,7 +186,7 @@
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:text="Clipboard"
-                            android:textColor="#9CA3AF"
+                            android:textColor="@color/gkeys_text_secondary"
                             android:textSize="11sp"
                             android:maxLines="2"
                             android:ellipsize="end" />
@@ -369,7 +369,7 @@
 
             android:layout_height="1dp"
 
-            android:background="#2A2A3E" />
+            android:background="@color/gkeys_divider" />
 
 
 
@@ -383,7 +383,7 @@
 
             android:layoutDirection="ltr"
 
-            android:background="#0F0F1A">
+            android:background="@color/gkeys_bg">
 
 
 
@@ -395,7 +395,7 @@
 
                 android:layout_height="match_parent"
 
-                android:background="#0F0F1A">
+                android:background="@color/gkeys_bg">
 
 
 
