@@ -2161,12 +2161,7 @@ class GkeysIME : InputMethodService() {
     private fun applyUniversalShellHeight() {
         if (!::keyboardPanel.isInitialized) return
         val keysPx = dp(effectiveKeyboardHeightDp())
-        val shellPx = dp(
-            KeyboardLayoutMetrics.shellHeightDp(
-                effectiveKeyboardHeightDp(),
-                includeSuggestions = suggestionsSupported() && suggestionBarVisible
-            )
-        )
+        val shellPx = dp(KeyboardLayoutMetrics.shellHeightDp(effectiveKeyboardHeightDp()))
 
         keyboardPanel.layoutParams = keyboardPanel.layoutParams.apply { height = keysPx }
         keyboardKeysHost.layoutParams = keyboardKeysHost.layoutParams.apply { height = keysPx }
@@ -3043,12 +3038,14 @@ class GkeysIME : InputMethodService() {
 
     private fun refreshSuggestions() {
         val controller = suggestionStripController ?: return
-        if (!suggestionsSupported() || !suggestionBarVisible || currentWordPrefix.isEmpty()) {
+        val showSuggestions = suggestionsSupported() && suggestionBarVisible && currentWordPrefix.isNotEmpty()
+        if (!showSuggestions) {
             controller.setActive(false)
             controller.clear()
-            applyUniversalShellHeight()
+            if (::aiStrip.isInitialized) aiStrip.visibility = View.VISIBLE
             return
         }
+        if (::aiStrip.isInitialized) aiStrip.visibility = View.GONE
         val lang = activeSuggestionLanguage()
         val model = SuggestionEngine.build(
             this,
@@ -3062,7 +3059,6 @@ class GkeysIME : InputMethodService() {
             primaryColor = themeColor(R.color.gkeys_text_primary),
             secondaryColor = themeColor(R.color.gkeys_text_secondary),
         )
-        applyUniversalShellHeight()
     }
 
     private fun onSuggestionTypingKey() {
