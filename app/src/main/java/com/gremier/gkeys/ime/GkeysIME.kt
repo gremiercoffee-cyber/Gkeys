@@ -98,6 +98,8 @@ class GkeysIME : InputMethodService() {
     private var userRequestedKeyboard = false
     /** Cached so onShowInputRequested (which can't suspend) knows the bubble-first preference. */
     private var defaultToVoiceBubbleCached = false
+    /** Prevents requestHideSelf while restoring IME session to commit bubble dictation. */
+    private var suspendBubbleCollapse = false
     private var liveSttActive = false
     private var liveSttPartialLen = 0
     private var deepgramSpeechClient: DeepgramSpeechStreamingClient? = null
@@ -482,7 +484,7 @@ class GkeysIME : InputMethodService() {
             // The IME window must actually be dismissed (not just hidden) so the framework
             // knows the keyboard is down. Otherwise tapping the text field is a no-op because
             // Android thinks the keyboard is already showing and never re-requests it.
-            if (isInputViewShown) {
+            if (isInputViewShown && !suspendBubbleCollapse) {
                 requestHideSelf(0)
             }
         } else {
@@ -555,7 +557,10 @@ class GkeysIME : InputMethodService() {
         } catch (e: Exception) {
             android.util.Log.e("GkeysIME", "onFinishInput failed", e)
         }
-        activeInputConnection = null
+        // Keep the cached connection while bubble dictation or live transcribe is active.
+        if (!isRecording && !micIsProcessing && !liveSttActive) {
+            activeInputConnection = null
+        }
         super.onFinishInput()
     }
 
@@ -741,6 +746,8 @@ class GkeysIME : InputMethodService() {
             vibrate()
             handleLiveTranscribeTap()
         }
+        btnLiveTranscribe.isClickable = true
+        btnLiveTranscribe.isFocusable = true
 
         btnPolishLevel.setOnClickListener { cyclePolishLevel() }
         updatePolishLevelButton()
@@ -843,6 +850,7 @@ class GkeysIME : InputMethodService() {
         if (liveSttActive) {
             stopLiveStt()
         } else {
+            releaseAudioRecorderForGhostwriter()
             startLiveStt()
         }
     }
@@ -893,25 +901,33 @@ class GkeysIME : InputMethodService() {
 
     private fun updateLiveSttPartial(text: String) {
         val ic = activeIc() ?: return
-        if (liveSttPartialLen > 0) {
-            ic.deleteSurroundingText(liveSttPartialLen, 0)
-        }
-        if (text.isNotEmpty()) {
-            ic.commitText(text, 1)
-            liveSttPartialLen = text.length
-        } else {
-            liveSttPartialLen = 0
+        try {
+            if (liveSttPartialLen > 0) {
+                ic.deleteSurroundingText(liveSttPartialLen, 0)
+            }
+            if (text.isNotEmpty()) {
+                ic.commitText(text, 1)
+                liveSttPartialLen = text.length
+            } else {
+                liveSttPartialLen = 0
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("GkeysIME", "updateLiveSttPartial failed", e)
         }
     }
 
     private fun commitLiveSttFinal(text: String) {
         val ic = activeIc() ?: return
-        if (liveSttPartialLen > 0) {
-            ic.deleteSurroundingText(liveSttPartialLen, 0)
-        }
-        liveSttPartialLen = 0
-        if (text.isNotEmpty()) {
-            ic.commitText("$text ", 1)
+        try {
+            if (liveSttPartialLen > 0) {
+                ic.deleteSurroundingText(liveSttPartialLen, 0)
+            }
+            liveSttPartialLen = 0
+            if (text.isNotEmpty()) {
+                ic.commitText("$text ", 1)
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("GkeysIME", "commitLiveSttFinal failed", e)
         }
     }
 
@@ -1062,6 +1078,7 @@ class GkeysIME : InputMethodService() {
         if (isRecording) {
             stopRecordingAndProcess(VoiceAction.DEFAULT)
         } else {
+            stopLiveStt()
             startRecording()
             updateMicVisuals(recording = true)
         }
@@ -1183,6 +1200,7 @@ class GkeysIME : InputMethodService() {
             voiceBubbleController?.setState(VoiceBubbleState.PROCESSING)
             stopRecordingAndProcess(VoiceAction.DEFAULT)
         } else {
+            stopLiveStt()
             try {
                 audioRecorder.startRecording()
                 isRecording = true
@@ -1245,24 +1263,72 @@ class GkeysIME : InputMethodService() {
         stopRecordingAndProcess(VoiceAction.TRANSLATE)
     }
 
-    private fun commitToActiveField(text: String): Boolean {
-        val ic = currentInputConnection ?: activeInputConnection
-        if (ic == null) {
-            android.util.Log.w("GkeysIME", "commitToActiveField: no input connection")
-            showErrorToast("Couldn't insert text — tap the text field first")
+    private fun commitToActiveField(
+        text: String,
+        onComplete: ((Boolean) -> Unit)? = null
+    ): Boolean {
+        val trimmed = text.trim()
+        if (trimmed.isEmpty()) {
+            onComplete?.invoke(false)
             return false
         }
-        val trimmed = text.trim()
-        if (trimmed.isEmpty()) return false
-        try {
+
+        if (tryCommitToField(trimmed)) {
+            onComplete?.invoke(true)
+            return true
+        }
+
+        // After requestHideSelf the IME session is torn down; briefly restore it to commit.
+        if (needsInputSessionRestoreForCommit()) {
+            restoreInputSessionForCommit(trimmed, onComplete)
+            return false
+        }
+
+        android.util.Log.w("GkeysIME", "commitToActiveField: no input connection")
+        showErrorToast("Couldn't insert text — tap the text field first")
+        onComplete?.invoke(false)
+        return false
+    }
+
+    private fun needsInputSessionRestoreForCommit(): Boolean =
+        shouldCollapseKeyboardForBubble() ||
+            (voiceBubbleController?.isShowing == true && !isInputViewShown)
+
+    private fun tryCommitToField(trimmed: String): Boolean {
+        val ic = activeIc() ?: return false
+        return try {
             ic.finishComposingText()
             ic.commitText("$trimmed ", 1)
             activeInputConnection = ic
-            return true
+            true
         } catch (e: Exception) {
-            android.util.Log.e("GkeysIME", "commitToActiveField failed", e)
-            showErrorToast("Couldn't insert text")
-            return false
+            android.util.Log.w("GkeysIME", "tryCommitToField failed", e)
+            false
+        }
+    }
+
+    private fun restoreInputSessionForCommit(
+        text: String,
+        onComplete: ((Boolean) -> Unit)? = null
+    ) {
+        suspendBubbleCollapse = true
+        requestShowSelf(0)
+        if (::keyboardView.isInitialized) {
+            keyboardView.visibility = View.GONE
+        }
+        handler.post {
+            try {
+                activeInputConnection = currentInputConnection ?: activeInputConnection
+                if (tryCommitToField(text)) {
+                    onComplete?.invoke(true)
+                } else {
+                    showErrorToast("Couldn't insert text — tap the text field first")
+                    onComplete?.invoke(false)
+                }
+            } finally {
+                suspendBubbleCollapse = false
+                syncBubbleKeyboardWindow()
+            }
         }
     }
 
@@ -2413,10 +2479,10 @@ class GkeysIME : InputMethodService() {
             }
 
             finalText.onSuccess { polished ->
-                if (commitToActiveField(polished)) {
-                    vibrate()
+                commitToActiveField(polished) { success ->
+                    if (success) vibrate()
+                    stopMicProcessingAnimation()
                 }
-                stopMicProcessingAnimation()
             }.onFailure {
                 stopMicProcessingAnimation()
                 showErrorToast(
