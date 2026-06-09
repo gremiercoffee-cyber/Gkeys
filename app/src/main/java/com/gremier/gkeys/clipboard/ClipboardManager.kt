@@ -5,10 +5,8 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.net.Uri
 import android.os.Build
-import android.text.InputType
 import android.util.Log
 import android.util.Size
-import android.view.ContextThemeWrapper
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -18,7 +16,6 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.PopupMenu
 import android.widget.TextView
-import androidx.appcompat.app.AlertDialog
 import com.gremier.gkeys.R
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.collectLatest
@@ -57,10 +54,7 @@ class GkeysClipboardManager(
     private var previewItem: ClipboardItem? = null
     private var observeJob: Job? = null
     private var cachedFolders: List<ClipboardFolder> = emptyList()
-
-    private val dialogContext by lazy {
-        ContextThemeWrapper(context, R.style.Theme_Gkeys)
-    }
+    private var modalOverlay: View? = null
 
     private val prefs by lazy {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -194,6 +188,7 @@ class GkeysClipboardManager(
     }
 
     fun hidePanel() {
+        dismissModalOverlay()
         overlayView?.visibility = View.GONE
         overlayContainer.visibility = View.GONE
         onPanelClose()
@@ -305,29 +300,34 @@ class GkeysClipboardManager(
 
     private suspend fun pinItem(item: ClipboardItem, folderId: Long?) {
         withContext(Dispatchers.IO) {
-            dao.update(
-                item.copy(
-                    isPinned = true,
-                    folderId = folderId
-                )
-            )
+            try {
+                dao.pinById(item.id, folderId)
+            } catch (e: Exception) {
+                Log.e(TAG, "pinItem failed for id=${item.id}", e)
+                throw e
+            }
         }
     }
 
     private suspend fun unpinItem(item: ClipboardItem) {
         withContext(Dispatchers.IO) {
-            dao.update(
-                item.copy(
-                    isPinned = false,
-                    folderId = null
-                )
-            )
+            try {
+                dao.unpinById(item.id)
+            } catch (e: Exception) {
+                Log.e(TAG, "unpinItem failed for id=${item.id}", e)
+                throw e
+            }
         }
     }
 
     private suspend fun moveItemToFolder(item: ClipboardItem, folderId: Long?) {
         withContext(Dispatchers.IO) {
-            dao.update(item.copy(folderId = folderId))
+            try {
+                dao.setFolderById(item.id, folderId)
+            } catch (e: Exception) {
+                Log.e(TAG, "moveItemToFolder failed for id=${item.id}", e)
+                throw e
+            }
         }
     }
 
@@ -664,13 +664,27 @@ class GkeysClipboardManager(
                 menu.add("Unpin")
                 menu.add("Move to folder…")
             } else {
-                menu.add("Pin…")
+                menu.add("Pin")
+                menu.add("Pin to folder…")
             }
             menu.add("Delete")
             setOnMenuItemClickListener { menuItem ->
                 when (menuItem.title.toString()) {
-                    "Pin…" -> showFolderPickerForPin(item)
-                    "Unpin" -> scope.launch { unpinItem(item) }
+                    "Pin" -> scope.launch {
+                        try {
+                            pinItem(item, folderId = null)
+                        } catch (_: Exception) {
+                            showClipboardError("Couldn't pin item")
+                        }
+                    }
+                    "Pin…", "Pin to folder…" -> showFolderPickerForPin(item)
+                    "Unpin" -> scope.launch {
+                        try {
+                            unpinItem(item)
+                        } catch (_: Exception) {
+                            showClipboardError("Couldn't unpin item")
+                        }
+                    }
                     "Move to folder…" -> showFolderPickerForMove(item)
                     "Delete" -> scope.launch { deleteItem(item) }
                 }
@@ -686,7 +700,13 @@ class GkeysClipboardManager(
             includeNone = true,
             noneLabel = "Pinned (no folder)",
             onSelected = { folderId ->
-                scope.launch { pinItem(item, folderId) }
+                scope.launch {
+                    try {
+                        pinItem(item, folderId)
+                    } catch (_: Exception) {
+                        showClipboardError("Couldn't pin item")
+                    }
+                }
             }
         )
     }
@@ -708,107 +728,168 @@ class GkeysClipboardManager(
         noneLabel: String,
         onSelected: (folderId: Long?) -> Unit
     ) {
-        val options = mutableListOf<String>()
-        val folderIds = mutableListOf<Long?>()
+        val options = mutableListOf<Pair<String, () -> Unit>>()
         if (includeNone) {
-            options.add(noneLabel)
-            folderIds.add(null)
+            options.add(noneLabel to { onSelected(null) })
         }
         cachedFolders.forEach { folder ->
-            options.add(folder.name)
-            folderIds.add(folder.id)
+            options.add(folder.name to { onSelected(folder.id) })
         }
-        options.add("New folder…")
+        options.add("New folder…" to {
+            showCreateFolderDialog { newFolderId -> onSelected(newFolderId) }
+        })
+        showInlineOptionPicker(title, options)
+    }
 
-        AlertDialog.Builder(dialogContext)
-            .setTitle(title)
-            .setItems(options.toTypedArray()) { _, which ->
-                if (which == options.lastIndex) {
-                    showCreateFolderDialog { newFolderId ->
-                        onSelected(newFolderId)
-                    }
-                } else {
-                    onSelected(folderIds[which])
+    private fun modalHost(): ViewGroup {
+        if (overlayView == null) {
+            showPanel()
+        }
+        return overlayView as? ViewGroup ?: overlayContainer
+    }
+
+    private fun dismissModalOverlay() {
+        modalOverlay?.let { overlay ->
+            (overlay.parent as? ViewGroup)?.removeView(overlay)
+        }
+        modalOverlay = null
+    }
+
+    private fun showModalOverlay(view: View) {
+        dismissModalOverlay()
+        modalOverlay = view
+        modalHost().addView(
+            view,
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.MATCH_PARENT
+        )
+    }
+
+    private fun dp(value: Int): Int =
+        (value * context.resources.displayMetrics.density).toInt()
+
+    private fun showInlineOptionPicker(title: String, options: List<Pair<String, () -> Unit>>) {
+        val picker = LayoutInflater.from(context)
+            .inflate(R.layout.clipboard_folder_picker, modalHost(), false)
+        picker.findViewById<TextView>(R.id.tv_picker_title).text = title
+        val optionsHost = picker.findViewById<LinearLayout>(R.id.picker_options)
+        options.forEach { (label, action) ->
+            val row = TextView(context).apply {
+                text = label
+                setTextColor(0xFFE8EAF0.toInt())
+                textSize = 15f
+                setPadding(dp(16), dp(14), dp(16), dp(14))
+                isClickable = true
+                isFocusable = true
+                setOnClickListener {
+                    onVibrate()
+                    dismissModalOverlay()
+                    action()
                 }
             }
-            .show()
+            optionsHost.addView(row)
+        }
+        picker.findViewById<View>(R.id.btn_picker_cancel).setOnClickListener {
+            onVibrate()
+            dismissModalOverlay()
+        }
+        picker.findViewById<View>(R.id.picker_scrim).setOnClickListener {
+            dismissModalOverlay()
+        }
+        picker.findViewById<View>(R.id.picker_card).setOnClickListener { }
+        showModalOverlay(picker)
+    }
+
+    private fun showInlineTextPrompt(
+        title: String,
+        confirmLabel: String,
+        initialText: String = "",
+        onConfirm: (String) -> Unit
+    ) {
+        val prompt = LayoutInflater.from(context)
+            .inflate(R.layout.clipboard_text_prompt, modalHost(), false)
+        prompt.findViewById<TextView>(R.id.tv_prompt_title).text = title
+        val input = prompt.findViewById<EditText>(R.id.et_prompt_input)
+        input.setText(initialText)
+        if (initialText.isNotEmpty()) {
+            input.setSelection(initialText.length)
+        }
+        prompt.findViewById<TextView>(R.id.btn_prompt_confirm).text = confirmLabel
+        prompt.findViewById<View>(R.id.btn_prompt_cancel).setOnClickListener {
+            onVibrate()
+            dismissModalOverlay()
+        }
+        prompt.findViewById<View>(R.id.btn_prompt_confirm).setOnClickListener {
+            val value = input.text.toString().trim()
+            if (value.isBlank()) return@setOnClickListener
+            onVibrate()
+            dismissModalOverlay()
+            onConfirm(value)
+        }
+        prompt.findViewById<View>(R.id.prompt_scrim).setOnClickListener {
+            dismissModalOverlay()
+        }
+        prompt.findViewById<View>(R.id.prompt_card).setOnClickListener { }
+        showModalOverlay(prompt)
+        input.requestFocus()
     }
 
     private fun showCreateFolderDialog(onCreated: ((Long?) -> Unit)? = null) {
-        val input = EditText(dialogContext).apply {
-            hint = "Folder name"
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS
-            setSingleLine()
-            setPadding(48, 32, 48, 16)
-        }
-
-        AlertDialog.Builder(dialogContext)
-            .setTitle("New folder")
-            .setView(input)
-            .setPositiveButton("Create") { _, _ ->
-                val name = input.text.toString().trim()
-                if (name.isBlank()) return@setPositiveButton
-                scope.launch {
-                    val id = withContext(Dispatchers.IO) {
-                        folderDao.insert(ClipboardFolder(name = name))
-                    }
-                    onCreated?.invoke(id)
+        showInlineTextPrompt(title = "New folder", confirmLabel = "Create") { name ->
+            scope.launch {
+                val id = withContext(Dispatchers.IO) {
+                    folderDao.insert(ClipboardFolder(name = name))
                 }
+                onCreated?.invoke(id)
             }
-            .setNegativeButton("Cancel", null)
-            .show()
+        }
     }
 
     private fun showFolderOptionsDialog(folder: ClipboardFolder) {
-        AlertDialog.Builder(dialogContext)
-            .setTitle(folder.name)
-            .setItems(arrayOf("Rename", "Delete folder")) { _, which ->
-                when (which) {
-                    0 -> showRenameFolderDialog(folder)
-                    1 -> confirmDeleteFolder(folder)
-                }
-            }
-            .show()
+        showInlineOptionPicker(
+            title = folder.name,
+            options = listOf(
+                "Rename" to { showRenameFolderDialog(folder) },
+                "Delete folder" to { confirmDeleteFolder(folder) }
+            )
+        )
     }
 
     private fun showRenameFolderDialog(folder: ClipboardFolder) {
-        val input = EditText(dialogContext).apply {
-            setText(folder.name)
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS
-            setSingleLine()
-            setSelection(folder.name.length)
-            setPadding(48, 32, 48, 16)
-        }
-
-        AlertDialog.Builder(dialogContext)
-            .setTitle("Rename folder")
-            .setView(input)
-            .setPositiveButton("Save") { _, _ ->
-                val name = input.text.toString().trim()
-                if (name.isBlank() || name == folder.name) return@setPositiveButton
-                scope.launch {
-                    withContext(Dispatchers.IO) {
-                        folderDao.update(folder.copy(name = name))
-                    }
+        showInlineTextPrompt(
+            title = "Rename folder",
+            confirmLabel = "Save",
+            initialText = folder.name
+        ) { name ->
+            if (name == folder.name) return@showInlineTextPrompt
+            scope.launch {
+                withContext(Dispatchers.IO) {
+                    folderDao.update(folder.copy(name = name))
                 }
             }
-            .setNegativeButton("Cancel", null)
-            .show()
+        }
     }
 
     private fun confirmDeleteFolder(folder: ClipboardFolder) {
-        AlertDialog.Builder(dialogContext)
-            .setTitle("Delete folder?")
-            .setMessage("Items in this folder stay pinned and move to Pinned.")
-            .setPositiveButton("Delete") { _, _ ->
-                scope.launch {
-                    withContext(Dispatchers.IO) {
-                        folderDao.clearFolderAssignments(folder.id)
-                        folderDao.delete(folder)
+        showInlineOptionPicker(
+            title = "Delete \"${folder.name}\"?",
+            options = listOf(
+                "Delete — items stay pinned" to {
+                    scope.launch {
+                        withContext(Dispatchers.IO) {
+                            folderDao.clearFolderAssignments(folder.id)
+                            folderDao.delete(folder)
+                        }
                     }
                 }
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
+            )
+        )
+    }
+
+    private fun showClipboardError(message: String) {
+        try {
+            android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_SHORT).show()
+        } catch (_: Exception) {
+        }
     }
 }

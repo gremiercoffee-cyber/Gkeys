@@ -236,7 +236,10 @@
                 android:background="@drawable/btn_circle_bg"
                 android:contentDescription="Live transcribe — tap to start and stop"
                 android:scaleType="centerInside"
-                android:padding="5dp" />
+                android:padding="5dp"
+                android:clickable="true"
+                android:focusable="true"
+                android:foreground="?android:attr/selectableItemBackgroundBorderless" />
 
             <FrameLayout
 

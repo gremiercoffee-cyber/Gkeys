@@ -273,6 +273,22 @@ class VoiceBubbleController(
 
 
 
+    fun setKeepScreenOn(enabled: Boolean) {
+        val view = rootView ?: return
+        val params = layoutParams ?: return
+        params.flags = if (enabled) {
+            params.flags or WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+        } else {
+            params.flags and WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON.inv()
+        }
+        try {
+            windowManager.updateViewLayout(view, params)
+        } catch (_: Exception) {
+        }
+    }
+
+
+
     fun hide(animate: Boolean = true, onEnd: (() -> Unit)? = null) {
 
         val view = rootView

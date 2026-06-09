@@ -98,7 +98,9 @@ class GkeysIME : InputMethodService() {
     private var suppressBubbleAutoStart = false
     /** Set when the user taps the field or swipes up to leave bubble mode for the keyboard. */
     private var userRequestedKeyboard = false
-    private var bubbleAutoListenRunnable: Runnable? = null
+    /** Swallow the automatic show-keyboard request that arrives with initial field focus. */
+    private var bubbleConsumeNextShowRequest = false
+    private var bubbleShowRequestConsumeRunnable: Runnable? = null
     /** Cached so onShowInputRequested (which can't suspend) knows the bubble-first preference. */
     private var defaultToVoiceBubbleCached = false
     /** Prevents requestHideSelf while restoring IME session to commit bubble dictation. */
@@ -109,7 +111,9 @@ class GkeysIME : InputMethodService() {
     private var pendingSessionReadyAction: (() -> Unit)? = null
     private var pendingSessionReadyFailed: (() -> Unit)? = null
     private var liveSttActive = false
+    private var liveSttConnecting = false
     private var liveSttPartialLen = 0
+    private var liveSttPendingPartial: String? = null
     private var deepgramSpeechClient: DeepgramSpeechStreamingClient? = null
 
     private val handler = Handler(Looper.getMainLooper())
@@ -168,6 +172,7 @@ class GkeysIME : InputMethodService() {
     private var emojiPanelVisible = false
     private var emojiOpenedFromNumpad = false
     private var micIsProcessing = false
+    private lateinit var micSessionGuard: MicSessionGuard
     private var micProcessingAnimator: AnimatorSet? = null
     private var micSparkleRotateAnimator: ObjectAnimator? = null
     private var micShimmerRotateAnimator: ObjectAnimator? = null
@@ -275,6 +280,10 @@ class GkeysIME : InputMethodService() {
         try {
             aiManager = AiManager(this)
             audioRecorder = AudioRecorder(this)
+            micSessionGuard = MicSessionGuard(this)
+            micSessionGuard.setOverlayScreenOnCallback { keepOn ->
+                voiceBubbleController?.setKeepScreenOn(keepOn)
+            }
             vibrator = initVibrator()
             voiceBubbleController = VoiceBubbleController(this, voiceBubbleListener)
             observePolishLevel()
@@ -609,41 +618,50 @@ class GkeysIME : InputMethodService() {
     }
 
     override fun onShowInputRequested(reason: Int, showingForced: Boolean): Boolean {
-        // Second tap on an already-focused field expands the keyboard; skip internal dictation restore.
         if (voiceBubbleModeActive && bubbleKeyboardCollapsed && !bubbleDictationSessionActive) {
-            cancelScheduledBubbleAutoListen()
-            suppressBubbleAutoStart = true
+            if (bubbleConsumeNextShowRequest) {
+                cancelBubbleShowRequestConsume()
+                return super.onShowInputRequested(reason, showingForced)
+            }
             expandKeyboardFromBubble()
         }
         return super.onShowInputRequested(reason, showingForced)
     }
 
-    private fun cancelScheduledBubbleAutoListen() {
-        bubbleAutoListenRunnable?.let { handler.removeCallbacks(it) }
-        bubbleAutoListenRunnable = null
-    }
-
-    /** New field focus in bubble mode: show bubble and start listening like a bubble tap. */
-    private fun scheduleBubbleAutoListen() {
-        cancelScheduledBubbleAutoListen()
-        val runnable = Runnable {
-            bubbleAutoListenRunnable = null
-            if (!voiceBubbleModeActive || !bubbleKeyboardCollapsed) return@Runnable
-            if (isRecording || micIsProcessing || bubbleTranslateHoldActive) return@Runnable
-            if (userRequestedKeyboard || suppressBubbleAutoStart) return@Runnable
-            handleBubbleMicTap()
+    private fun armBubbleShowRequestConsume() {
+        bubbleConsumeNextShowRequest = true
+        bubbleShowRequestConsumeRunnable?.let { handler.removeCallbacks(it) }
+        val clear = Runnable {
+            bubbleConsumeNextShowRequest = false
+            bubbleShowRequestConsumeRunnable = null
         }
-        bubbleAutoListenRunnable = runnable
-        handler.postDelayed(runnable, 250)
+        bubbleShowRequestConsumeRunnable = clear
+        handler.postDelayed(clear, 350)
     }
 
-    private suspend fun activateBubbleOnFieldFocus(autoListen: Boolean) {
+    private fun cancelBubbleShowRequestConsume() {
+        bubbleShowRequestConsumeRunnable?.let { handler.removeCallbacks(it) }
+        bubbleShowRequestConsumeRunnable = null
+        bubbleConsumeNextShowRequest = false
+    }
+
+    private fun hideBubbleOverlay(animate: Boolean = true) {
+        voiceBubbleController?.hide(animate = animate)
+    }
+
+    private fun showBubbleOverlayIfFieldActive() {
+        if (!voiceBubbleModeActive || isRecording || micIsProcessing) return
+        voiceBubbleController?.show()
+    }
+
+    private suspend fun activateBubbleOnFieldFocus() {
         bubbleKeyboardCollapsed = true
         userRequestedKeyboard = false
-        if (tryActivateVoiceBubbleMode()) {
+        armBubbleShowRequestConsume()
+        if (tryActivateVoiceBubbleMode(showOverlay = true)) {
             handler.post { syncBubbleKeyboardWindow() }
-            if (autoListen) scheduleBubbleAutoListen()
         } else if (GkeysSettings.voiceBubbleModeActive(this@GkeysIME).first()) {
+            voiceBubbleModeActive = true
             handler.post { syncBubbleKeyboardWindow() }
         } else {
             voiceBubbleModeActive = false
@@ -670,11 +688,11 @@ class GkeysIME : InputMethodService() {
                 val persistedActive = GkeysSettings.voiceBubbleModeActive(this@GkeysIME).first()
                 defaultToVoiceBubbleCached = GkeysSettings.defaultToVoiceBubble(this@GkeysIME).first()
 
-                // Second tap on the same field — expand keyboard, keep bubble.
-                if (suppressBubbleAutoStart || userRequestedKeyboard || restarting) {
+                // Bubble swipe-up or other explicit keyboard request.
+                if (suppressBubbleAutoStart || userRequestedKeyboard) {
                     suppressBubbleAutoStart = false
                     userRequestedKeyboard = false
-                    cancelScheduledBubbleAutoListen()
+                    cancelBubbleShowRequestConsume()
                     if (voiceBubbleModeActive && bubbleKeyboardCollapsed && !bubbleDictationSessionActive) {
                         expandKeyboardFromBubble()
                     } else {
@@ -683,15 +701,30 @@ class GkeysIME : InputMethodService() {
                     return@launch
                 }
 
-                // New field while bubble mode is on — collapsed bubble + auto-listen.
+                // Field re-bound while still focused (not a user tap) — keep bubble collapsed.
+                if (restarting) {
+                    cancelBubbleShowRequestConsume()
+                    if (voiceBubbleModeActive) {
+                        bubbleKeyboardCollapsed = true
+                        handler.post {
+                            tryActivateVoiceBubbleMode(showOverlay = true)
+                            syncBubbleKeyboardWindow()
+                        }
+                    } else {
+                        syncBubbleKeyboardWindow()
+                    }
+                    return@launch
+                }
+
+                // New field while bubble mode is on — show bubble, keep keyboard collapsed.
                 if (persistedActive || voiceBubbleModeActive) {
-                    activateBubbleOnFieldFocus(autoListen = true)
+                    activateBubbleOnFieldFocus()
                     return@launch
                 }
 
                 // First-time entry when "default to bubble" setting is enabled.
                 if (defaultToVoiceBubbleCached) {
-                    activateBubbleOnFieldFocus(autoListen = true)
+                    activateBubbleOnFieldFocus()
                     return@launch
                 }
 
@@ -704,14 +737,14 @@ class GkeysIME : InputMethodService() {
 
     override fun onFinishInput() {
         try {
-            cancelScheduledBubbleAutoListen()
+            cancelBubbleShowRequestConsume()
             if (isRecording && !recordingForGhostwriter) {
                 cancelRecording()
             }
             if (!voiceBubbleModeActive && !isRecording && !micIsProcessing) {
-                voiceBubbleController?.hide(animate = true)
+                hideBubbleOverlay(animate = true)
             } else if (voiceBubbleModeActive && !isRecording && !micIsProcessing) {
-                voiceBubbleController?.show()
+                hideBubbleOverlay(animate = true)
             }
         } catch (e: Exception) {
             android.util.Log.e("GkeysIME", "onFinishInput failed", e)
@@ -725,6 +758,7 @@ class GkeysIME : InputMethodService() {
 
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
+        window?.window?.let { micSessionGuard.setImeWindow(it) }
         activeInputConnection = currentInputConnection
         try {
             val sessionPending = pendingSessionReadyAction
@@ -768,6 +802,7 @@ class GkeysIME : InputMethodService() {
             if (voiceBubbleModeActive) {
                 voiceBubbleController?.show()
             }
+            liveSttPendingPartial?.let { updateLiveSttPartial(it) }
         } catch (e: Throwable) {
             android.util.Log.e("GkeysIME", "onStartInputView failed", e)
         }
@@ -776,6 +811,7 @@ class GkeysIME : InputMethodService() {
     override fun onFinishInputView(finishingInput: Boolean) {
         try {
             if (voiceBubbleModeActive) {
+                stopLiveStt()
                 bubbleKeyboardCollapsed = true
                 hideVoiceOverlay()
                 hideGhostwriterOverlay()
@@ -828,8 +864,10 @@ class GkeysIME : InputMethodService() {
                 }
                 if (!voiceBubbleEnabled && voiceBubbleModeActive) {
                     exitVoiceBubbleMode()
-                } else if (voiceBubbleModeActive && voiceBubbleController?.isShowing != true) {
-                    handler.post { tryActivateVoiceBubbleMode() }
+                } else if (voiceBubbleModeActive && voiceBubbleController?.isShowing != true &&
+                    currentInputConnection != null
+                ) {
+                    handler.post { tryActivateVoiceBubbleMode(showOverlay = true) }
                 }
                 updateVoiceBubbleButtonVisibility()
                 aiBarSettingsEnabled = GkeysSettings.aiBarSettingsEnabled(this@GkeysIME).first()
@@ -936,15 +974,13 @@ class GkeysIME : InputMethodService() {
         btnWand.isClickable = true
         btnWand.isFocusable = true
 
-        btnLiveTranscribe.setOnTouchListener { _, event ->
-            if (event.actionMasked == MotionEvent.ACTION_UP) {
-                vibrate()
-                handleLiveTranscribeTap()
-            }
-            true
+        btnLiveTranscribe.setOnClickListener {
+            hapticKeyTap()
+            handleLiveTranscribeTap()
         }
         btnLiveTranscribe.isClickable = true
         btnLiveTranscribe.isFocusable = true
+        updateLiveTranscribeButton()
 
         btnPolishLevel.setOnClickListener { cyclePolishLevel() }
         updatePolishLevelButton()
@@ -1017,6 +1053,7 @@ class GkeysIME : InputMethodService() {
         try {
             if (isRecording || audioRecorder.isRecording) {
                 audioRecorder.cancelRecording()
+                endMicCapture()
             }
         } catch (e: Exception) {
             android.util.Log.w("GkeysIME", "releaseAudioRecorderForGhostwriter failed", e)
@@ -1026,9 +1063,24 @@ class GkeysIME : InputMethodService() {
         updateMicVisuals(recording = false)
     }
 
+    private fun beginMicCapture() {
+        if (::micSessionGuard.isInitialized) {
+            micSessionGuard.acquire()
+        }
+    }
+
+    private fun endMicCapture() {
+        if (::micSessionGuard.isInitialized) {
+            micSessionGuard.release()
+        }
+    }
+
     /** Tap live-transcribe button: toggle Deepgram streaming into the text field. */
     private fun handleLiveTranscribeTap() {
-        if (isGhostwriterOverlay) return
+        if (isGhostwriterOverlay) {
+            showErrorToast("Close ghostwriter first")
+            return
+        }
         refreshApiKeys()
         if (!hasMicPermission()) {
             showErrorToast("Allow microphone for Gkeys")
@@ -1040,32 +1092,98 @@ class GkeysIME : InputMethodService() {
             openAppSettings()
             return
         }
-        if (liveSttActive) {
+        if (liveSttActive || liveSttConnecting) {
             stopLiveStt()
             return
         }
+        if (isRecording) {
+            cancelRecording()
+        }
         releaseAudioRecorderForGhostwriter()
-        beginLiveTranscribe()
+        if (voiceBubbleModeActive && bubbleKeyboardCollapsed) {
+            expandKeyboardFromBubble()
+        }
+        liveSttConnecting = true
+        updateLiveTranscribeButton()
+        toastStatus("Starting live transcribe…")
+        ensureInputForLiveStt {
+            startLiveStt()
+        }
     }
 
-    private fun beginLiveTranscribe() {
+    /** Wait for a live input connection before streaming text into the field. */
+    private fun ensureInputForLiveStt(onReady: () -> Unit) {
+        if (activeIc() != null) {
+            onReady()
+            return
+        }
         if (!isInputViewShown) {
             requestShowSelf(0)
         }
-        handler.post { startLiveTranscribeWhenReady(attemptsLeft = 6) }
-    }
-
-    private fun startLiveTranscribeWhenReady(attemptsLeft: Int) {
-        activeInputConnection = currentInputConnection ?: activeInputConnection
-        if (activeIc() == null) {
-            if (attemptsLeft > 0) {
-                handler.postDelayed({ startLiveTranscribeWhenReady(attemptsLeft - 1) }, 50)
+        fun attempt(remaining: Int) {
+            activeInputConnection = currentInputConnection ?: activeInputConnection
+            if (activeIc() != null) {
+                onReady()
                 return
             }
-            showErrorToast("Tap a text field first")
-            return
+            if (remaining > 0) {
+                handler.postDelayed({ attempt(remaining - 1) }, 80)
+            } else {
+                liveSttConnecting = false
+                updateLiveTranscribeButton()
+                toastStatus("")
+                showErrorToast("Tap a text field first")
+            }
         }
-        startLiveStt()
+        handler.post { attempt(25) }
+    }
+
+    private fun startLiveStt() {
+        if (liveSttActive || deepgramSpeechClient != null) return
+        liveSttPartialLen = 0
+        liveSttPendingPartial = null
+        try {
+            deepgramSpeechClient = DeepgramSpeechStreamingClient(
+                apiKey = deepgramKey,
+                languageCode = sttLanguageCode(),
+                onPartial = { text -> updateLiveSttPartial(text) },
+                onFinal = { text -> commitLiveSttFinal(text) },
+                onConnected = {
+                    liveSttConnecting = false
+                    liveSttActive = true
+                    beginMicCapture()
+                    updateLiveTranscribeButton()
+                    toastStatus("Listening… tap icon to stop")
+                },
+                onError = { error ->
+                    android.util.Log.e("GkeysIME", "Live STT failed", error)
+                    showErrorToast(error.message ?: "Live transcribe failed")
+                    stopLiveStt()
+                }
+            )
+            deepgramSpeechClient?.start(scope)
+        } catch (e: Exception) {
+            android.util.Log.e("GkeysIME", "startLiveStt failed", e)
+            liveSttConnecting = false
+            updateLiveTranscribeButton()
+            toastStatus("")
+            showErrorToast("Microphone error — check permission in Gkeys app")
+            stopLiveStt()
+        }
+    }
+
+    private fun updateLiveTranscribeButton() {
+        if (!::btnLiveTranscribe.isInitialized) return
+        val active = liveSttActive || liveSttConnecting
+        btnLiveTranscribe.setBackgroundResource(
+            if (active) R.drawable.ai_mic_bg_active else R.drawable.btn_circle_bg
+        )
+        btnLiveTranscribe.alpha = if (active) 1f else 0.92f
+    }
+
+    private fun sttLanguageCode(): String = when {
+        isHebrew -> "he-IL"
+        else -> "en-US"
     }
 
     private fun activeIc(): InputConnection? {
@@ -1074,47 +1192,13 @@ class GkeysIME : InputMethodService() {
         return ic
     }
 
-    private fun updateLiveTranscribeButton() {
-        if (!::btnLiveTranscribe.isInitialized) return
-        btnLiveTranscribe.setBackgroundResource(
-            if (liveSttActive) R.drawable.ai_mic_bg_active else R.drawable.btn_circle_bg
-        )
-        btnLiveTranscribe.alpha = if (liveSttActive) 1f else 0.92f
-    }
-
-    private fun sttLanguageCode(): String = when {
-        isHebrew -> "he-IL"
-        else -> "en-US"
-    }
-
-    private fun startLiveStt() {
-        if (liveSttActive) return
-        liveSttPartialLen = 0
-        try {
-            deepgramSpeechClient = DeepgramSpeechStreamingClient(
-                apiKey = deepgramKey,
-                languageCode = sttLanguageCode(),
-                onPartial = { text -> updateLiveSttPartial(text) },
-                onFinal = { text -> commitLiveSttFinal(text) },
-                onError = { error ->
-                    android.util.Log.e("GkeysIME", "Live STT failed", error)
-                    showErrorToast("Live transcribe failed")
-                    stopLiveStt()
-                }
-            )
-            deepgramSpeechClient?.start(scope)
-            liveSttActive = true
-            updateLiveTranscribeButton()
-            Toast.makeText(this, "Live transcribe on — tap again to stop", Toast.LENGTH_SHORT).show()
-        } catch (e: Exception) {
-            android.util.Log.e("GkeysIME", "startLiveStt failed", e)
-            showErrorToast("Microphone error — check permission in Gkeys app")
-            stopLiveStt()
-        }
-    }
-
     private fun updateLiveSttPartial(text: String) {
-        val ic = activeIc() ?: return
+        val ic = activeIc()
+        if (ic == null) {
+            liveSttPendingPartial = text
+            return
+        }
+        liveSttPendingPartial = null
         if (text.isEmpty()) {
             liveSttPartialLen = 0
             return
@@ -1152,15 +1236,21 @@ class GkeysIME : InputMethodService() {
     }
 
     private fun stopLiveStt() {
-        if (!liveSttActive && deepgramSpeechClient == null) return
+        if (!liveSttActive && !liveSttConnecting && deepgramSpeechClient == null) return
         try {
             activeIc()?.finishComposingText()
         } catch (_: Exception) {
         }
         deepgramSpeechClient?.stop()
         deepgramSpeechClient = null
+        val wasCapturing = liveSttActive
         liveSttActive = false
+        liveSttConnecting = false
         liveSttPartialLen = 0
+        liveSttPendingPartial = null
+        if (wasCapturing) {
+            endMicCapture()
+        }
         updateLiveTranscribeButton()
         toastStatus("")
     }
@@ -1201,6 +1291,7 @@ class GkeysIME : InputMethodService() {
             audioRecorder.startRecording()
             isRecording = true
             recordingForGhostwriter = true
+            beginMicCapture()
             if (::ghostwriterStatus.isInitialized) {
                 ghostwriterStatus.text = "Listening… tap wand or screen when done"
             }
@@ -1216,6 +1307,7 @@ class GkeysIME : InputMethodService() {
             audioRecorder.cancelRecording()
             isRecording = false
             recordingForGhostwriter = false
+            endMicCapture()
         }
         hideGhostwriterOverlay()
         if (::ghostwriterStatus.isInitialized) {
@@ -1228,6 +1320,7 @@ class GkeysIME : InputMethodService() {
         val file = audioRecorder.stopRecording()
         isRecording = false
         recordingForGhostwriter = false
+        endMicCapture()
         if (file == null) {
             hideGhostwriterOverlay()
             showErrorToast("Recording failed")
@@ -1346,27 +1439,44 @@ class GkeysIME : InputMethodService() {
         }
         userRequestedKeyboard = false
         bubbleKeyboardCollapsed = true
-        if (!tryActivateVoiceBubbleMode()) {
-            showErrorToast("Allow display over other apps for Voice Bubble")
-            openAppForOverlayPermission()
-            return
-        }
         scope.launch { GkeysSettings.saveVoiceBubbleModeActive(this@GkeysIME, true) }
-        syncBubbleKeyboardWindow()
-        scheduleBubbleAutoListen()
+        val hasField = currentInputConnection != null
+        if (hasField) {
+            armBubbleShowRequestConsume()
+            if (!tryActivateVoiceBubbleMode(showOverlay = true)) {
+                showErrorToast("Allow display over other apps for Voice Bubble")
+                openAppForOverlayPermission()
+                return
+            }
+        } else {
+            voiceBubbleModeActive = true
+            if (voiceBubbleController?.canDrawOverlay() != true) {
+                voiceBubbleModeActive = false
+                scope.launch { GkeysSettings.saveVoiceBubbleModeActive(this@GkeysIME, false) }
+                showErrorToast("Allow display over other apps for Voice Bubble")
+                openAppForOverlayPermission()
+                return
+            }
+            hideBubbleOverlay(animate = false)
+            syncBubbleKeyboardWindow()
+        }
     }
 
-    /** @return true if bubble mode is active and the overlay is visible. */
-    private fun tryActivateVoiceBubbleMode(): Boolean {
+    /** @return true if bubble mode is active (overlay shown when [showOverlay] is true). */
+    private fun tryActivateVoiceBubbleMode(showOverlay: Boolean = true): Boolean {
         val controller = voiceBubbleController ?: return false
         if (!controller.canDrawOverlay()) return false
         voiceBubbleModeActive = true
-        controller.show()
-        if (!controller.isShowing) {
-            voiceBubbleModeActive = false
-            bubbleKeyboardCollapsed = false
-            syncBubbleKeyboardWindow()
-            return false
+        if (showOverlay) {
+            controller.show()
+            if (!controller.isShowing) {
+                voiceBubbleModeActive = false
+                bubbleKeyboardCollapsed = false
+                syncBubbleKeyboardWindow()
+                return false
+            }
+        } else {
+            controller.hide(animate = false)
         }
         syncBubbleKeyboardWindow()
         return true
@@ -1375,15 +1485,18 @@ class GkeysIME : InputMethodService() {
     /** Expand keyboard while keeping the floating bubble visible. */
     private fun expandKeyboardFromBubble() {
         if (!voiceBubbleModeActive) return
-        cancelScheduledBubbleAutoListen()
+        cancelBubbleShowRequestConsume()
         bubbleKeyboardCollapsed = false
+        keyboardVisible = true
         if (::keyboardView.isInitialized) {
             keyboardView.visibility = View.VISIBLE
+            keyboardContent.visibility = View.VISIBLE
+            if (clipboardManager?.isPanelOpen() != true && !isVoiceOverlay && !isGhostwriterOverlay) {
+                keyboardKeysHost.visibility = View.VISIBLE
+            }
         }
-        voiceBubbleController?.show()
-        if (!isInputViewShown) {
-            requestShowSelf(0)
-        }
+        showBubbleOverlayIfFieldActive()
+        requestShowSelf(0)
         syncBubbleKeyboardWindow()
     }
 
@@ -1410,7 +1523,7 @@ class GkeysIME : InputMethodService() {
 
     /** Turn off bubble mode entirely and return to the normal keyboard. */
     private fun exitVoiceBubbleMode() {
-        cancelScheduledBubbleAutoListen()
+        cancelBubbleShowRequestConsume()
         if (!voiceBubbleModeActive && voiceBubbleController?.isShowing != true) {
             bubbleKeyboardCollapsed = false
             syncBubbleKeyboardWindow()
@@ -1445,7 +1558,7 @@ class GkeysIME : InputMethodService() {
         btnWand.visibility = if (aiBarWandEnabled) View.VISIBLE else View.GONE
         btnPolishLevel.visibility = if (aiBarPolishButtonEnabled) View.VISIBLE else View.GONE
         btnLiveTranscribe.visibility = if (aiBarLiveTranscribeEnabled) View.VISIBLE else View.GONE
-        if (!aiBarLiveTranscribeEnabled && liveSttActive) {
+        if (!aiBarLiveTranscribeEnabled && (liveSttActive || liveSttConnecting)) {
             stopLiveStt()
         }
         updateVoiceBubbleButtonVisibility()
@@ -1484,6 +1597,7 @@ class GkeysIME : InputMethodService() {
                     audioRecorder.startRecording()
                     isRecording = true
                     recordingForGhostwriter = false
+                    beginMicCapture()
                     voiceBubbleController?.setState(VoiceBubbleState.RECORDING)
                 },
                 onFailed = {
@@ -1530,6 +1644,7 @@ class GkeysIME : InputMethodService() {
                 audioRecorder.startRecording()
                 isRecording = true
                 recordingForGhostwriter = false
+                beginMicCapture()
                 voiceBubbleController?.setState(VoiceBubbleState.RECORDING)
             },
             onFailed = {
@@ -2690,6 +2805,7 @@ class GkeysIME : InputMethodService() {
             audioRecorder.startRecording()
             isRecording = true
             recordingForGhostwriter = false
+            beginMicCapture()
         } catch (_: Exception) {
             showErrorToast("Microphone error — check permission in Gkeys app")
         }
@@ -2700,6 +2816,7 @@ class GkeysIME : InputMethodService() {
         if (isRecording && !recordingForGhostwriter) {
             audioRecorder.cancelRecording()
             isRecording = false
+            endMicCapture()
         }
         updateMicVisuals(recording = false)
         if (voiceBubbleModeActive) {
@@ -2714,6 +2831,7 @@ class GkeysIME : InputMethodService() {
         if (!isRecording || recordingForGhostwriter) return
         val file = audioRecorder.stopRecording()
         isRecording = false
+        endMicCapture()
         if (file == null) {
             updateMicVisuals(recording = false)
             voiceBubbleController?.setState(VoiceBubbleState.IDLE)
@@ -2954,11 +3072,15 @@ class GkeysIME : InputMethodService() {
 
     override fun onDestroy() {
         voiceBubbleController?.destroy()
+        if (::micSessionGuard.isInitialized) {
+            micSessionGuard.forceRelease()
+        }
         super.onDestroy()
         clipboardManager?.destroy()
         scope.cancel()
         stopDeleteRepeat()
         handler.removeCallbacks(longPressRunnable)
+        stopLiveStt()
         audioRecorder.cancelRecording()
     }
 }
