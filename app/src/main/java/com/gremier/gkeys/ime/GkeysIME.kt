@@ -8,7 +8,13 @@ import android.net.Uri
 import android.provider.Settings
 import android.view.inputmethod.InputConnection
 import android.view.inputmethod.InputContentInfo
-import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.Typeface
+import android.graphics.drawable.BitmapDrawable
+import android.graphics.drawable.Drawable
 import android.inputmethodservice.InputMethodService
 import android.os.*
 import android.view.*
@@ -23,7 +29,7 @@ import android.widget.Toast
 import com.gremier.gkeys.R
 import com.gremier.gkeys.ai.AiManager
 import com.gremier.gkeys.ai.AudioRecorder
-import com.gremier.gkeys.ai.DeepgramSpeechStreamingClient
+import com.gremier.gkeys.ai.LiveTranscribeController
 import com.gremier.gkeys.clipboard.ClipboardItem
 import com.gremier.gkeys.clipboard.GkeysClipboardManager
 import com.gremier.gkeys.ime.bubble.VoiceBubbleController
@@ -121,10 +127,19 @@ class GkeysIME : InputMethodService() {
     private var pendingSessionReadyFailed: (() -> Unit)? = null
     private var liveSttActive = false
     private var liveSttConnecting = false
-    private var liveSttPartialLen = 0
-    private var liveSttPendingPartial: String? = null
-    private var deepgramSpeechClient: DeepgramSpeechStreamingClient? = null
-    private var liveSttConnectTimeoutRunnable: Runnable? = null
+    private val liveTranscribe by lazy {
+        LiveTranscribeController(
+            scope = scope,
+            getInputConnection = { liveInputConnection() },
+            onMicAcquire = { beginMicCapture() },
+            onMicRelease = { endMicCapture() },
+            onStateChanged = { connecting, active ->
+                liveSttConnecting = connecting
+                liveSttActive = active
+                updateLiveTranscribeButton()
+            }
+        )
+    }
 
     private val handler = Handler(Looper.getMainLooper())
     private var dictationStatusClearRunnable: Runnable? = null
@@ -562,24 +577,30 @@ class GkeysIME : InputMethodService() {
                 keyboardView.visibility != View.VISIBLE
             )
 
-    private fun shouldCollapseKeyboardForBubble(): Boolean =
-        voiceBubbleModeActive && bubbleKeyboardCollapsed && voiceBubbleController?.isShowing == true
-
     /** Live STT runs invisibly only when the bubble keyboard is already collapsed. */
     private fun shouldUseInvisibleLiveSttSession(): Boolean =
         voiceBubbleModeActive && bubbleKeyboardCollapsed
 
-    /** Keep the IME input session alive (invisibly) so live transcribe can stream without the keyboard. */
+    /** When true, bubble collapse and keyboard hide must not run (keyboard stays up). */
+    private fun liveSttBlocksKeyboardCollapse(): Boolean =
+        liveSttKeepKeyboardOpen || liveSttActive || liveSttConnecting
+
+    /** Decide at tap time whether the keyboard must remain visible. */
+    private fun shouldLiveSttKeepKeyboardOpen(): Boolean {
+        if (!voiceBubbleModeActive) return true
+        if (!bubbleKeyboardCollapsed) return true
+        return ::keyboardView.isInitialized &&
+            keyboardView.visibility == View.VISIBLE &&
+            isInputViewShown
+    }
+
+    private fun shouldCollapseKeyboardForBubble(): Boolean =
+        voiceBubbleModeActive && bubbleKeyboardCollapsed &&
+            voiceBubbleController?.isShowing == true &&
+            !liveSttBlocksKeyboardCollapse()
+
+    /** Invisible IME session for live transcribe — only when bubble keyboard is already collapsed. */
     private fun prepareLiveSttSession() {
-        if (!shouldUseInvisibleLiveSttSession()) {
-            liveSttKeepKeyboardOpen = ::keyboardView.isInitialized &&
-                (!bubbleKeyboardCollapsed || keyboardView.visibility == View.VISIBLE)
-            if (liveSttKeepKeyboardOpen) {
-                suspendBubbleCollapse = true
-            }
-            return
-        }
-        liveSttKeepKeyboardOpen = false
         liveSttSessionActive = true
         suspendBubbleCollapse = true
         if (::keyboardView.isInitialized) {
@@ -588,13 +609,7 @@ class GkeysIME : InputMethodService() {
     }
 
     private fun releaseLiveSttSession() {
-        liveSttKeepKeyboardOpen = false
-        if (!liveSttSessionActive) {
-            if (!bubbleDictationSessionActive) {
-                suspendBubbleCollapse = false
-            }
-            return
-        }
+        if (!liveSttSessionActive) return
         liveSttSessionActive = false
         if (!bubbleDictationSessionActive) {
             suspendBubbleCollapse = false
@@ -608,12 +623,10 @@ class GkeysIME : InputMethodService() {
 
     private fun syncLiveSttWindow() {
         if (!liveSttSessionActive) return
-        if (shouldUseInvisibleLiveSttSession()) {
-            if (::keyboardView.isInitialized) {
-                keyboardView.visibility = View.GONE
-            }
-            syncBubbleKeyboardWindow()
+        if (::keyboardView.isInitialized) {
+            keyboardView.visibility = View.GONE
         }
+        syncBubbleKeyboardWindow()
     }
 
     /** Keep the IME input session alive (invisibly) so bubble dictation can commit text. */
@@ -782,7 +795,7 @@ class GkeysIME : InputMethodService() {
                     voiceBubbleModeActive = true
                     if (!userRequestedKeyboard && !bubbleDictationSessionActive &&
                         !liveSttSessionActive && !isRecording && !micIsProcessing &&
-                        !liveSttConnecting
+                        !liveSttConnecting && !liveSttActive && !liveSttKeepKeyboardOpen
                     ) {
                         bubbleKeyboardCollapsed = true
                     }
@@ -861,6 +874,12 @@ class GkeysIME : InputMethodService() {
             return live
         }
         return activeInputConnection
+    }
+
+    private fun activeIc(): InputConnection? {
+        val ic = currentInputConnection ?: activeInputConnection
+        if (ic != null) activeInputConnection = ic
+        return ic
     }
 
     /** Wait for a live [InputConnection] before inserting dictated text. */
@@ -973,20 +992,16 @@ class GkeysIME : InputMethodService() {
                 defaultToVoiceBubbleCached = GkeysSettings.defaultToVoiceBubble(this@GkeysIME).first()
 
                 // Live transcribe is running — keep keyboard hidden only when bubble is collapsed.
-                if (liveSttActive || liveSttConnecting) {
-                    if (shouldUseInvisibleLiveSttSession() && !liveSttKeepKeyboardOpen && !userRequestedKeyboard) {
+                if (liveTranscribe.isRunning) {
+                    if (!liveSttKeepKeyboardOpen && shouldUseInvisibleLiveSttSession()) {
                         prepareLiveSttSession()
                     }
                     cancelBubbleShowRequestConsume()
                     handler.post {
-                        if (voiceBubbleEnabled && shouldUseInvisibleLiveSttSession() &&
-                            !liveSttKeepKeyboardOpen && !userRequestedKeyboard
-                        ) {
-                            userRequestedKeyboard = false
-                            bubbleKeyboardCollapsed = true
-                            tryActivateVoiceBubbleMode(showOverlay = true)
+                        if (!liveSttKeepKeyboardOpen && shouldUseInvisibleLiveSttSession()) {
+                            syncLiveSttWindow()
+                            voiceBubbleController?.show()
                         }
-                        syncLiveSttWindow()
                     }
                     return@launch
                 }
@@ -1094,7 +1109,7 @@ class GkeysIME : InputMethodService() {
             }
             refreshApiKeys()
             if (!(bubbleDictationSessionActive && bubbleKeyboardCollapsed) &&
-                !liveSttConnecting && !liveSttActive
+                !liveTranscribe.isRunning && !liveSttKeepKeyboardOpen
             ) {
                 loadSettings()
             }
@@ -1106,7 +1121,7 @@ class GkeysIME : InputMethodService() {
             if (voiceBubbleModeActive) {
                 voiceBubbleController?.show()
             }
-            liveSttPendingPartial?.let { updateLiveSttPartial(it) }
+            liveTranscribe.flushPendingPartial()
         } catch (e: Throwable) {
             android.util.Log.e("GkeysIME", "onStartInputView failed", e)
         }
@@ -1116,11 +1131,13 @@ class GkeysIME : InputMethodService() {
         try {
             refreshBubbleModeCacheSync()
             if (voiceBubbleModeActive) {
-                if (bubbleKeyboardCollapsed || bubbleDictationSessionActive ||
+                if (liveSttBlocksKeyboardCollapse()) {
+                    bubbleKeyboardCollapsed = false
+                } else if (bubbleKeyboardCollapsed || bubbleDictationSessionActive ||
                     (liveSttSessionActive && shouldUseInvisibleLiveSttSession())
                 ) {
                     bubbleKeyboardCollapsed = true
-                } else if (liveSttKeepKeyboardOpen || userRequestedKeyboard) {
+                } else if (userRequestedKeyboard) {
                     bubbleKeyboardCollapsed = false
                 }
                 hideVoiceOverlay()
@@ -1173,7 +1190,9 @@ class GkeysIME : InputMethodService() {
                 voiceBubbleEnabled = GkeysSettings.voiceBubbleEnabled(this@GkeysIME).first()
                 defaultToVoiceBubbleCached = GkeysSettings.defaultToVoiceBubble(this@GkeysIME).first()
                 voiceBubbleModeActive = GkeysSettings.voiceBubbleModeActive(this@GkeysIME).first()
-                if (voiceBubbleModeActive) {
+                if (voiceBubbleModeActive && !userRequestedKeyboard &&
+                    !liveTranscribe.isRunning && !liveSttKeepKeyboardOpen
+                ) {
                     bubbleKeyboardCollapsed = true
                 }
                 if (!voiceBubbleEnabled && voiceBubbleModeActive) {
@@ -1407,7 +1426,7 @@ class GkeysIME : InputMethodService() {
             openAppSettings()
             return
         }
-        if (liveSttActive || liveSttConnecting) {
+        if (liveTranscribe.isRunning) {
             stopLiveStt()
             showLiveSttStatus("Live transcribe stopped")
             handler.postDelayed({ clearLiveSttStatus() }, 1500L)
@@ -1417,78 +1436,53 @@ class GkeysIME : InputMethodService() {
             cancelRecording()
         }
         releaseAudioRecorderForGhostwriter()
-        liveSttConnecting = true
-        updateLiveTranscribeButton()
-        showLiveSttStatus("Connecting live transcribe…")
-        scheduleLiveSttConnectTimeout()
+
+        liveSttKeepKeyboardOpen = shouldLiveSttKeepKeyboardOpen()
+
+        fun beginStreaming() {
+            liveTranscribe.start(
+                apiKey = deepgramKey,
+                languageCode = sttLanguageCode(),
+                onStatus = { showLiveSttStatus(it) },
+                onError = { message, autoClearMs ->
+                    showLiveSttStatus(message, autoClearMs = autoClearMs)
+                    liveSttKeepKeyboardOpen = false
+                    releaseLiveSttSession()
+                }
+            )
+        }
+
+        if (liveSttKeepKeyboardOpen) {
+            if (liveInputConnection() == null) {
+                showLiveSttStatus("Tap a text field first", autoClearMs = 5000L)
+                return
+            }
+            beginStreaming()
+            return
+        }
+
         ensureInputForLiveStt {
             prepareLiveSttSession()
             syncLiveSttWindow()
-            if (voiceBubbleModeActive && shouldUseInvisibleLiveSttSession()) {
-                voiceBubbleController?.show()
-            }
-            startLiveStt()
+            voiceBubbleController?.show()
+            beginStreaming()
         }
     }
 
-    private fun scheduleLiveSttConnectTimeout() {
-        liveSttConnectTimeoutRunnable?.let { handler.removeCallbacks(it) }
-        val timeout = Runnable {
-            if (liveSttConnecting && !liveSttActive) {
-                android.util.Log.w("GkeysIME", "Live STT connect timeout")
-                showLiveSttStatus("Live transcribe timed out — check Deepgram key & internet", autoClearMs = 6000L)
-                stopLiveStt()
-            }
-        }
-        liveSttConnectTimeoutRunnable = timeout
-        handler.postDelayed(timeout, 18_000L)
-    }
-
-    private fun cancelLiveSttConnectTimeout() {
-        liveSttConnectTimeoutRunnable?.let { handler.removeCallbacks(it) }
-        liveSttConnectTimeoutRunnable = null
-    }
-
-    /** Wait for a live input connection before streaming text into the field. */
+    /** Wait for input connection — only used when bubble keyboard is collapsed. */
     private fun ensureInputForLiveStt(onReady: () -> Unit) {
         if (liveInputConnection() != null) {
-            syncLiveSttWindow()
             onReady()
             return
         }
-        if (voiceBubbleModeActive && bubbleKeyboardCollapsed) {
-            runWhenLiveSttSessionReady(
-                onReady = onReady,
-                onFailed = {
-                    cancelLiveSttConnectTimeout()
-                    liveSttConnecting = false
-                    releaseLiveSttSession()
-                    updateLiveTranscribeButton()
-                    showLiveSttStatus("Tap a text field first", autoClearMs = 5000L)
-                }
-            )
-            return
-        }
-        if (!isInputViewShown) {
-            requestShowSelf(0)
-        }
-        fun attempt(remaining: Int) {
-            if (liveInputConnection() != null) {
-                syncLiveSttWindow()
-                onReady()
-                return
-            }
-            if (remaining > 0) {
-                handler.postDelayed({ attempt(remaining - 1) }, 80)
-            } else {
-                cancelLiveSttConnectTimeout()
-                liveSttConnecting = false
+        runWhenLiveSttSessionReady(
+            onReady = onReady,
+            onFailed = {
+                liveSttKeepKeyboardOpen = false
                 releaseLiveSttSession()
-                updateLiveTranscribeButton()
                 showLiveSttStatus("Tap a text field first", autoClearMs = 5000L)
             }
-        }
-        handler.post { attempt(40) }
+        )
     }
 
     private fun runWhenLiveSttSessionReady(onReady: () -> Unit, onFailed: (() -> Unit)? = null) {
@@ -1501,7 +1495,6 @@ class GkeysIME : InputMethodService() {
             val live = currentInputConnection
             if (live != null) {
                 activeInputConnection = live
-                syncLiveSttWindow()
                 onReady()
                 return
             }
@@ -1522,49 +1515,9 @@ class GkeysIME : InputMethodService() {
         }
     }
 
-    private fun startLiveStt() {
-        if (liveSttActive) return
-        deepgramSpeechClient?.stop()
-        deepgramSpeechClient = null
-        liveSttPartialLen = 0
-        liveSttPendingPartial = null
-        try {
-            beginMicCapture()
-            deepgramSpeechClient = DeepgramSpeechStreamingClient(
-                apiKey = deepgramKey.trim(),
-                languageCode = sttLanguageCode(),
-                onPartial = { text -> updateLiveSttPartial(text) },
-                onFinal = { text -> commitLiveSttFinal(text) },
-                onConnected = {
-                    cancelLiveSttConnectTimeout()
-                    liveSttConnecting = false
-                    liveSttActive = true
-                    updateLiveTranscribeButton()
-                    showLiveSttStatus("Listening… tap icon to stop")
-                },
-                onError = { error ->
-                    android.util.Log.e("GkeysIME", "Live STT failed", error)
-                    showLiveSttStatus(
-                        error.message ?: "Live transcribe failed",
-                        autoClearMs = 6000L
-                    )
-                    stopLiveStt(clearStatus = false)
-                }
-            )
-            deepgramSpeechClient?.start(scope)
-        } catch (e: Exception) {
-            android.util.Log.e("GkeysIME", "startLiveStt failed", e)
-            cancelLiveSttConnectTimeout()
-            liveSttConnecting = false
-            updateLiveTranscribeButton()
-            showLiveSttStatus("Microphone error — check permission in Gkeys app", autoClearMs = 6000L)
-            stopLiveStt()
-        }
-    }
-
     private fun updateLiveTranscribeButton() {
         if (!::btnLiveTranscribe.isInitialized) return
-        val active = liveSttActive || liveSttConnecting
+        val active = liveTranscribe.isRunning
         btnLiveTranscribe.setBackgroundResource(
             if (active) R.drawable.ai_mic_bg_active else R.drawable.btn_circle_bg
         )
@@ -1576,83 +1529,12 @@ class GkeysIME : InputMethodService() {
         else -> "en-US"
     }
 
-    private fun activeIc(): InputConnection? {
-        val ic = currentInputConnection ?: activeInputConnection
-        if (ic != null) activeInputConnection = ic
-        return ic
-    }
-
-    private fun updateLiveSttPartial(text: String) {
-        val ic = liveInputConnection()
-        if (ic == null) {
-            liveSttPendingPartial = text
-            return
-        }
-        liveSttPendingPartial = null
-        if (text.isEmpty()) return
-        try {
-            ic.beginBatchEdit()
-            replaceLiveSttPartial(ic, text, addTrailingSpace = false)
-            ic.endBatchEdit()
-        } catch (e: Exception) {
-            android.util.Log.e("GkeysIME", "updateLiveSttPartial failed", e)
-        }
-    }
-
-    private fun commitLiveSttFinal(text: String) {
-        val ic = liveInputConnection() ?: return
-        try {
-            ic.beginBatchEdit()
-            if (text.isNotEmpty()) {
-                replaceLiveSttPartial(ic, text.trim(), addTrailingSpace = true)
-            } else if (liveSttPartialLen > 0) {
-                ic.deleteSurroundingText(liveSttPartialLen, 0)
-                liveSttPartialLen = 0
-            }
-            ic.endBatchEdit()
-        } catch (e: Exception) {
-            android.util.Log.e("GkeysIME", "commitLiveSttFinal failed", e)
-        }
-    }
-
-    /** Replace the current live partial using committed text so all apps show updates. */
-    private fun replaceLiveSttPartial(
-        ic: InputConnection,
-        text: String,
-        addTrailingSpace: Boolean
-    ) {
-        if (liveSttPartialLen > 0) {
-            ic.deleteSurroundingText(liveSttPartialLen, 0)
-            liveSttPartialLen = 0
-        }
-        val chunk = if (addTrailingSpace) "$text " else text
-        if (chunk.isNotEmpty()) {
-            ic.commitText(chunk, 1)
-            liveSttPartialLen = chunk.length
-        }
-        if (addTrailingSpace) {
-            liveSttPartialLen = 0
-        }
-    }
-
     private fun stopLiveStt(clearStatus: Boolean = true) {
-        if (!liveSttActive && !liveSttConnecting && deepgramSpeechClient == null) return
-        cancelLiveSttConnectTimeout()
-        try {
-            liveInputConnection()?.finishComposingText()
-        } catch (_: Exception) {
+        if (!liveTranscribe.isRunning && !liveSttSessionActive) return
+        if (liveTranscribe.isRunning) {
+            liveTranscribe.stop()
         }
-        deepgramSpeechClient?.stop()
-        deepgramSpeechClient = null
-        val wasCapturing = liveSttActive
-        val wasConnecting = liveSttConnecting
-        liveSttActive = false
-        liveSttConnecting = false
-        liveSttPartialLen = 0
-        liveSttPendingPartial = null
-        if (wasCapturing || wasConnecting) {
-            endMicCapture()
-        }
+        liveSttKeepKeyboardOpen = false
         releaseLiveSttSession()
         updateLiveTranscribeButton()
         if (clearStatus && !isRecording && !micIsProcessing) {
@@ -2108,10 +1990,34 @@ class GkeysIME : InputMethodService() {
     }
 
     private fun updateNumpadButton() {
-        btnKeyboard.setImageResource(
-            if (isNumpad) R.drawable.ic_keyboard_grid else R.drawable.ic_dialpad
+        btnKeyboard.setImageDrawable(
+            if (isNumpad) themeDrawable(R.drawable.ic_keyboard_grid) else createDigitsGridIcon()
         )
         btnKeyboard.contentDescription = if (isNumpad) "Show letters" else "Number pad"
+    }
+
+    /** Toolbar icon: 3×3 grid of digits 1–9 (readable at small size). */
+    private fun createDigitsGridIcon(): Drawable {
+        val size = dp(24)
+        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#9CA3AF")
+            textAlign = Paint.Align.CENTER
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            textSize = size * 0.27f
+        }
+        val baselineAdjust = -(paint.descent() + paint.ascent()) / 2f
+        val cellW = size / 3f
+        val cellH = size / 3f
+        for (i in 0 until 9) {
+            val x = (i % 3) * cellW + cellW / 2f
+            val y = (i / 3) * cellH + cellH / 2f + baselineAdjust
+            canvas.drawText((i + 1).toString(), x, y, paint)
+        }
+        return BitmapDrawable(resources, bitmap).apply {
+            setBounds(0, 0, size, size)
+        }
     }
 
     private fun showVoiceOverlay() {
