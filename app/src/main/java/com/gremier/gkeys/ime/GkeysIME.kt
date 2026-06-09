@@ -42,6 +42,7 @@ import com.gremier.gkeys.ime.layout.KeyboardLayoutMetrics
 import com.gremier.gkeys.ime.layout.KeyboardLayoutMetrics.Profile
 import com.gremier.gkeys.ime.suggestions.SuggestionEngine
 import com.gremier.gkeys.ime.suggestions.SuggestionStripController
+import com.gremier.gkeys.ime.suggestions.WordLexicon
 import com.gremier.gkeys.ime.touch.AdaptiveTouchIntelligence
 import com.gremier.gkeys.ime.touch.TouchInputResolver
 import com.gremier.gkeys.ime.touch.TouchPersonalization
@@ -573,6 +574,7 @@ class GkeysIME : InputMethodService() {
         applyAiBarVisibility()
         applyKeyboardTheme()
         applyUniversalShellHeight()
+        scope.launch(Dispatchers.IO) { WordLexicon.ensureLoaded(applicationContext) }
         buildKeyboard()
         attachTouchTargetLayoutWatcher(keyboardRows)
         syncBubbleKeyboardWindow()
@@ -3018,7 +3020,12 @@ class GkeysIME : InputMethodService() {
             return
         }
         controller.setActive(true)
-        val model = SuggestionEngine.build(currentWordPrefix, lastCompletedWord, personalVocab())
+        val model = SuggestionEngine.build(
+            this,
+            currentWordPrefix,
+            lastCompletedWord,
+            personalVocab()
+        )
         controller.render(
             model,
             primaryColor = themeColor(R.color.gkeys_text_primary),
@@ -3053,7 +3060,7 @@ class GkeysIME : InputMethodService() {
     private fun handleSpaceKey(ic: InputConnection) {
         val prefix = currentWordPrefix
         val corrected = if (suggestionsActive() && prefix.length >= 2) {
-            SuggestionEngine.autocorrectOnSpace(prefix, personalVocab())
+            SuggestionEngine.autocorrectOnSpace(this, prefix, lastCompletedWord, personalVocab())
         } else {
             null
         }
