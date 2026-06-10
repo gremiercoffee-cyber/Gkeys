@@ -3735,11 +3735,13 @@ class GkeysIME : InputMethodService() {
         val ic = currentInputConnection ?: return
         hapticKeyTap()
         if (ic.performContextMenuAction(android.R.id.selectAll)) return
+        val meta = KeyEvent.META_CTRL_ON or KeyEvent.META_CTRL_LEFT_ON
+        val now = SystemClock.uptimeMillis()
         ic.sendKeyEvent(
-            KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_A, KeyEvent.META_CTRL_ON or KeyEvent.META_CTRL_LEFT_ON)
+            KeyEvent(now, now, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_A, 0, meta, 0, 0)
         )
         ic.sendKeyEvent(
-            KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_A, KeyEvent.META_CTRL_ON or KeyEvent.META_CTRL_LEFT_ON)
+            KeyEvent(now, now, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_A, 0, meta, 0, 0)
         )
     }
 
