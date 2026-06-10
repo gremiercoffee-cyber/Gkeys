@@ -11,6 +11,7 @@ data class ClipboardItem(
     val itemType: String = TYPE_TEXT,
     val isPinned: Boolean = false,
     val folderId: Long? = null,
+    val pinLabel: String? = null,
     val timestamp: Long = System.currentTimeMillis()
 ) {
     val isImage: Boolean get() = (itemType == TYPE_IMAGE || itemType == TYPE_SCREENSHOT) && !imageUri.isNullOrBlank()

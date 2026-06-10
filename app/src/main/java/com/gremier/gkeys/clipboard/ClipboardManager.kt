@@ -354,6 +354,17 @@ class GkeysClipboardManager(
         }
     }
 
+    private suspend fun setPinLabel(item: ClipboardItem, label: String?) {
+        withContext(Dispatchers.IO) {
+            try {
+                dao.setPinLabelById(item.id, label?.trim()?.takeIf { it.isNotEmpty() })
+            } catch (e: Exception) {
+                Log.e(TAG, "setPinLabel failed for id=${item.id}", e)
+                throw e
+            }
+        }
+    }
+
     private fun blockItem(item: ClipboardItem) {
         blockedKeys.add(itemKey(item))
         while (blockedKeys.size > MAX_BLOCKED) {
@@ -625,6 +636,7 @@ class GkeysClipboardManager(
         val card = themedInflater().inflate(R.layout.item_clipboard, parent, false)
         val textView = card.findViewById<TextView>(R.id.tv_clip_text)
         val imageView = card.findViewById<ImageView>(R.id.iv_clip_image)
+        val labelView = card.findViewById<TextView>(R.id.tv_pin_label)
 
         if (item.isImage) {
             textView.visibility = View.GONE
@@ -634,6 +646,14 @@ class GkeysClipboardManager(
             imageView.visibility = View.GONE
             textView.visibility = View.VISIBLE
             textView.text = item.text
+        }
+
+        val pinLabel = item.pinLabel?.trim().orEmpty()
+        if (item.isPinned && pinLabel.isNotEmpty()) {
+            labelView.visibility = View.VISIBLE
+            labelView.text = pinLabel
+        } else {
+            labelView.visibility = View.GONE
         }
 
         val density = context.resources.displayMetrics.density
@@ -670,6 +690,12 @@ class GkeysClipboardManager(
             if (item.isPinned) {
                 menu.add("Unpin")
                 menu.add("Move to folder…")
+                if (item.pinLabel.isNullOrBlank()) {
+                    menu.add("Add label…")
+                } else {
+                    menu.add("Edit label…")
+                    menu.add("Remove label")
+                }
             } else {
                 menu.add("Pin")
                 menu.add("Pin to folder…")
@@ -693,12 +719,37 @@ class GkeysClipboardManager(
                         }
                     }
                     "Move to folder…" -> showFolderPickerForMove(item)
+                    "Add label…", "Edit label…" -> showPinLabelDialog(item)
+                    "Remove label" -> scope.launch {
+                        try {
+                            setPinLabel(item, null)
+                        } catch (_: Exception) {
+                            showClipboardError("Couldn't remove label")
+                        }
+                    }
                     "Delete" -> scope.launch { deleteItem(item) }
                 }
                 onVibrate()
                 true
             }
         }.show()
+    }
+
+    private fun showPinLabelDialog(item: ClipboardItem) {
+        showInlineTextPrompt(
+            title = if (item.pinLabel.isNullOrBlank()) "Add label" else "Edit label",
+            confirmLabel = "Save",
+            initialText = item.pinLabel.orEmpty(),
+            inputHint = "e.g. Address, WiFi password"
+        ) { label ->
+            scope.launch {
+                try {
+                    setPinLabel(item, label)
+                } catch (_: Exception) {
+                    showClipboardError("Couldn't save label")
+                }
+            }
+        }
     }
 
     private fun showFolderPickerForPin(item: ClipboardItem) {
@@ -811,12 +862,14 @@ class GkeysClipboardManager(
         title: String,
         confirmLabel: String,
         initialText: String = "",
+        inputHint: String = "Folder name",
         onConfirm: (String) -> Unit
     ) {
         val prompt = themedInflater()
             .inflate(R.layout.clipboard_text_prompt, modalHost(), false)
         prompt.findViewById<TextView>(R.id.tv_prompt_title).text = title
         val input = prompt.findViewById<EditText>(R.id.et_prompt_input)
+        input.hint = inputHint
         input.setText(initialText)
         if (initialText.isNotEmpty()) {
             input.setSelection(initialText.length)

@@ -9,7 +9,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [ClipboardItem::class, ClipboardFolder::class],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 abstract class ClipboardDatabase : RoomDatabase() {
@@ -43,6 +43,12 @@ abstract class ClipboardDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE clipboard_items ADD COLUMN pinLabel TEXT")
+            }
+        }
+
         fun getInstance(context: Context): ClipboardDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -50,7 +56,7 @@ abstract class ClipboardDatabase : RoomDatabase() {
                     ClipboardDatabase::class.java,
                     "gkeys_clipboard.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                     .fallbackToDestructiveMigration()
                     .build()
                     .also { instance = it }

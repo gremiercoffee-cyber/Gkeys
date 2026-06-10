@@ -386,6 +386,7 @@ class GkeysIME : InputMethodService() {
         override fun onBubbleTranslateHoldStart() = handleBubbleTranslateHoldStart()
         override fun onBubbleTranslateHoldEnd(cancelled: Boolean) =
             handleBubbleTranslateHoldEnd(cancelled)
+        override fun onBubbleCancelRecording() = handleBubbleCancelRecording()
         override fun onVibrate() = hapticKeyTap()
     }
 
@@ -986,6 +987,7 @@ class GkeysIME : InputMethodService() {
 
     private fun showBubbleOverlayIfFieldActive() {
         if (!voiceBubbleModeActive || isRecording || micIsProcessing) return
+        if (voiceBubbleController?.isShowing == true) return
         voiceBubbleController?.show()
     }
 
@@ -1168,7 +1170,7 @@ class GkeysIME : InputMethodService() {
                 if (::btnClipboardUndo.isInitialized) updateUndoButtonState()
             }
             clipboardManager?.startListening()
-            if (voiceBubbleModeActive) {
+            if (voiceBubbleModeActive && voiceBubbleController?.isShowing != true) {
                 voiceBubbleController?.show()
             }
             liveTranscribe.flushPendingPartial()
@@ -1196,7 +1198,7 @@ class GkeysIME : InputMethodService() {
                 hideGhostwriterOverlay()
                 clipboardManager?.stopListening()
                 clipboardManager?.hidePanel()
-                if (!isRecording && !micIsProcessing) {
+                if (!isRecording && !micIsProcessing && voiceBubbleController?.isShowing != true) {
                     voiceBubbleController?.show()
                 }
                 super.onFinishInputView(finishingInput)
@@ -1841,7 +1843,9 @@ class GkeysIME : InputMethodService() {
         if (!controller.canDrawOverlay()) return false
         voiceBubbleModeActive = true
         if (showOverlay) {
-            controller.show()
+            if (!controller.isShowing) {
+                controller.show()
+            }
             if (!controller.isShowing) {
                 voiceBubbleModeActive = false
                 bubbleKeyboardCollapsed = false
@@ -1956,6 +1960,12 @@ class GkeysIME : InputMethodService() {
         if (!started) {
             voiceBubbleController?.setState(VoiceBubbleState.IDLE)
         }
+    }
+
+    private fun handleBubbleCancelRecording() {
+        if (!isRecording || recordingForGhostwriter) return
+        bubbleTranslateHoldActive = false
+        cancelRecording()
     }
 
     private var bubbleTranslateHoldActive = false

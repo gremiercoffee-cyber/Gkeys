@@ -1,59 +1,118 @@
-<?xml version="1.0" encoding="utf-8"?>
-
-<FrameLayout
-    xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@+id/voice_overlay"
-    android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:background="#E60F0F1A"
-    android:visibility="gone"
-    android:clickable="false"
-    android:focusable="false">
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:orientation="vertical"
-        android:gravity="center">
-
-        <FrameLayout
-            android:layout_width="96dp"
-            android:layout_height="96dp"
-            android:layout_marginBottom="12dp">
-
-            <View
-                android:id="@+id/voice_mic_glow"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:background="@drawable/ai_mic_bg_active" />
-
-            <ImageView
-                android:id="@+id/voice_mic_large"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-                android:layout_gravity="center"
-                android:src="@drawable/ic_ai_mic_active"
-                android:contentDescription="Listening" />
-
-        </FrameLayout>
-
-        <TextView
-            android:id="@+id/voice_status"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Listening…"
-            android:textColor="#E5E7EB"
-            android:textSize="15sp"
-            android:layout_marginBottom="6dp" />
-
-        <TextView
-            android:id="@+id/voice_translate_hint"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Release to translate"
-            android:textColor="#6B7280"
-            android:textSize="12sp" />
-
-    </LinearLayout>
-
-</FrameLayout>
+<?xml version="1.0" encoding="utf-8"?>
+
+
+
+<FrameLayout
+
+    xmlns:android="http://schemas.android.com/apk/res/android"
+
+    android:id="@+id/voice_overlay"
+
+    android:layout_width="match_parent"
+
+    android:layout_height="match_parent"
+
+    android:background="#E60F0F1A"
+
+    android:visibility="gone"
+
+    android:clickable="false"
+
+    android:focusable="false">
+
+
+
+    <LinearLayout
+
+        android:layout_width="match_parent"
+
+        android:layout_height="match_parent"
+
+        android:orientation="vertical"
+
+        android:gravity="center">
+
+
+
+        <FrameLayout
+
+            android:layout_width="96dp"
+
+            android:layout_height="96dp"
+
+            android:layout_marginBottom="12dp">
+
+
+
+            <View
+
+                android:id="@+id/voice_mic_glow"
+
+                android:layout_width="match_parent"
+
+                android:layout_height="match_parent"
+
+                android:background="@drawable/ai_mic_bg_active" />
+
+
+
+            <ImageView
+
+                android:id="@+id/voice_mic_large"
+
+                android:layout_width="48dp"
+
+                android:layout_height="48dp"
+
+                android:layout_gravity="center"
+
+                android:src="@drawable/ic_ai_mic_active"
+
+                android:contentDescription="Listening" />
+
+
+
+        </FrameLayout>
+
+
+
+        <TextView
+
+            android:id="@+id/voice_status"
+
+            android:layout_width="wrap_content"
+
+            android:layout_height="wrap_content"
+
+            android:text="Listening…"
+
+            android:textColor="#E5E7EB"
+
+            android:textSize="15sp"
+
+            android:layout_marginBottom="6dp" />
+
+
+
+        <TextView
+
+            android:id="@+id/voice_translate_hint"
+
+            android:layout_width="wrap_content"
+
+            android:layout_height="wrap_content"
+
+            android:text="Release to translate"
+
+            android:textColor="#6B7280"
+
+            android:textSize="12sp" />
+
+
+
+    </LinearLayout>
+
+
+
+</FrameLayout>
+

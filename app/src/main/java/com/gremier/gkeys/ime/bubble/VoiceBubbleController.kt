@@ -31,6 +31,8 @@ import android.view.animation.LinearInterpolator
 
 import android.widget.FrameLayout
 
+import android.widget.ImageButton
+
 import android.widget.ImageView
 
 import com.gremier.gkeys.R
@@ -56,6 +58,8 @@ interface VoiceBubbleListener {
     fun onBubbleTranslateHoldStart()
 
     fun onBubbleTranslateHoldEnd(cancelled: Boolean)
+
+    fun onBubbleCancelRecording()
 
     fun onVibrate()
 
@@ -83,6 +87,8 @@ class VoiceBubbleController(
 
         private const val BUBBLE_WIDTH_DP = 40
         private const val BUBBLE_HEIGHT_DP = 57
+        private const val CANCEL_BTN_SIZE_DP = 28
+        private const val CANCEL_GAP_DP = 6
         private const val BUBBLE_EDGE_INSET_DP = 3
         private const val EDGE_MARGIN_Y_DP = 12
 
@@ -102,6 +108,10 @@ class VoiceBubbleController(
 
     private val bubbleWidthPx = (BUBBLE_WIDTH_DP * density).roundToInt()
     private val bubbleHeightPx = (BUBBLE_HEIGHT_DP * density).roundToInt()
+    private val cancelBtnSizePx = (CANCEL_BTN_SIZE_DP * density).roundToInt()
+    private val cancelGapPx = (CANCEL_GAP_DP * density).roundToInt()
+    private val compactWindowHeightPx = bubbleHeightPx
+    private val expandedWindowHeightPx = bubbleHeightPx + cancelGapPx + cancelBtnSizePx
     private val edgeInsetPx = (BUBBLE_EDGE_INSET_DP * density).roundToInt()
     private val edgeMarginYPx = (EDGE_MARGIN_Y_DP * density).roundToInt()
 
@@ -116,6 +126,8 @@ class VoiceBubbleController(
     private var bubbleAiGlow: View? = null
 
     private var bubbleAiShimmer: View? = null
+
+    private var bubbleCancel: ImageButton? = null
 
     private var layoutParams: WindowManager.LayoutParams? = null
 
@@ -173,6 +185,12 @@ class VoiceBubbleController(
 
     private var shimmerRotateAnimator: ObjectAnimator? = null
 
+    private val overlayLock = Any()
+
+    private var attachInProgress = false
+
+    private var hideAnimationRunning = false
+
 
 
     fun canDrawOverlay(): Boolean = Settings.canDrawOverlays(context)
@@ -182,16 +200,26 @@ class VoiceBubbleController(
 
 
     fun show() {
-
         if (!canDrawOverlay()) return
-
-        if (isAttached) {
-            revealIfHidden()
-            return
+        synchronized(overlayLock) {
+            if (isAttached && rootView != null) {
+                cancelHideAnimation()
+                revealIfHidden()
+                applyWindowPosition()
+                return
+            }
+            if (attachInProgress) return
+            attachInProgress = true
+            try {
+                detachOverlayQuietly()
+                attachOverlay()
+            } finally {
+                attachInProgress = false
+            }
         }
+    }
 
-
-
+    private fun attachOverlay() {
         val view = LayoutInflater.from(context).inflate(R.layout.voice_bubble, null) as FrameLayout
 
         rootView = view
@@ -204,84 +232,89 @@ class VoiceBubbleController(
 
         bubbleAiShimmer = view.findViewById(R.id.bubble_ai_shimmer)
 
+        bubbleCancel = view.findViewById(R.id.bubble_cancel)
 
+        bubbleCancel?.setOnClickListener {
+            listener.onVibrate()
+            listener.onBubbleCancelRecording()
+        }
 
         val params = WindowManager.LayoutParams(
-
             bubbleWidthPx,
-
-            bubbleHeightPx,
-
+            compactWindowHeightPx,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
-
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-
             PixelFormat.TRANSLUCENT
-
         ).apply {
-
             gravity = Gravity.TOP or Gravity.START
-
-            if (posX < 0 || posY < 0) {
-                placeDefaultPosition(this)
-            } else {
-                x = posX
-                y = posY
-                clampToScreen(this)
-                posX = x
-                posY = y
-            }
-
+            applyWindowPosition(this)
         }
 
         layoutParams = params
 
         view.setOnTouchListener { _, event -> handleTouch(event) }
 
-
-
         try {
-
             windowManager.addView(view, params)
-
             isAttached = true
+            hideAnimationRunning = false
 
             view.alpha = 0f
-
             view.scaleX = 0.5f
-
             view.scaleY = 0.5f
-
             view.animate()
-
                 .alpha(BUBBLE_ALPHA_IDLE)
-
                 .scaleX(1f)
-
                 .scaleY(1f)
-
                 .setDuration(220)
-
                 .setInterpolator(AccelerateDecelerateInterpolator())
-
                 .start()
 
             applyStateVisuals()
-
         } catch (e: Exception) {
-
             android.util.Log.e("VoiceBubble", "Failed to show bubble", e)
-
-            rootView = null
-
-            isAttached = false
-
+            detachOverlayQuietly()
         }
+    }
 
+    private fun applyWindowPosition(params: WindowManager.LayoutParams? = layoutParams) {
+        val p = params ?: return
+        if (posX < 0 || posY < 0) {
+            placeDefaultPosition(p)
+        } else {
+            p.x = posX
+            p.y = posY
+            clampToScreen(p)
+            posX = p.x
+            posY = p.y
+        }
+    }
+
+    private fun cancelHideAnimation() {
+        rootView?.animate()?.cancel()
+        hideAnimationRunning = false
+    }
+
+    private fun detachOverlayQuietly() {
+        val view = rootView
+        if (view != null) {
+            cancelHideAnimation()
+            try {
+                windowManager.removeView(view)
+            } catch (_: Exception) {
+            }
+        }
+        isAttached = false
+        rootView = null
+        bubbleBody = null
+        bubbleIcon = null
+        bubbleAiGlow = null
+        bubbleAiShimmer = null
+        bubbleCancel = null
+        layoutParams = null
+        stopAnimators()
     }
 
 
@@ -302,62 +335,59 @@ class VoiceBubbleController(
 
 
 
-    /** Cancel an in-progress hide animation and restore the bubble (field rebind while overlay stays attached). */
     private fun revealIfHidden() {
         val view = rootView ?: return
-        view.animate().cancel()
+        cancelHideAnimation()
         stopAnimators()
         view.scaleX = 1f
         view.scaleY = 1f
+        applyWindowPosition()
+        val params = layoutParams
+        if (params != null) {
+            try {
+                windowManager.updateViewLayout(view, params)
+            } catch (_: Exception) {
+            }
+        }
         applyStateVisuals()
     }
 
 
 
     fun hide(animate: Boolean = true, onEnd: (() -> Unit)? = null) {
-
-        val view = rootView
-
-        if (view == null || !isAttached) {
-
-            onEnd?.invoke()
-
-            return
-
-        }
-
-        stopAnimators()
-
-        if (!animate) {
-
-            removeViewImmediate(view)
-
-            onEnd?.invoke()
-
-            return
-
-        }
-
-        view.animate()
-
-            .alpha(0f)
-
-            .scaleX(0.4f)
-
-            .scaleY(0.4f)
-
-            .setDuration(180)
-
-            .withEndAction {
-
-                removeViewImmediate(view)
-
+        synchronized(overlayLock) {
+            val view = rootView
+            if (view == null || !isAttached) {
                 onEnd?.invoke()
-
+                return
             }
 
-            .start()
+            stopAnimators()
+            cancelHideAnimation()
 
+            if (!animate) {
+                removeViewImmediate(view)
+                onEnd?.invoke()
+                return
+            }
+
+            hideAnimationRunning = true
+            view.animate()
+                .alpha(0f)
+                .scaleX(0.4f)
+                .scaleY(0.4f)
+                .setDuration(180)
+                .withEndAction {
+                    synchronized(overlayLock) {
+                        hideAnimationRunning = false
+                        if (rootView === view) {
+                            removeViewImmediate(view)
+                        }
+                        onEnd?.invoke()
+                    }
+                }
+                .start()
+        }
     }
 
 
@@ -439,39 +469,34 @@ class VoiceBubbleController(
 
 
     private fun removeViewImmediate(view: View) {
-
+        if (!isAttached && rootView !== view) {
+            try {
+                windowManager.removeView(view)
+            } catch (_: Exception) {
+            }
+            return
+        }
         if (!isAttached) return
 
         stopAnimators()
+        cancelHideAnimation()
 
         try {
-
             windowManager.removeView(view)
-
         } catch (_: Exception) {
-
         }
 
         isAttached = false
-
         rootView = null
-
         bubbleBody = null
-
         bubbleIcon = null
-
         bubbleAiGlow = null
-
         bubbleAiShimmer = null
-
+        bubbleCancel = null
         layoutParams = null
-
         state = VoiceBubbleState.IDLE
-
         translateHoldActive = false
-
         translateHoldPending = false
-
     }
 
 
@@ -529,8 +554,6 @@ class VoiceBubbleController(
         posX = params.x
 
         posY = params.y
-
-        persistPosition()
 
     }
 
@@ -752,12 +775,36 @@ class VoiceBubbleController(
 
         val maxX = metrics.widthPixels - bubbleWidthPx - edgeInsetPx
 
-        val maxY = metrics.heightPixels - bubbleHeightPx - insetBottom - edgeMarginYPx
+        val maxY = metrics.heightPixels - windowHeightPx(params) - insetBottom - edgeMarginYPx
 
         params.x = params.x.coerceIn(edgeInsetPx, maxX)
 
         params.y = params.y.coerceIn(insetTop + edgeMarginYPx, maxY.coerceAtLeast(insetTop + edgeMarginYPx))
 
+    }
+
+
+
+    private fun windowHeightPx(params: WindowManager.LayoutParams? = layoutParams): Int {
+        val h = params?.height ?: 0
+        return if (h > 0) h else compactWindowHeightPx
+    }
+
+
+
+    private fun updateOverlaySize() {
+        val params = layoutParams ?: return
+        val view = rootView ?: return
+        val showCancel = state == VoiceBubbleState.RECORDING
+        bubbleCancel?.visibility = if (showCancel) View.VISIBLE else View.GONE
+        params.height = if (showCancel) expandedWindowHeightPx else compactWindowHeightPx
+        clampToScreen(params)
+        posX = params.x
+        posY = params.y
+        try {
+            windowManager.updateViewLayout(view, params)
+        } catch (_: Exception) {
+        }
     }
 
 
@@ -802,11 +849,11 @@ class VoiceBubbleController(
 
                 rootView?.contentDescription = if (translateHoldActive) {
 
-                    "Translating. Release to finish."
+                    "Translating. Release to finish, or tap cancel below."
 
                 } else {
 
-                    "Listening. Tap to stop."
+                    "Listening. Tap to stop, or tap cancel below."
 
                 }
 
@@ -831,6 +878,8 @@ class VoiceBubbleController(
             }
 
         }
+
+        updateOverlaySize()
 
     }
 

@@ -30,8 +30,11 @@ interface ClipboardDao {
     @Query("UPDATE clipboard_items SET isPinned = 1, folderId = :folderId WHERE id = :id")
     suspend fun pinById(id: Long, folderId: Long?)
 
-    @Query("UPDATE clipboard_items SET isPinned = 0, folderId = NULL WHERE id = :id")
+    @Query("UPDATE clipboard_items SET isPinned = 0, folderId = NULL, pinLabel = NULL WHERE id = :id")
     suspend fun unpinById(id: Long)
+
+    @Query("UPDATE clipboard_items SET pinLabel = :label WHERE id = :id")
+    suspend fun setPinLabelById(id: Long, label: String?)
 
     @Query("UPDATE clipboard_items SET folderId = :folderId WHERE id = :id")
     suspend fun setFolderById(id: Long, folderId: Long?)
