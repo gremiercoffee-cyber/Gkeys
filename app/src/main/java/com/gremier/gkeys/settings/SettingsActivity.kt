@@ -210,6 +210,7 @@ class SettingsActivity : AppCompatActivity() {
                     GkeysSettings.saveAnthropicKey(this@SettingsActivity, etAnthropicKey.text.toString().trim())
                     GkeysSettings.saveDeepgramKey(this@SettingsActivity, etDeepgramKey.text.toString().trim())
                     GkeysSettings.saveSpeechProfile(this@SettingsActivity, etSpeechProfile.text.toString())
+                    GkeysSettings.saveAiInstructions(this@SettingsActivity, etAiInstructions.text.toString())
                 } catch (e: Exception) {
                     android.util.Log.e("SettingsActivity", "onPause save failed", e)
                 }

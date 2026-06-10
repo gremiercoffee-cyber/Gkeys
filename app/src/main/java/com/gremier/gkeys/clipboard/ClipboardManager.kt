@@ -10,7 +10,7 @@ import android.util.Size
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.GridLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -26,6 +26,7 @@ class GkeysClipboardManager(
     private val context: Context,
     themeContext: Context,
     private val overlayContainer: ViewGroup,
+    private val keyboardPanelHost: ViewGroup,
     private val previewTapTarget: View,
     private val previewView: TextView,
     private val previewImage: ImageView,
@@ -63,7 +64,11 @@ class GkeysClipboardManager(
     private var observeJob: Job? = null
     private var cachedFolders: List<ClipboardFolder> = emptyList()
     private var modalOverlay: View? = null
-    private var activeTextPromptInput: EditText? = null
+    private var textPromptView: View? = null
+    private var textPromptBuffer = StringBuilder()
+    private var textPromptHint: String = ""
+    private var textPromptDisplay: TextView? = null
+    private var clipboardPanelOpen = false
 
     private val prefs by lazy {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -192,6 +197,7 @@ class GkeysClipboardManager(
 
     fun showPanel() {
         overlayContainer.visibility = View.VISIBLE
+        clipboardPanelOpen = true
         onPanelOpen()
         if (overlayView != null) {
             overlayView?.visibility = View.VISIBLE
@@ -215,38 +221,39 @@ class GkeysClipboardManager(
 
     fun hidePanel() {
         dismissModalOverlay()
+        dismissTextPrompt()
         overlayView?.visibility = View.GONE
         overlayContainer.visibility = View.GONE
+        clipboardPanelOpen = false
         onPanelClose()
     }
 
-    fun isPanelOpen(): Boolean = overlayContainer.visibility == View.VISIBLE
+    fun isPanelOpen(): Boolean = clipboardPanelOpen
 
-    fun isTextPromptActive(): Boolean = activeTextPromptInput != null
+    fun isTextPromptActive(): Boolean = textPromptView != null
+
+    fun textPromptValue(): String = textPromptBuffer.toString().trim()
 
     fun insertTextPromptText(text: String) {
-        val input = activeTextPromptInput ?: return
-        if (text.isEmpty()) return
-        val start = input.selectionStart.coerceAtLeast(0)
-        val end = input.selectionEnd.coerceAtLeast(0)
-        val selStart = minOf(start, end)
-        val selEnd = maxOf(start, end)
-        input.text.replace(selStart, selEnd, text)
-        input.setSelection(selStart + text.length)
+        if (text.isEmpty() || textPromptView == null) return
+        textPromptBuffer.append(text)
+        refreshTextPromptDisplay()
     }
 
     fun deleteTextPromptChar() {
-        val input = activeTextPromptInput ?: return
-        val start = input.selectionStart
-        val end = input.selectionEnd
-        if (start != end) {
-            val selStart = minOf(start, end)
-            val selEnd = maxOf(start, end)
-            input.text.delete(selStart, selEnd)
-            input.setSelection(selStart)
-        } else if (start > 0) {
-            input.text.delete(start - 1, start)
-            input.setSelection(start - 1)
+        if (textPromptBuffer.isEmpty() || textPromptView == null) return
+        textPromptBuffer.deleteCharAt(textPromptBuffer.length - 1)
+        refreshTextPromptDisplay()
+    }
+
+    private fun refreshTextPromptDisplay() {
+        val display = textPromptDisplay ?: return
+        if (textPromptBuffer.isEmpty()) {
+            display.text = textPromptHint
+            display.setTextColor(themeContext.getColor(R.color.gkeys_text_muted))
+        } else {
+            display.text = textPromptBuffer.toString()
+            display.setTextColor(themeContext.getColor(R.color.gkeys_text_primary))
         }
     }
 
@@ -838,14 +845,23 @@ class GkeysClipboardManager(
     }
 
     private fun clearTextPromptState() {
-        if (activeTextPromptInput != null) {
-            activeTextPromptInput = null
+        if (textPromptView != null) {
+            textPromptView = null
+            textPromptDisplay = null
+            textPromptBuffer.clear()
+            textPromptHint = ""
             onTextPromptClose()
         }
     }
 
-    private fun dismissModalOverlay() {
+    private fun dismissTextPrompt() {
+        textPromptView?.let { prompt ->
+            (prompt.parent as? ViewGroup)?.removeView(prompt)
+        }
         clearTextPromptState()
+    }
+
+    private fun dismissModalOverlay() {
         modalOverlay?.let { overlay ->
             (overlay.parent as? ViewGroup)?.removeView(overlay)
         }
@@ -904,39 +920,39 @@ class GkeysClipboardManager(
         inputHint: String = "Folder name",
         onConfirm: (String) -> Unit
     ) {
+        dismissTextPrompt()
         val prompt = themedInflater()
-            .inflate(R.layout.clipboard_text_prompt, modalHost(), false)
+            .inflate(R.layout.clipboard_text_prompt, keyboardPanelHost, false)
         prompt.findViewById<TextView>(R.id.tv_prompt_title).text = title
-        val input = prompt.findViewById<EditText>(R.id.et_prompt_input)
-        input.hint = inputHint
-        input.setText(initialText)
+        textPromptHint = inputHint
+        textPromptBuffer.clear()
         if (initialText.isNotEmpty()) {
-            input.setSelection(initialText.length)
+            textPromptBuffer.append(initialText)
         }
-        input.setOnClickListener { input.requestFocus() }
+        textPromptDisplay = prompt.findViewById(R.id.tv_prompt_input)
+        refreshTextPromptDisplay()
         prompt.findViewById<TextView>(R.id.btn_prompt_confirm).text = confirmLabel
         prompt.findViewById<View>(R.id.btn_prompt_cancel).setOnClickListener {
             onVibrate()
-            dismissModalOverlay()
+            dismissTextPrompt()
         }
         prompt.findViewById<View>(R.id.btn_prompt_confirm).setOnClickListener {
-            val value = input.text.toString().trim()
+            val value = textPromptBuffer.toString().trim()
             if (value.isBlank()) return@setOnClickListener
             onVibrate()
-            dismissModalOverlay()
+            dismissTextPrompt()
             onConfirm(value)
         }
-        prompt.findViewById<View>(R.id.prompt_scrim).setOnClickListener {
-            dismissModalOverlay()
-        }
-        prompt.findViewById<View>(R.id.prompt_card).setOnClickListener { input.requestFocus() }
-        activeTextPromptInput = input
+        textPromptView = prompt
         onTextPromptOpen()
-        showModalOverlay(prompt)
-        input.post {
-            input.requestFocus()
-            input.setSelection(input.text.length)
-        }
+        keyboardPanelHost.addView(
+            prompt,
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                android.view.Gravity.TOP,
+            ),
+        )
     }
 
     private fun showCreateFolderDialog(onCreated: ((Long?) -> Unit)? = null) {

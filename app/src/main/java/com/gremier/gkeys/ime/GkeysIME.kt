@@ -560,10 +560,12 @@ class GkeysIME : InputMethodService() {
         }
 
         val overlayContainer = keyboardView.findViewById<FrameLayout>(R.id.clipboard_overlay_container)
+        val keyboardPanel = keyboardView.findViewById<FrameLayout>(R.id.keyboard_panel)
         clipboardManager = GkeysClipboardManager(
             context = this,
             themeContext = themedContext(),
             overlayContainer = overlayContainer,
+            keyboardPanelHost = keyboardPanel,
             previewTapTarget = clipboardPreviewStrip,
             previewView = tvClipboard,
             previewImage = ivClipboardPreview,
@@ -572,9 +574,13 @@ class GkeysIME : InputMethodService() {
             onVibrate = { hapticKeyTap() },
             onPanelOpen = { keyboardKeysHost.visibility = View.GONE },
             onPanelClose = { keyboardKeysHost.visibility = View.VISIBLE },
-            onTextPromptOpen = { keyboardKeysHost.visibility = View.VISIBLE },
+            onTextPromptOpen = {
+                overlayContainer.visibility = View.GONE
+                keyboardKeysHost.visibility = View.VISIBLE
+            },
             onTextPromptClose = {
                 if (clipboardManager?.isPanelOpen() == true) {
+                    overlayContainer.visibility = View.VISIBLE
                     keyboardKeysHost.visibility = View.GONE
                 }
             },
@@ -1740,10 +1746,12 @@ class GkeysIME : InputMethodService() {
             ghostwriterStatus.text = "Writing…"
             val written = aiManager.ghostwrite(prompt, openAiKey)
             hideGhostwriterOverlay()
-            written.onSuccess { text ->
-                activeIc()?.commitText(text, 1) ?: currentInputConnection?.commitText(text, 1)
+            if (written.isSuccess) {
+                val text = written.getOrThrow()
+                val finalized = aiManager.finalizeWithUserInstructions(text, openAiKey).getOrElse { text }
+                activeIc()?.commitText(finalized, 1) ?: currentInputConnection?.commitText(finalized, 1)
                 vibrate()
-            }.onFailure {
+            } else {
                 showErrorToast("Ghostwriter failed — try again")
             }
         }
@@ -3512,8 +3520,10 @@ class GkeysIME : InputMethodService() {
                     aiManager.polishText(transcript, openAiKey, activePolishLevel)
             }
 
-            finalText.onSuccess { polished ->
-                val textToCommit = polished.trim().ifEmpty { transcript.trim() }
+            if (finalText.isSuccess) {
+                val polished = finalText.getOrThrow().trim().ifEmpty { transcript.trim() }
+                val textToCommit = aiManager.finalizeWithUserInstructions(polished, openAiKey)
+                    .getOrElse { polished }
                 commitTranscriptionResult(textToCommit) { success ->
                     stopMicProcessingAnimation()
                     if (success) {
@@ -3523,8 +3533,10 @@ class GkeysIME : InputMethodService() {
                         showDictationStatus("Couldn't insert text — tap the field first", autoClearMs = 5000L)
                     }
                 }
-            }.onFailure {
-                commitTranscriptionResult(transcript) { success ->
+            } else {
+                val fallback = aiManager.finalizeWithUserInstructions(transcript.trim(), openAiKey)
+                    .getOrElse { transcript.trim() }
+                commitTranscriptionResult(fallback) { success ->
                     stopMicProcessingAnimation()
                     if (success) {
                         vibrate()
@@ -3560,11 +3572,12 @@ class GkeysIME : InputMethodService() {
             val result = aiManager.polishText(target.text, openAiKey, polishLevel)
             toastStatus("")
             isPolishing = false
-
-            result.onSuccess { polished ->
-                InputTextHelper.replaceText(ic, target, polished)
+            if (result.isSuccess) {
+                val polished = result.getOrThrow()
+                val finalized = aiManager.finalizeWithUserInstructions(polished, openAiKey).getOrElse { polished }
+                InputTextHelper.replaceText(ic, target, finalized)
                 vibrate()
-            }.onFailure {
+            } else {
                 showErrorToast("Polish failed — text unchanged")
             }
         }

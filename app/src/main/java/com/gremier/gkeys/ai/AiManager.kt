@@ -26,7 +26,9 @@ import java.io.File
 
 
 
-class AiManager(private val context: Context) {
+class AiManager(context: Context) {
+
+    private val appContext = context.applicationContext
 
 
 
@@ -65,7 +67,7 @@ You clean up messy voice dictation while keeping the speaker's casual voice.
 NATURAL mode — do:
 - Remove filler words (um, uh, er, like-as-filler), false starts, and stutter-repetitions
 - Fix obvious transcription errors and broken grammar
-- Add light punctuation and capitalization
+- Add light punctuation and capitalization only when appropriate (user custom instructions override this)
 
 NATURAL mode — do not:
 - Make the text formal or professional
@@ -164,12 +166,26 @@ You are an AI ghostwriter. The user describes what they want to say — often as
             else -> 0.0
         }
 
-        private fun polishUserContent(text: String, level: String): String = when (level) {
-            GkeysSettings.POLISH_FORMAL ->
-                "Rewrite this dictation in Formal mode — professional, clear, and grammatically correct:\n\n$text"
-            GkeysSettings.POLISH_NATURAL ->
-                "Clean this dictation in Natural mode — remove fillers and fix errors, keep casual tone:\n\n$text"
-            else -> text
+        private fun polishUserContent(text: String, level: String, instructions: String): String {
+            val header = when (level) {
+                GkeysSettings.POLISH_FORMAL ->
+                    "Rewrite this dictation in Formal mode — professional, clear, and grammatically correct."
+                GkeysSettings.POLISH_NATURAL ->
+                    "Clean this dictation in Natural mode — remove fillers and fix errors, keep casual tone."
+                else -> ""
+            }
+            return buildString {
+                if (instructions.isNotEmpty()) {
+                    append("MANDATORY user rules (override mode defaults and transcription punctuation):\n")
+                    append(instructions)
+                    append("\n\n")
+                }
+                if (header.isNotEmpty()) {
+                    append(header)
+                    append("\n\n")
+                }
+                append(text)
+            }
         }
 
     }
@@ -184,28 +200,33 @@ You are an AI ghostwriter. The user describes what they want to say — often as
 
         .build()
 
-    private suspend fun speakerProfileContext(): String {
-        val profile = GkeysSettings.speechProfile(context).first().trim()
-        if (profile.isEmpty()) return ""
-        return """
-
-User speech profile — this user often speaks this way; expect dictation and audio to match these patterns:
-$profile"""
-    }
-
-    private suspend fun userInstructionsContext(): String {
-        val instructions = GkeysSettings.aiInstructions(context).first().trim()
-        if (instructions.isEmpty()) return ""
-        return """
-
-User custom instructions — always follow these rules:
-$instructions"""
-    }
-
     private suspend fun promptWithUserContext(base: String): String {
-        val suffix = speakerProfileContext() + userInstructionsContext()
-        return if (suffix.isEmpty()) base.trim() else "${base.trim()}$suffix"
+        val instructions = GkeysSettings.aiInstructions(appContext).first().trim()
+        val profile = GkeysSettings.speechProfile(appContext).first().trim()
+        return buildString {
+            append(base.trim())
+            if (instructions.isNotEmpty()) {
+                append("""
+
+MANDATORY — User custom instructions OVERRIDE any conflicting rules above (including polish-mode defaults). Follow exactly:
+$instructions""")
+            }
+            if (profile.isNotEmpty()) {
+                append("""
+
+User speech profile — expect dictation and audio to match these patterns:
+$profile""")
+            }
+        }
     }
+
+    /** Final pass: enforce saved AI instructions on any text (dictation, polish, translate, ghostwriter). */
+    suspend fun finalizeWithUserInstructions(text: String, openAiKey: String): Result<String> =
+        withContext(Dispatchers.IO) {
+            val instructions = GkeysSettings.aiInstructions(appContext).first().trim()
+            if (instructions.isEmpty()) return@withContext Result.success(text)
+            applyUserInstructionsOnly(text, openAiKey).recover { text }
+        }
 
     suspend fun transcribe(
 
@@ -305,22 +326,19 @@ $instructions"""
 
     ): Result<String> = withContext(Dispatchers.IO) {
 
-        val instructions = GkeysSettings.aiInstructions(context).first().trim()
-
         val prompt = systemPromptForLevel(level)
 
         if (prompt == null) {
-            if (instructions.isEmpty()) {
-                return@withContext Result.success(text)
-            }
-            return@withContext applyUserInstructionsOnly(text, openAiKey)
+            return@withContext Result.success(text)
         }
+
+        val instructions = GkeysSettings.aiInstructions(appContext).first().trim()
 
         callGpt(
 
             systemPrompt = promptWithUserContext(prompt),
 
-            userContent = polishUserContent(text, level),
+            userContent = polishUserContent(text, level, instructions),
 
             model = "gpt-4o-mini",
 
@@ -334,18 +352,28 @@ $instructions"""
 
     }
 
-    /** Raw mode with custom instructions — apply rules only, no full polish pass. */
+    /** Raw mode or any text — apply only the user's saved instructions, nothing else. */
     private suspend fun applyUserInstructionsOnly(text: String, openAiKey: String): Result<String> {
-        val instructions = GkeysSettings.aiInstructions(context).first().trim()
+        val instructions = GkeysSettings.aiInstructions(appContext).first().trim()
         if (instructions.isEmpty()) return Result.success(text)
-        val basePrompt = """
-Apply ONLY the user's custom instructions below. Do not rewrite, polish, rephrase, or change anything except what the instructions explicitly require. Preserve the speaker's exact wording and tone otherwise.
+        val profile = GkeysSettings.speechProfile(appContext).first().trim()
+        val systemPrompt = buildString {
+            append(
+                """
+You adjust text to follow the user's mandatory custom instructions exactly.
+Change ONLY what the instructions require — preserve all other wording, tone, and structure.
+Return ONLY the adjusted text with no quotes or commentary.
 
-$LANGUAGE_CONTEXT
-
-Return ONLY the adjusted text. No quotes or commentary.""".trim()
+Mandatory custom instructions:
+$instructions
+                """.trim()
+            )
+            if (profile.isNotEmpty()) {
+                append("\n\nSpeech profile (context only):\n$profile")
+            }
+        }
         return callGpt(
-            systemPrompt = promptWithUserContext(basePrompt),
+            systemPrompt = systemPrompt,
             userContent = text,
             model = "gpt-4o-mini",
             authHeader = "Bearer $openAiKey",
