@@ -49,8 +49,8 @@ class GkeysClipboardManager(
         const val PREVIEW_MAX_AGE_MS = 5 * 60 * 1000L
         private const val MAX_UNPINNED_ITEMS = 2000
         private const val PREFS = "gkeys_clipboard"
-        private const val KEY_BLOCKED = "blocked_texts"
-        private const val MAX_BLOCKED = 100
+        /** Ignore a deleted clip briefly so clearing the system clipboard doesn't re-add it. */
+        private const val BLOCK_AFTER_DELETE_MS = 5_000L
         private val HREF_PATTERN = Regex("""href\s*=\s*["']([^"']+)["']""", RegexOption.IGNORE_CASE)
     }
 
@@ -76,9 +76,9 @@ class GkeysClipboardManager(
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     }
 
-    private val blockedKeys: MutableSet<String> by lazy {
-        loadBlockedKeys().toMutableSet()
-    }
+    private val blockedKeys: MutableSet<String> = mutableSetOf()
+
+    private val temporaryBlockJobs = mutableMapOf<String, Job>()
 
     private val systemClipboard =
         context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -142,6 +142,8 @@ class GkeysClipboardManager(
     fun startListening() {
         if (isListening) return
         isListening = true
+        // Drop legacy permanent block list from older builds.
+        prefs.edit().remove("blocked_texts").apply()
         try {
             systemClipboard.addPrimaryClipChangedListener(clipListener)
         } catch (e: Exception) {
@@ -269,6 +271,8 @@ class GkeysClipboardManager(
 
     fun destroy() {
         stopListening()
+        temporaryBlockJobs.values.forEach { it.cancel() }
+        temporaryBlockJobs.clear()
         scope.cancel()
         overlayView = null
     }
@@ -411,11 +415,15 @@ class GkeysClipboardManager(
     }
 
     private fun blockItem(item: ClipboardItem) {
-        blockedKeys.add(itemKey(item))
-        while (blockedKeys.size > MAX_BLOCKED) {
-            blockedKeys.remove(blockedKeys.first())
+        val key = itemKey(item)
+        // Brief block only — prevents immediate re-capture after delete/clear, not forever.
+        blockedKeys.add(key)
+        temporaryBlockJobs[key]?.cancel()
+        temporaryBlockJobs[key] = scope.launch {
+            delay(BLOCK_AFTER_DELETE_MS)
+            blockedKeys.remove(key)
+            temporaryBlockJobs.remove(key)
         }
-        prefs.edit().putStringSet(KEY_BLOCKED, blockedKeys.toSet()).apply()
     }
 
     private fun isBlockedKey(key: String): Boolean = key in blockedKeys
@@ -426,13 +434,6 @@ class GkeysClipboardManager(
     private fun captureKey(capture: ClipCapture): String = when (capture) {
         is ClipCapture.Text -> capture.text
         is ClipCapture.Image -> "img:${capture.uri}"
-    }
-
-    private fun loadBlockedKeys(): Set<String> = try {
-        prefs.getStringSet(KEY_BLOCKED, emptySet())?.toSet() ?: emptySet()
-    } catch (e: Throwable) {
-        Log.w(TAG, "Unable to load blocked keys", e)
-        emptySet()
     }
 
     private suspend fun trimUnpinnedHistory() {
@@ -484,26 +485,43 @@ class GkeysClipboardManager(
 
     private fun extractTextFromClipItem(item: ClipData.Item): String? {
         val coerced = item.coerceToText(context)?.toString()?.trim()?.takeIf { it.isNotBlank() }
+        val html = item.htmlText?.trim()?.takeIf { it.isNotBlank() }
+        val hrefFromHtml = html?.let { fragment ->
+            HREF_PATTERN.find(fragment)?.groupValues?.getOrNull(1)?.trim()?.takeIf { it.isNotBlank() }
+        }
+
+        // Some apps put the page title in plain text and the real URL only in HTML.
+        if (hrefFromHtml != null && isLikelyLinkText(hrefFromHtml)) {
+            if (coerced == null || !isLikelyLinkText(coerced)) {
+                return hrefFromHtml
+            }
+        }
+
         if (coerced != null) return coerced
 
         item.uri?.toString()?.trim()?.takeIf { isLikelyLinkText(it) }?.let { return it }
 
-        item.htmlText?.trim()?.takeIf { it.isNotBlank() }?.let { html ->
-            HREF_PATTERN.find(html)?.groupValues?.getOrNull(1)
-                ?.trim()
-                ?.takeIf { it.isNotBlank() }
-                ?.let { return it }
-            if (isLikelyLinkText(html)) return html
-        }
+        if (hrefFromHtml != null) return hrefFromHtml
+
+        html?.takeIf { isLikelyLinkText(it) }?.let { return it }
         return null
     }
 
     private fun isLikelyLinkText(value: String): Boolean {
-        val lower = value.lowercase()
-        return lower.startsWith("http://") ||
+        val trimmed = value.trim()
+        val lower = trimmed.lowercase()
+        if (lower.startsWith("http://") ||
             lower.startsWith("https://") ||
             lower.startsWith("ftp://") ||
-            lower.startsWith("mailto:")
+            lower.startsWith("mailto:") ||
+            lower.startsWith("tel:") ||
+            lower.startsWith("sms:") ||
+            lower.startsWith("intent://")
+        ) {
+            return true
+        }
+        // e.g. www.example.com/path copied without a scheme
+        return trimmed.startsWith("www.", ignoreCase = true) && trimmed.contains('.')
     }
 
     private fun readSystemClipText(): String? =
