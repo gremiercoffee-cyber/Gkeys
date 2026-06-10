@@ -93,6 +93,17 @@
                 android:padding="5dp" />
 
             <ImageButton
+                android:id="@+id/btn_select_all"
+                android:layout_width="30dp"
+                android:layout_height="30dp"
+                android:layout_marginStart="5dp"
+                android:src="@drawable/ic_select_all"
+                android:background="@drawable/btn_circle_bg"
+                android:contentDescription="Select all"
+                android:scaleType="centerInside"
+                android:padding="5dp" />
+
+            <ImageButton
                 android:id="@+id/btn_voice_bubble"
                 android:layout_width="32dp"
                 android:layout_height="32dp"

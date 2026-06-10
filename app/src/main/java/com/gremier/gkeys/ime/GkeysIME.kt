@@ -96,6 +96,7 @@ class GkeysIME : InputMethodService() {
     private var voiceBubbleEnabled = GkeysSettings.DEFAULT_VOICE_BUBBLE_ENABLED
     private var aiBarWandEnabled = GkeysSettings.DEFAULT_AI_BAR_FEATURE_ENABLED
     private var aiBarPolishButtonEnabled = GkeysSettings.DEFAULT_AI_BAR_FEATURE_ENABLED
+    private var aiBarMicEnabled = GkeysSettings.DEFAULT_AI_BAR_FEATURE_ENABLED
     private var aiBarLiveTranscribeEnabled = GkeysSettings.DEFAULT_AI_BAR_FEATURE_ENABLED
     private var darkTheme = true
     private var voiceBubbleController: VoiceBubbleController? = null
@@ -183,9 +184,11 @@ class GkeysIME : InputMethodService() {
     private lateinit var clipboardArea: View
     private lateinit var clipboardPreviewStrip: View
     private lateinit var btnClipboardUndo: ImageButton
+    private lateinit var btnSelectAll: ImageButton
     private lateinit var btnClipboardClearAll: ImageButton
     private lateinit var btnMic: ImageView
     private lateinit var btnMicContainer: FrameLayout
+    private lateinit var micGroup: View
     private lateinit var btnMicCancel: ImageButton
     private lateinit var micAiGlow: View
     private lateinit var micAiShimmer: View
@@ -366,11 +369,13 @@ class GkeysIME : InputMethodService() {
             combine(
                 GkeysSettings.aiBarWandEnabled(this@GkeysIME),
                 GkeysSettings.aiBarPolishButtonEnabled(this@GkeysIME),
+                GkeysSettings.aiBarMicEnabled(this@GkeysIME),
                 GkeysSettings.aiBarLiveTranscribeEnabled(this@GkeysIME),
                 GkeysSettings.voiceBubbleEnabled(this@GkeysIME),
-            ) { wand, polish, live, bubble ->
+            ) { wand, polish, mic, live, bubble ->
                 aiBarWandEnabled = wand
                 aiBarPolishButtonEnabled = polish
+                aiBarMicEnabled = mic
                 aiBarLiveTranscribeEnabled = live
                 voiceBubbleEnabled = bubble
             }.collect {
@@ -510,9 +515,11 @@ class GkeysIME : InputMethodService() {
         clipboardArea = keyboardView.findViewById(R.id.clipboard_area)
         clipboardPreviewStrip = keyboardView.findViewById(R.id.clipboard_preview_strip)
         btnClipboardUndo = keyboardView.findViewById(R.id.btn_clipboard_undo)
+        btnSelectAll = keyboardView.findViewById(R.id.btn_select_all)
         btnClipboardClearAll = keyboardView.findViewById(R.id.btn_clipboard_clear_all)
         btnMic = keyboardView.findViewById(R.id.btn_mic)
         btnMicContainer = keyboardView.findViewById(R.id.btn_mic_container)
+        micGroup = keyboardView.findViewById(R.id.mic_group)
         btnMicCancel = keyboardView.findViewById(R.id.btn_mic_cancel)
         micAiGlow = keyboardView.findViewById(R.id.mic_ai_glow)
         micAiShimmer = keyboardView.findViewById(R.id.mic_ai_shimmer)
@@ -610,6 +617,9 @@ class GkeysIME : InputMethodService() {
         clipboardManager?.setupPreviewInteractions()
         btnClipboardUndo.setOnClickListener {
             undoFieldEdit()
+        }
+        btnSelectAll.setOnClickListener {
+            selectAllFieldText()
         }
         btnClipboardClearAll.setOnClickListener {
             clearAllFieldText()
@@ -1292,6 +1302,7 @@ class GkeysIME : InputMethodService() {
                 updateVoiceBubbleButtonVisibility()
                 aiBarWandEnabled = GkeysSettings.aiBarWandEnabled(this@GkeysIME).first()
                 aiBarPolishButtonEnabled = GkeysSettings.aiBarPolishButtonEnabled(this@GkeysIME).first()
+                aiBarMicEnabled = GkeysSettings.aiBarMicEnabled(this@GkeysIME).first()
                 aiBarLiveTranscribeEnabled = GkeysSettings.aiBarLiveTranscribeEnabled(this@GkeysIME).first()
                 val themeMode = GkeysSettings.themeMode(this@GkeysIME).first()
                 val newDarkTheme = GkeysSettings.isDarkThemeMode(themeMode)
@@ -2015,7 +2026,13 @@ class GkeysIME : InputMethodService() {
         if (!::btnWand.isInitialized) return
         btnWand.visibility = if (aiBarWandEnabled) View.VISIBLE else View.GONE
         btnPolishLevel.visibility = if (aiBarPolishButtonEnabled) View.VISIBLE else View.GONE
+        if (::micGroup.isInitialized) {
+            micGroup.visibility = if (aiBarMicEnabled) View.VISIBLE else View.GONE
+        }
         btnLiveTranscribe.visibility = if (aiBarLiveTranscribeEnabled) View.VISIBLE else View.GONE
+        if (!aiBarMicEnabled && isRecording && !recordingForGhostwriter) {
+            cancelRecording()
+        }
         if (!aiBarLiveTranscribeEnabled && (liveSttActive || liveSttConnecting)) {
             stopLiveStt()
         }
@@ -3712,6 +3729,18 @@ class GkeysIME : InputMethodService() {
         hapticKeyTap()
         syncWordPrefixAndRefreshSuggestions(ic)
         updateUndoButtonState()
+    }
+
+    private fun selectAllFieldText() {
+        val ic = currentInputConnection ?: return
+        hapticKeyTap()
+        if (ic.performContextMenuAction(android.R.id.selectAll)) return
+        ic.sendKeyEvent(
+            KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_A, KeyEvent.META_CTRL_ON or KeyEvent.META_CTRL_LEFT_ON)
+        )
+        ic.sendKeyEvent(
+            KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_A, KeyEvent.META_CTRL_ON or KeyEvent.META_CTRL_LEFT_ON)
+        )
     }
 
     private fun clearAllFieldText() {

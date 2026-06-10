@@ -47,6 +47,7 @@ object GkeysSettings {
     val AI_BAR_WAND_ENABLED = booleanPreferencesKey("ai_bar_wand_enabled")
     val AI_BAR_POLISH_BUTTON_ENABLED = booleanPreferencesKey("ai_bar_polish_button_enabled")
     val AI_BAR_LIVE_TRANSCRIBE_ENABLED = booleanPreferencesKey("ai_bar_live_transcribe_enabled")
+    val AI_BAR_VOICE_INPUT_MODE = stringPreferencesKey("ai_bar_voice_input_mode")
     val SPEECH_PROFILE = stringPreferencesKey("speech_profile")
     val AI_INSTRUCTIONS = stringPreferencesKey("ai_instructions")
     val THEME_MODE = stringPreferencesKey("theme_mode")
@@ -183,14 +184,34 @@ object GkeysSettings {
     const val DEFAULT_VOICE_BUBBLE_ENABLED = true
     const val DEFAULT_AI_BAR_FEATURE_ENABLED = true
 
+    const val AI_BAR_VOICE_BOTH = "both"
+    const val AI_BAR_VOICE_MIC = "mic"
+    const val AI_BAR_VOICE_LIVE = "live"
+    const val DEFAULT_AI_BAR_VOICE_INPUT = AI_BAR_VOICE_BOTH
+
     fun aiBarWandEnabled(context: Context): Flow<Boolean> =
         settingsStore(context).data.map { it[AI_BAR_WAND_ENABLED] ?: DEFAULT_AI_BAR_FEATURE_ENABLED }
 
     fun aiBarPolishButtonEnabled(context: Context): Flow<Boolean> =
         settingsStore(context).data.map { it[AI_BAR_POLISH_BUTTON_ENABLED] ?: DEFAULT_AI_BAR_FEATURE_ENABLED }
 
+    fun aiBarVoiceInputMode(context: Context): Flow<String> =
+        settingsStore(context).data.map { prefs ->
+            prefs[AI_BAR_VOICE_INPUT_MODE] ?: legacyAiBarVoiceInputMode(prefs)
+        }
+
     fun aiBarLiveTranscribeEnabled(context: Context): Flow<Boolean> =
-        settingsStore(context).data.map { it[AI_BAR_LIVE_TRANSCRIBE_ENABLED] ?: DEFAULT_AI_BAR_FEATURE_ENABLED }
+        aiBarVoiceInputMode(context).map { mode ->
+            mode == AI_BAR_VOICE_BOTH || mode == AI_BAR_VOICE_LIVE
+        }
+
+    fun aiBarMicEnabled(context: Context): Flow<Boolean> =
+        aiBarVoiceInputMode(context).map { mode ->
+            mode == AI_BAR_VOICE_BOTH || mode == AI_BAR_VOICE_MIC
+        }
+
+    private fun legacyAiBarVoiceInputMode(prefs: Preferences): String =
+        if (prefs[AI_BAR_LIVE_TRANSCRIBE_ENABLED] == false) AI_BAR_VOICE_MIC else AI_BAR_VOICE_BOTH
 
     fun voiceBubbleEnabled(context: Context): Flow<Boolean> =
         settingsStore(context).data.map { it[VOICE_BUBBLE_ENABLED] ?: DEFAULT_VOICE_BUBBLE_ENABLED }
@@ -402,7 +423,22 @@ object GkeysSettings {
     }
 
     suspend fun saveAiBarLiveTranscribeEnabled(context: Context, enabled: Boolean) {
-        settingsStore(context).edit { it[AI_BAR_LIVE_TRANSCRIBE_ENABLED] = enabled }
+        saveAiBarVoiceInputMode(
+            context,
+            if (enabled) AI_BAR_VOICE_BOTH else AI_BAR_VOICE_MIC
+        )
+    }
+
+    suspend fun saveAiBarVoiceInputMode(context: Context, mode: String) {
+        val normalized = when (mode) {
+            AI_BAR_VOICE_MIC, AI_BAR_VOICE_LIVE -> mode
+            else -> AI_BAR_VOICE_BOTH
+        }
+        settingsStore(context).edit {
+            it[AI_BAR_VOICE_INPUT_MODE] = normalized
+            it[AI_BAR_LIVE_TRANSCRIBE_ENABLED] =
+                normalized == AI_BAR_VOICE_BOTH || normalized == AI_BAR_VOICE_LIVE
+        }
     }
 
     suspend fun saveSpeechProfile(context: Context, profile: String) {

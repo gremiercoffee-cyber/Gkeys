@@ -642,36 +642,55 @@
                         android:checked="true" />
                 </LinearLayout>
 
-                <LinearLayout
+                <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:layout_marginBottom="8dp">
-                    <LinearLayout
-                        android:layout_width="0dp"
+                    android:text="AI bar voice input"
+                    android:textColor="#FFFFFF"
+                    android:textSize="14sp"
+                    android:layout_marginBottom="4dp" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Choose mic dictation, live transcribe, or both on the toolbar"
+                    android:textColor="#6B7280"
+                    android:textSize="12sp"
+                    android:layout_marginBottom="8dp" />
+
+                <RadioGroup
+                    android:id="@+id/radio_ai_bar_voice_input"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:layout_marginBottom="12dp">
+
+                    <RadioButton
+                        android:id="@+id/radio_voice_input_both"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:orientation="vertical">
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="Live Transcribe"
-                            android:textColor="#FFFFFF"
-                            android:textSize="14sp" />
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="Real-time speech-to-text while typing"
-                            android:textColor="#6B7280"
-                            android:textSize="12sp" />
-                    </LinearLayout>
-                    <com.google.android.material.switchmaterial.SwitchMaterial
-                        android:id="@+id/switch_ai_bar_live_transcribe"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
+                        android:text="Both mic and live transcribe"
+                        android:textColor="#9CA3AF"
+                        android:buttonTint="#4A9EFF"
                         android:checked="true" />
-                </LinearLayout>
+
+                    <RadioButton
+                        android:id="@+id/radio_voice_input_mic"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Mic only — tap to dictate"
+                        android:textColor="#9CA3AF"
+                        android:buttonTint="#4A9EFF" />
+
+                    <RadioButton
+                        android:id="@+id/radio_voice_input_live"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Live transcribe only"
+                        android:textColor="#9CA3AF"
+                        android:buttonTint="#4A9EFF" />
+
+                </RadioGroup>
 
                 <LinearLayout
                     android:layout_width="match_parent"

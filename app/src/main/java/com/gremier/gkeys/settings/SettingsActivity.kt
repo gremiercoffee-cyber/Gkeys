@@ -61,7 +61,7 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var switchVoiceBubbleEnabled: SwitchMaterial
     private lateinit var switchAiBarWand: SwitchMaterial
     private lateinit var switchAiBarPolish: SwitchMaterial
-    private lateinit var switchAiBarLiveTranscribe: SwitchMaterial
+    private lateinit var radioAiBarVoiceInput: RadioGroup
     private lateinit var switchDefaultVoiceBubble: SwitchMaterial
     private lateinit var voiceBubbleDefaultRow: android.view.View
     private lateinit var switchAdaptiveTouch: SwitchMaterial
@@ -77,6 +77,7 @@ class SettingsActivity : AppCompatActivity() {
     private var overlayRestrictedStep = 0
     private var settingsLoaded = false
     private var suppressPolishAutoSave = false
+    private var suppressVoiceInputAutoSave = false
     private var suppressThemeAutoSave = false
     private lateinit var radioTheme: RadioGroup
 
@@ -265,7 +266,7 @@ class SettingsActivity : AppCompatActivity() {
         switchVoiceBubbleEnabled = findViewById(R.id.switch_voice_bubble_enabled)
         switchAiBarWand = findViewById(R.id.switch_ai_bar_wand)
         switchAiBarPolish = findViewById(R.id.switch_ai_bar_polish)
-        switchAiBarLiveTranscribe = findViewById(R.id.switch_ai_bar_live_transcribe)
+        radioAiBarVoiceInput = findViewById(R.id.radio_ai_bar_voice_input)
         switchDefaultVoiceBubble = findViewById(R.id.switch_default_voice_bubble)
         voiceBubbleDefaultRow = findViewById(R.id.voice_bubble_default_row)
         switchAdaptiveTouch = findViewById(R.id.switch_adaptive_touch)
@@ -331,8 +332,15 @@ class SettingsActivity : AppCompatActivity() {
                 GkeysSettings.aiBarWandEnabled(this@SettingsActivity).first()
             switchAiBarPolish.isChecked =
                 GkeysSettings.aiBarPolishButtonEnabled(this@SettingsActivity).first()
-            switchAiBarLiveTranscribe.isChecked =
-                GkeysSettings.aiBarLiveTranscribeEnabled(this@SettingsActivity).first()
+            suppressVoiceInputAutoSave = true
+            selectVoiceInputRadio(
+                when (GkeysSettings.aiBarVoiceInputMode(this@SettingsActivity).first()) {
+                    GkeysSettings.AI_BAR_VOICE_MIC -> R.id.radio_voice_input_mic
+                    GkeysSettings.AI_BAR_VOICE_LIVE -> R.id.radio_voice_input_live
+                    else -> R.id.radio_voice_input_both
+                }
+            )
+            suppressVoiceInputAutoSave = false
             switchDefaultVoiceBubble.isChecked =
                 GkeysSettings.defaultToVoiceBubble(this@SettingsActivity).first()
             updateVoiceBubbleSettingsUi()
@@ -469,8 +477,14 @@ class SettingsActivity : AppCompatActivity() {
         switchAiBarPolish.setOnCheckedChangeListener { _, checked ->
             autoSave { GkeysSettings.saveAiBarPolishButtonEnabled(this@SettingsActivity, checked) }
         }
-        switchAiBarLiveTranscribe.setOnCheckedChangeListener { _, checked ->
-            autoSave { GkeysSettings.saveAiBarLiveTranscribeEnabled(this@SettingsActivity, checked) }
+        radioAiBarVoiceInput.setOnCheckedChangeListener { _, _ ->
+            if (!settingsLoaded || suppressVoiceInputAutoSave) return@setOnCheckedChangeListener
+            autoSave {
+                GkeysSettings.saveAiBarVoiceInputMode(
+                    this@SettingsActivity,
+                    voiceInputModeFromRadio()
+                )
+            }
         }
 
         switchAdaptiveTouch.setOnCheckedChangeListener { _, checked ->
@@ -651,6 +665,18 @@ class SettingsActivity : AppCompatActivity() {
         if (radioPolishLevel.checkedRadioButtonId != id) {
             radioPolishLevel.check(id)
         }
+    }
+
+    private fun selectVoiceInputRadio(id: Int) {
+        if (radioAiBarVoiceInput.checkedRadioButtonId != id) {
+            radioAiBarVoiceInput.check(id)
+        }
+    }
+
+    private fun voiceInputModeFromRadio(): String = when (radioAiBarVoiceInput.checkedRadioButtonId) {
+        R.id.radio_voice_input_mic -> GkeysSettings.AI_BAR_VOICE_MIC
+        R.id.radio_voice_input_live -> GkeysSettings.AI_BAR_VOICE_LIVE
+        else -> GkeysSettings.AI_BAR_VOICE_BOTH
     }
 
     private fun polishLevelFromRadio(): String = when (radioPolishLevel.checkedRadioButtonId) {
