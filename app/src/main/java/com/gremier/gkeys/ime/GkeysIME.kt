@@ -18,6 +18,7 @@ import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import android.inputmethodservice.InputMethodService
 import android.os.*
+import android.text.InputType
 import android.view.*
 import android.view.animation.AccelerateDecelerateInterpolator
 import android.view.animation.LinearInterpolator
@@ -840,6 +841,14 @@ class GkeysIME : InputMethodService() {
         window?.window?.decorView?.requestLayout()
         window?.window?.decorView?.requestApplyInsets()
         updateFullscreenMode()
+        reconcileBubbleOverlayWithField()
+    }
+
+    override fun onWindowHidden() {
+        super.onWindowHidden()
+        if (voiceBubbleModeActive) {
+            handler.post { reconcileBubbleOverlayWithField() }
+        }
     }
 
     override fun onShowInputRequested(reason: Int, showingForced: Boolean): Boolean {
@@ -913,7 +922,46 @@ class GkeysIME : InputMethodService() {
 
     private fun canShowBubbleOverlay(): Boolean {
         if (!voiceBubbleEnabled || !voiceBubbleModeActive) return false
-        return bubbleTextFieldFocused
+        if (!bubbleTextFieldFocused) return false
+        return currentInputConnection != null
+    }
+
+    private fun isEditableField(info: EditorInfo?): Boolean {
+        if (info == null) return false
+        val inputType = info.inputType
+        if (inputType == InputType.TYPE_NULL) return false
+        return when (inputType and InputType.TYPE_MASK_CLASS) {
+            InputType.TYPE_CLASS_TEXT,
+            InputType.TYPE_CLASS_NUMBER,
+            InputType.TYPE_CLASS_PHONE,
+            InputType.TYPE_CLASS_DATETIME -> true
+            else -> false
+        }
+    }
+
+    /** Drop the bubble when the IME no longer has a live text connection. */
+    private fun reconcileBubbleOverlayWithField() {
+        if (!voiceBubbleModeActive) return
+        if (isRecording || micIsProcessing || liveSttActive || liveSttConnecting || liveSttSessionActive) {
+            return
+        }
+        if (currentInputConnection != null && bubbleTextFieldFocused) return
+        bubbleTextFieldFocused = false
+        cancelBubbleFieldHide()
+        hideBubbleOverlay(animate = true)
+        syncBubbleKeyboardWindow()
+    }
+
+    private fun hideBubbleForFinishedInput() {
+        bubbleTextFieldFocused = false
+        cancelBubbleFieldHide()
+        if (isRecording && !recordingForGhostwriter) {
+            cancelRecording()
+        }
+        if (!isRecording && !micIsProcessing && !liveSttActive && !liveSttConnecting && !liveSttSessionActive) {
+            hideBubbleOverlay(animate = true)
+            syncBubbleKeyboardWindow()
+        }
     }
 
     /** Load persisted bubble mode before the first input view frame to avoid keyboard flash. */
@@ -1104,9 +1152,13 @@ class GkeysIME : InputMethodService() {
     override fun onStartInput(attribute: EditorInfo?, restarting: Boolean) {
         refreshBubbleModeCacheSync()
         super.onStartInput(attribute, restarting)
-        markBubbleTextFieldFocused()
         activeInputConnection = currentInputConnection
-        prepareBubbleFieldBinding(restarting)
+        if (isEditableField(attribute)) {
+            markBubbleTextFieldFocused()
+            prepareBubbleFieldBinding(restarting)
+        } else {
+            scheduleHideBubbleWhenNoField()
+        }
         if (voiceBubbleModeActive && bubbleKeyboardCollapsed) {
             handler.post { syncBubbleKeyboardWindow() }
         }
@@ -1164,13 +1216,13 @@ class GkeysIME : InputMethodService() {
                 }
 
                 // New field while bubble mode is on — show bubble, keep keyboard collapsed.
-                if (persistedActive || voiceBubbleModeActive) {
+                if (bubbleTextFieldFocused && (persistedActive || voiceBubbleModeActive)) {
                     activateBubbleOnFieldFocus()
                     return@launch
                 }
 
                 // First-time entry when "default to bubble" setting is enabled.
-                if (defaultToVoiceBubbleCached) {
+                if (bubbleTextFieldFocused && defaultToVoiceBubbleCached) {
                     activateBubbleOnFieldFocus()
                     return@launch
                 }
@@ -1200,6 +1252,7 @@ class GkeysIME : InputMethodService() {
         if (!isRecording && !micIsProcessing && !liveSttActive && !liveSttConnecting && !liveSttSessionActive) {
             activeInputConnection = null
         }
+        reconcileBubbleOverlayWithField()
         super.onFinishInput()
     }
 
@@ -1278,7 +1331,11 @@ class GkeysIME : InputMethodService() {
                 hideGhostwriterOverlay()
                 clipboardManager?.stopListening()
                 clipboardManager?.hidePanel()
-                showBubbleOverlayIfFieldActive()
+                if (finishingInput) {
+                    hideBubbleForFinishedInput()
+                } else {
+                    showBubbleOverlayIfFieldActive()
+                }
                 super.onFinishInputView(finishingInput)
                 return
             }
