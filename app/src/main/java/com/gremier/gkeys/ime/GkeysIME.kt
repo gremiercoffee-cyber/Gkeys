@@ -121,6 +121,9 @@ class GkeysIME : InputMethodService() {
     private var defaultToVoiceBubbleCached = false
     /** When a text field was just focused programmatically (navigation) — suppress auto-keyboard briefly. */
     private var lastBubbleFieldFocusMs = 0L
+    /** True while the IME is bound to an editable field (cleared shortly after [onFinishInput]). */
+    private var bubbleTextFieldFocused = false
+    private var bubbleFieldHideRunnable: Runnable? = null
     /** Prevents requestHideSelf while restoring IME session to commit bubble dictation. */
     private var suspendBubbleCollapse = false
     /** IME session kept alive invisibly while bubble dictates with keyboard collapsed. */
@@ -238,6 +241,8 @@ class GkeysIME : InputMethodService() {
         private const val LONG_PRESS_MS = 380L
         /** Block keyboard auto-show briefly after navigation focuses a new text field. */
         private const val BUBBLE_AUTO_SHOW_BLOCK_MS = 450L
+        /** Grace period before hiding the bubble after [onFinishInput] — absorbs field rebinds. */
+        private const val BUBBLE_FIELD_HIDE_DELAY_MS = 450L
         /** [InputMethodManager] show-soft-input bit in [onShowInputRequested] reason. */
         private const val SHOW_SOFT_INPUT_REASON = 1
         private const val KEY_EMOJI_PANEL = "\uE000"
@@ -878,6 +883,39 @@ class GkeysIME : InputMethodService() {
         lastBubbleFieldFocusMs = System.currentTimeMillis()
     }
 
+    private fun markBubbleTextFieldFocused() {
+        cancelBubbleFieldHide()
+        bubbleTextFieldFocused = true
+    }
+
+    private fun cancelBubbleFieldHide() {
+        bubbleFieldHideRunnable?.let { handler.removeCallbacks(it) }
+        bubbleFieldHideRunnable = null
+    }
+
+    /** Hide the bubble when no editable field is focused; defer briefly for chat → edit rebinds. */
+    private fun scheduleHideBubbleWhenNoField() {
+        bubbleTextFieldFocused = false
+        cancelBubbleFieldHide()
+        val hide = Runnable {
+            bubbleFieldHideRunnable = null
+            if (bubbleTextFieldFocused) return@Runnable
+            if (isRecording || micIsProcessing || liveSttActive || liveSttConnecting || liveSttSessionActive) {
+                return@Runnable
+            }
+            if (!voiceBubbleModeActive) return@Runnable
+            hideBubbleOverlay(animate = true)
+            syncBubbleKeyboardWindow()
+        }
+        bubbleFieldHideRunnable = hide
+        handler.postDelayed(hide, BUBBLE_FIELD_HIDE_DELAY_MS)
+    }
+
+    private fun canShowBubbleOverlay(): Boolean {
+        if (!voiceBubbleEnabled || !voiceBubbleModeActive) return false
+        return bubbleTextFieldFocused
+    }
+
     /** Load persisted bubble mode before the first input view frame to avoid keyboard flash. */
     private fun refreshBubbleModeCacheSync() {
         try {
@@ -1029,7 +1067,7 @@ class GkeysIME : InputMethodService() {
     }
 
     private fun showBubbleOverlayIfFieldActive() {
-        if (!voiceBubbleModeActive || isRecording || micIsProcessing) return
+        if (!canShowBubbleOverlay() || isRecording || micIsProcessing) return
         if (voiceBubbleController?.isShowing == true) return
         voiceBubbleController?.show()
     }
@@ -1066,6 +1104,7 @@ class GkeysIME : InputMethodService() {
     override fun onStartInput(attribute: EditorInfo?, restarting: Boolean) {
         refreshBubbleModeCacheSync()
         super.onStartInput(attribute, restarting)
+        markBubbleTextFieldFocused()
         activeInputConnection = currentInputConnection
         prepareBubbleFieldBinding(restarting)
         if (voiceBubbleModeActive && bubbleKeyboardCollapsed) {
@@ -1095,7 +1134,7 @@ class GkeysIME : InputMethodService() {
                     handler.post {
                         if (!liveSttKeepKeyboardOpen && shouldUseInvisibleLiveSttSession()) {
                             syncLiveSttWindow()
-                            voiceBubbleController?.show()
+                            showBubbleOverlayIfFieldActive()
                         }
                     }
                     return@launch
@@ -1149,9 +1188,9 @@ class GkeysIME : InputMethodService() {
             if (isRecording && !recordingForGhostwriter) {
                 cancelRecording()
             }
-            // Keep the bubble across field rebinds (chat → edit message). Only hide when leaving bubble mode.
-            val stayInBubbleMode = voiceBubbleModeActive && voiceBubbleEnabled
-            if (!stayInBubbleMode && !isRecording && !micIsProcessing && !liveSttActive && !liveSttConnecting) {
+            if (voiceBubbleModeActive && voiceBubbleEnabled) {
+                scheduleHideBubbleWhenNoField()
+            } else if (!isRecording && !micIsProcessing && !liveSttActive && !liveSttConnecting) {
                 hideBubbleOverlay(animate = true)
             }
         } catch (e: Exception) {
@@ -1213,9 +1252,7 @@ class GkeysIME : InputMethodService() {
                 if (::btnClipboardUndo.isInitialized) updateUndoButtonState()
             }
             clipboardManager?.startListening()
-            if (voiceBubbleModeActive && voiceBubbleController?.isShowing != true) {
-                voiceBubbleController?.show()
-            }
+            showBubbleOverlayIfFieldActive()
             liveTranscribe.flushPendingPartial()
             handler.post { syncWordPrefixAndRefreshSuggestions() }
         } catch (e: Throwable) {
@@ -1241,9 +1278,7 @@ class GkeysIME : InputMethodService() {
                 hideGhostwriterOverlay()
                 clipboardManager?.stopListening()
                 clipboardManager?.hidePanel()
-                if (!isRecording && !micIsProcessing && voiceBubbleController?.isShowing != true) {
-                    voiceBubbleController?.show()
-                }
+                showBubbleOverlayIfFieldActive()
                 super.onFinishInputView(finishingInput)
                 return
             }
@@ -1295,7 +1330,7 @@ class GkeysIME : InputMethodService() {
                 if (!voiceBubbleEnabled && voiceBubbleModeActive) {
                     exitVoiceBubbleMode()
                 } else if (voiceBubbleModeActive && voiceBubbleController?.isShowing != true &&
-                    currentInputConnection != null
+                    bubbleTextFieldFocused
                 ) {
                     handler.post { tryActivateVoiceBubbleMode(showOverlay = true) }
                 }
@@ -1581,7 +1616,7 @@ class GkeysIME : InputMethodService() {
             ensureInputForLiveStt {
                 prepareLiveSttSession()
                 syncLiveSttWindow()
-                voiceBubbleController?.show()
+                showBubbleOverlayIfFieldActive()
                 beginStreaming()
             }
         }
@@ -1881,6 +1916,7 @@ class GkeysIME : InputMethodService() {
         scope.launch { GkeysSettings.saveVoiceBubbleModeActive(this@GkeysIME, true) }
         val hasField = currentInputConnection != null
         if (hasField) {
+            markBubbleTextFieldFocused()
             armBubbleShowRequestConsume()
             if (!tryActivateVoiceBubbleMode(showOverlay = true)) {
                 showErrorToast("Allow display over other apps for Voice Bubble")
@@ -1907,6 +1943,10 @@ class GkeysIME : InputMethodService() {
         if (!controller.canDrawOverlay()) return false
         voiceBubbleModeActive = true
         if (showOverlay) {
+            if (!canShowBubbleOverlay()) {
+                syncBubbleKeyboardWindow()
+                return true
+            }
             if (!controller.isShowing) {
                 controller.show()
             }
@@ -1972,6 +2012,8 @@ class GkeysIME : InputMethodService() {
     /** Turn off bubble mode entirely and return to the normal keyboard. */
     private fun exitVoiceBubbleMode() {
         cancelBubbleShowRequestConsume()
+        cancelBubbleFieldHide()
+        bubbleTextFieldFocused = false
         if (!voiceBubbleModeActive && voiceBubbleController?.isShowing != true) {
             bubbleKeyboardCollapsed = false
             syncBubbleKeyboardWindow()
@@ -3895,6 +3937,7 @@ class GkeysIME : InputMethodService() {
     }
 
     override fun onDestroy() {
+        cancelBubbleFieldHide()
         voiceBubbleController?.destroy()
         if (::micSessionGuard.isInitialized) {
             micSessionGuard.forceRelease()
