@@ -69,6 +69,20 @@ object InputTextHelper {
         return before.trim()
     }
 
+    /** Word fragment immediately before the cursor (for suggestion prefix). */
+    fun wordBeforeCursor(ic: InputConnection, hebrew: Boolean = false): String {
+        val before = ic.getTextBeforeCursor(64, 0)?.toString().orEmpty()
+        var start = before.length
+        while (start > 0 && isWordCharacter(before[start - 1], hebrew)) {
+            start--
+        }
+        val word = before.substring(start)
+        return if (hebrew) word else word.lowercase()
+    }
+
+    private fun isWordCharacter(c: Char, hebrew: Boolean): Boolean =
+        c.isLetter() || (!hebrew && c == '\'')
+
     private fun extractLastSentence(line: String): String {
         val terminators = listOf(". ", "! ", "? ", "… ")
         var bestStart = 0

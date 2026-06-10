@@ -572,6 +572,12 @@ class GkeysIME : InputMethodService() {
             onVibrate = { hapticKeyTap() },
             onPanelOpen = { keyboardKeysHost.visibility = View.GONE },
             onPanelClose = { keyboardKeysHost.visibility = View.VISIBLE },
+            onTextPromptOpen = { keyboardKeysHost.visibility = View.VISIBLE },
+            onTextPromptClose = {
+                if (clipboardManager?.isPanelOpen() == true) {
+                    keyboardKeysHost.visibility = View.GONE
+                }
+            },
             shouldPreservePreviewHint = { isRecording || micIsProcessing || liveSttActive || liveSttConnecting }
         )
         clipboardManager?.setupPreviewInteractions()
@@ -1174,7 +1180,7 @@ class GkeysIME : InputMethodService() {
                 voiceBubbleController?.show()
             }
             liveTranscribe.flushPendingPartial()
-            refreshSuggestions()
+            handler.post { syncWordPrefixAndRefreshSuggestions() }
         } catch (e: Throwable) {
             android.util.Log.e("GkeysIME", "onStartInputView failed", e)
         }
@@ -3050,6 +3056,33 @@ class GkeysIME : InputMethodService() {
             emptyMap()
         }
 
+    /** Read the partial word at the cursor — avoids stale prefix from earlier keystrokes. */
+    private fun syncWordPrefixFromField(ic: InputConnection? = currentInputConnection) {
+        val conn = ic ?: return
+        currentWordPrefix = normalizeWordChar(InputTextHelper.wordBeforeCursor(conn, isHebrew))
+        if (::adaptiveTouch.isInitialized) {
+            adaptiveTouch.setWordPrefix(currentWordPrefix)
+        }
+    }
+
+    private fun syncWordPrefixAndRefreshSuggestions(ic: InputConnection? = currentInputConnection) {
+        syncWordPrefixFromField(ic)
+        if (currentWordPrefix.isEmpty()) {
+            if (postAutocorrectUndo == null) hideSuggestionBar()
+        } else if (suggestionsSupported()) {
+            onSuggestionTypingKey()
+        }
+        refreshSuggestions()
+    }
+
+    private fun learnCompletedWord(word: String) {
+        val w = word.trim()
+        if (w.length < 2 || !::userWordsRepository.isInitialized) return
+        scope.launch {
+            userWordsRepository.recordWord(activeSuggestionLanguage(), w)
+        }
+    }
+
     private fun refreshSuggestions() {
         val controller = suggestionStripController ?: return
         val undo = postAutocorrectUndo
@@ -3148,6 +3181,7 @@ class GkeysIME : InputMethodService() {
         fieldUndo.recordInsert("$pick ")
         lastCompletedWord = normalizeCompletedWord(pick)
         currentWordPrefix = ""
+        learnCompletedWord(pick)
         if (::adaptiveTouch.isInitialized) {
             adaptiveTouch.setWordPrefix("")
             if (pick.length >= 2) {
@@ -3161,6 +3195,7 @@ class GkeysIME : InputMethodService() {
     }
 
     private fun handleSpaceKey(ic: InputConnection) {
+        syncWordPrefixFromField(ic)
         val prefix = currentWordPrefix
         val lang = activeSuggestionLanguage()
         val corrected = if (suggestionsSupported() && prefix.length >= 2) {
@@ -3176,6 +3211,7 @@ class GkeysIME : InputMethodService() {
             ic.commitText("$corrected ", 1)
             fieldUndo.recordInsert("$corrected ")
             lastCompletedWord = normalizeCompletedWord(corrected)
+            learnCompletedWord(corrected)
             updateTouchContext(" ")
             completeCurrentWord()
             updateUndoButtonState()
@@ -3188,13 +3224,9 @@ class GkeysIME : InputMethodService() {
         fieldUndo.recordInsert(" ")
         if (prefix.isNotEmpty()) {
             lastCompletedWord = normalizeCompletedWord(prefix)
-            if (suggestionsSupported() && prefix.length >= 2 &&
-                !DictionaryManager.isKnown(lang, prefix) &&
-                !userWordsForSuggestions().containsKey(normalizeCompletedWord(prefix))
-            ) {
-                scope.launch(Dispatchers.IO) {
-                    userWordsRepository.recordWord(lang, prefix)
-                }
+            learnCompletedWord(prefix)
+            if (::adaptiveTouch.isInitialized && prefix.length >= 2) {
+                adaptiveTouch.recordWordCompleted(normalizeCompletedWord(prefix))
             }
         }
         updateTouchContext(" ")
@@ -3204,7 +3236,49 @@ class GkeysIME : InputMethodService() {
         refreshSuggestions()
     }
 
+    private fun handleTextPromptKey(key: String) {
+        val mgr = clipboardManager ?: return
+        when (key) {
+            "⌫" -> mgr.deleteTextPromptChar()
+            "SPACE" -> mgr.insertTextPromptText(" ")
+            "↵" -> { /* single-line prompt — ignore enter */ }
+            "⇧" -> {
+                if (isShifted && !capsLock) capsLock = true
+                else if (capsLock) { capsLock = false; isShifted = false }
+                else isShifted = true
+                handler.post { refreshLetterCaseOnKeys() }
+            }
+            "?123" -> { hideSuggestionBar(); isSymbols = true; isNumpad = false; emojiPanelVisible = false; buildKeyboard() }
+            "ABC" -> { hideSuggestionBar(); isSymbols = false; isNumpad = false; emojiPanelVisible = false; buildKeyboard() }
+            "NUMPAD_BACK" -> { closeEmojiPanel() }
+            "🌐" -> {
+                isHebrew = !isHebrew
+                isSymbols = false
+                isNumpad = false
+                emojiPanelVisible = false
+                hideSuggestionBar()
+                buildKeyboard()
+            }
+            else -> {
+                val toInsert = if (isShifted && !isHebrew && key.length == 1 && key[0].isLetter()) {
+                    key.uppercase()
+                } else {
+                    key
+                }
+                mgr.insertTextPromptText(toInsert)
+                if (isShifted && !capsLock && toInsert.length == 1 && toInsert[0].isLetter()) {
+                    isShifted = false
+                    handler.post { refreshLetterCaseOnKeys() }
+                }
+            }
+        }
+    }
+
     private fun handleKeyInternal(key: String) {
+        if (clipboardManager?.isTextPromptActive() == true) {
+            handleTextPromptKey(key)
+            return
+        }
         val ic = currentInputConnection ?: return
         when (key) {
             "⌫" -> {
@@ -3213,15 +3287,15 @@ class GkeysIME : InputMethodService() {
                     touchResolver.recordBackspaceOnRecentTap()
                 }
                 awaitingTouchCorrection = true
-                trimWordPrefixAfterBackspace()
+                syncWordPrefixAndRefreshSuggestions(ic)
                 updateUndoButtonState()
-                refreshSuggestions()
             }
             "↵" -> {
                 ic.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER))
                 ic.sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER))
                 completeCurrentWord()
                 awaitingTouchCorrection = false
+                syncWordPrefixFromField(ic)
                 hideSuggestionBar()
                 refreshSuggestions()
             }
@@ -3257,22 +3331,6 @@ class GkeysIME : InputMethodService() {
                 updateTouchContext(toInsert)
                 updateUndoButtonState()
 
-                if (toInsert.length == 1 && isWordCharacter(toInsert[0])) {
-                    currentWordPrefix = (currentWordPrefix + normalizeWordChar(toInsert)).take(24)
-                    if (::adaptiveTouch.isInitialized) {
-                        adaptiveTouch.setWordPrefix(currentWordPrefix)
-                    }
-                    onSuggestionTypingKey()
-                } else {
-                    currentWordPrefix = ""
-                    if (::adaptiveTouch.isInitialized) {
-                        adaptiveTouch.setWordPrefix("")
-                    }
-                    if (toInsert == " " || toInsert.endsWith("\n")) {
-                        hideSuggestionBar()
-                    }
-                }
-
                 val needsShiftRefresh = isShifted && !capsLock &&
                     toInsert.length == 1 && toInsert[0].isLetter()
                 if (needsShiftRefresh) {
@@ -3289,7 +3347,7 @@ class GkeysIME : InputMethodService() {
                 if (EmojiCatalog.isEmoji(toInsert)) {
                     scope.launch { EmojiUsageStore.record(this@GkeysIME, toInsert) }
                 }
-                refreshSuggestions()
+                syncWordPrefixAndRefreshSuggestions(ic)
             }
         }
     }
@@ -3304,20 +3362,6 @@ class GkeysIME : InputMethodService() {
             adaptiveTouch.setWordPrefix("")
             if (word.length >= 2) {
                 handler.post { adaptiveTouch.recordWordCompleted(normalizeCompletedWord(word)) }
-            }
-        }
-    }
-
-    private fun trimWordPrefixAfterBackspace() {
-        if (currentWordPrefix.isNotEmpty()) {
-            currentWordPrefix = currentWordPrefix.dropLast(1)
-            if (::adaptiveTouch.isInitialized) {
-                adaptiveTouch.setWordPrefix(currentWordPrefix)
-            }
-            if (currentWordPrefix.isEmpty()) {
-                hideSuggestionBar()
-            } else {
-                onSuggestionTypingKey()
             }
         }
     }
@@ -3338,18 +3382,27 @@ class GkeysIME : InputMethodService() {
         deleteRunnable?.let { handler.removeCallbacks(it) }
         isDeleteRepeating = true
         if (!skipInitial) {
-            val ic = currentInputConnection
-            if (ic != null) {
-                deleteOneCharWithUndo(ic)
-                updateUndoButtonState()
+            if (clipboardManager?.isTextPromptActive() == true) {
+                clipboardManager?.deleteTextPromptChar()
+            } else {
+                val ic = currentInputConnection
+                if (ic != null) {
+                    deleteOneCharWithUndo(ic)
+                    updateUndoButtonState()
+                }
             }
         }
         deleteRunnable = object : Runnable {
             override fun run() {
                 if (!isDeleteRepeating) return
-                val ic = currentInputConnection ?: return
-                deleteOneCharWithUndo(ic)
-                updateUndoButtonState()
+                if (clipboardManager?.isTextPromptActive() == true) {
+                    clipboardManager?.deleteTextPromptChar()
+                } else {
+                    val ic = currentInputConnection ?: return
+                    deleteOneCharWithUndo(ic)
+                    syncWordPrefixFromField(ic)
+                    updateUndoButtonState()
+                }
                 handler.postDelayed(this, deleteSpeedMs.toLong())
             }
         }
@@ -3540,6 +3593,7 @@ class GkeysIME : InputMethodService() {
         } else {
             ic.commitText(item.text, 1)
             fieldUndo.recordInsert(item.text)
+            syncWordPrefixAndRefreshSuggestions(ic)
             updateUndoButtonState()
         }
     }
@@ -3563,6 +3617,7 @@ class GkeysIME : InputMethodService() {
         if (!fieldUndo.undo(ic)) return
         awaitingTouchCorrection = false
         hapticKeyTap()
+        syncWordPrefixAndRefreshSuggestions(ic)
         updateUndoButtonState()
     }
 

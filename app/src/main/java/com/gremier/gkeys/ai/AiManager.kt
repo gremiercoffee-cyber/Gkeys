@@ -193,8 +193,17 @@ User speech profile — this user often speaks this way; expect dictation and au
 $profile"""
     }
 
-    private suspend fun promptWithProfile(base: String): String {
-        val suffix = speakerProfileContext()
+    private suspend fun userInstructionsContext(): String {
+        val instructions = GkeysSettings.aiInstructions(context).first().trim()
+        if (instructions.isEmpty()) return ""
+        return """
+
+User custom instructions — always follow these rules:
+$instructions"""
+    }
+
+    private suspend fun promptWithUserContext(base: String): String {
+        val suffix = speakerProfileContext() + userInstructionsContext()
         return if (suffix.isEmpty()) base.trim() else "${base.trim()}$suffix"
     }
 
@@ -232,7 +241,7 @@ $profile"""
 
                     .addFormDataPart("temperature", "0")
 
-                    .addFormDataPart("prompt", promptWithProfile(TRANSCRIBE_PROMPT))
+                    .addFormDataPart("prompt", promptWithUserContext(TRANSCRIBE_PROMPT))
 
                 if (!language.isNullOrBlank()) {
 
@@ -296,13 +305,20 @@ $profile"""
 
     ): Result<String> = withContext(Dispatchers.IO) {
 
+        val instructions = GkeysSettings.aiInstructions(context).first().trim()
+
         val prompt = systemPromptForLevel(level)
 
-            ?: return@withContext Result.success(text)
+        if (prompt == null) {
+            if (instructions.isEmpty()) {
+                return@withContext Result.success(text)
+            }
+            return@withContext applyUserInstructionsOnly(text, openAiKey)
+        }
 
         callGpt(
 
-            systemPrompt = promptWithProfile(prompt),
+            systemPrompt = promptWithUserContext(prompt),
 
             userContent = polishUserContent(text, level),
 
@@ -316,6 +332,26 @@ $profile"""
 
         )
 
+    }
+
+    /** Raw mode with custom instructions — apply rules only, no full polish pass. */
+    private suspend fun applyUserInstructionsOnly(text: String, openAiKey: String): Result<String> {
+        val instructions = GkeysSettings.aiInstructions(context).first().trim()
+        if (instructions.isEmpty()) return Result.success(text)
+        val basePrompt = """
+Apply ONLY the user's custom instructions below. Do not rewrite, polish, rephrase, or change anything except what the instructions explicitly require. Preserve the speaker's exact wording and tone otherwise.
+
+$LANGUAGE_CONTEXT
+
+Return ONLY the adjusted text. No quotes or commentary.""".trim()
+        return callGpt(
+            systemPrompt = promptWithUserContext(basePrompt),
+            userContent = text,
+            model = "gpt-4o-mini",
+            authHeader = "Bearer $openAiKey",
+            url = "https://api.openai.com/v1/chat/completions",
+            temperature = 0.0,
+        )
     }
 
 
@@ -344,7 +380,7 @@ $profile"""
 
         callGpt(
 
-            systemPrompt = promptWithProfile("""
+            systemPrompt = promptWithUserContext("""
 
 You translate text from $fromName to $toName. The input may be messy voice dictation and may mix languages. Return ONLY the final text in $toName.""".trim()),
 
@@ -369,7 +405,7 @@ You translate text from $fromName to $toName. The input may be messy voice dicta
     suspend fun ghostwrite(prompt: String, openAiKey: String): Result<String> =
         withContext(Dispatchers.IO) {
             callGpt(
-                systemPrompt = promptWithProfile(GHOSTWRITE_PROMPT),
+                systemPrompt = promptWithUserContext(GHOSTWRITE_PROMPT),
                 userContent = prompt,
                 model = "gpt-4o-mini",
                 authHeader = "Bearer $openAiKey",
@@ -410,7 +446,7 @@ You translate text from $fromName to $toName. The input may be messy voice dicta
 
                             put("role", "user")
 
-                            put("content", "${promptWithProfile(DEEP_POLISH_PROMPT)}\n\nText: $text")
+                            put("content", "${promptWithUserContext(DEEP_POLISH_PROMPT)}\n\nText: $text")
 
                         })
 

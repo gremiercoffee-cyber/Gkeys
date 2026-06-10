@@ -28,8 +28,8 @@ class AdaptiveTouchIntelligence(
 
     companion object {
         private const val CORRECTION_WINDOW_MS = 4500L
-        private const val EMA_ALPHA = 0.12f
-        private const val RADIUS_LEARN_ALPHA = 0.11f
+        private const val EMA_ALPHA = 0.17f
+        private const val RADIUS_LEARN_ALPHA = 0.15f
         private const val MAX_RADIUS_MUL = 1.45f
         private const val MIN_RADIUS_MUL = 0.72f
         private const val CONFUSION_MATCH_SIGMA = 0.35f
@@ -184,7 +184,7 @@ class AdaptiveTouchIntelligence(
         boost *= postureBoost(target)
 
         val stats = profile.keyStats[ch]
-        if (stats != null && stats.tapCount >= 8) {
+        if (stats != null && stats.tapCount >= 5) {
             val dx = touchX - (target.centerX + stats.meanOffsetX)
             val dy = touchY - (target.centerY + stats.meanOffsetY)
             val sigmaX = stats.stdDevX(target.width)
@@ -208,7 +208,7 @@ class AdaptiveTouchIntelligence(
         if (!enabled) return target.sweetSpotX to target.sweetSpotY
         val ch = target.char ?: return target.sweetSpotX to target.sweetSpotY
         val stats = profile.keyStats[ch] ?: return target.sweetSpotX to target.sweetSpotY
-        if (stats.tapCount < 5) return target.sweetSpotX to target.sweetSpotY
+        if (stats.tapCount < 3) return target.sweetSpotX to target.sweetSpotY
         val blend = (stats.tapCount / 60f).coerceIn(0f, 0.65f)
         val cx = target.sweetSpotX + stats.meanOffsetX * blend
         val cy = target.sweetSpotY + stats.meanOffsetY * blend
@@ -263,7 +263,7 @@ class AdaptiveTouchIntelligence(
         if (prefix.isBlank()) return 1f
         var bestBoost = 1f
         val entries = profile.vocabFrequency.entries
-            .filter { it.key.startsWith(prefix) && it.value >= 2 }
+            .filter { it.key.startsWith(prefix) && it.value >= 1 }
             .sortedByDescending { it.value }
             .take(8)
         for ((word, freq) in entries) {

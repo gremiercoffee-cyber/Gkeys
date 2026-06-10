@@ -5,7 +5,8 @@
     android:layout_height="match_parent"
     android:background="#99000000"
     android:clickable="true"
-    android:focusable="true">
+    android:focusable="false"
+    android:focusableInTouchMode="false">
 
     <LinearLayout
         android:id="@+id/prompt_card"
@@ -16,7 +17,8 @@
         android:layout_marginEnd="28dp"
         android:background="#1A1A2E"
         android:clickable="true"
-        android:focusable="true"
+        android:focusable="false"
+        android:focusableInTouchMode="false"
         android:orientation="vertical"
         android:padding="16dp">
 
@@ -33,9 +35,13 @@
             android:id="@+id/et_prompt_input"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:background="#2A2A3E"
+            android:background="@drawable/clipboard_prompt_input_bg"
+            android:cursorVisible="true"
+            android:focusable="true"
+            android:focusableInTouchMode="true"
             android:hint="Folder name"
-            android:inputType="textCapWords"
+            android:imeOptions="actionDone"
+            android:inputType="textCapSentences"
             android:padding="12dp"
             android:singleLine="true"
             android:textColor="#E8EAF0"

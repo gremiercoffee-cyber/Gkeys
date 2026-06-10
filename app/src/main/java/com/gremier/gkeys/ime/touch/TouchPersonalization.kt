@@ -22,7 +22,7 @@ class TouchPersonalization(
     private var loaded = false
 
     companion object {
-        private const val EMA_ALPHA = 0.14f
+        private const val EMA_ALPHA = 0.18f
         private const val MAX_OFFSET_FRACTION = 0.35f
     }
 

@@ -19,7 +19,7 @@ class UserWordsRepository(context: Context) {
 
     suspend fun reload(language: DictionaryManager.Language) {
         val rows = withContext(Dispatchers.IO) {
-            dao.topWords(language.code, 500)
+            dao.topWords(language.code, 1500)
         }
         cache = cache + (language.code to rows.associate { it.word to it.frequency })
     }
@@ -45,7 +45,15 @@ class UserWordsRepository(context: Context) {
                 )
             }
         }
-        reload(language)
+        bumpCache(language, normalized)
+    }
+
+    /** Keep in-memory vocabulary hot so new words surface in suggestions immediately. */
+    private fun bumpCache(language: DictionaryManager.Language, word: String) {
+        val code = language.code
+        val updated = cache[code].orEmpty().toMutableMap()
+        updated[word] = (updated[word] ?: 0) + 1
+        cache = cache + (code to updated)
     }
 
     fun prefixMatches(language: DictionaryManager.Language, prefix: String, limit: Int = 12): List<String> {

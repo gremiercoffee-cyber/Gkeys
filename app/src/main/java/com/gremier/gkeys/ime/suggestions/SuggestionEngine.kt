@@ -141,7 +141,7 @@ object SuggestionEngine {
     ): Double {
         var score = 0.0
         score += DictionaryManager.frequencyScore(language, candidate) * 1.2
-        score += (userWords[candidate] ?: 0) * 120.0
+        score += (userWords[candidate] ?: 0) * 200.0
         score -= editDistance * 110.0
 
         if (typed != null && language == DictionaryManager.Language.EN) {

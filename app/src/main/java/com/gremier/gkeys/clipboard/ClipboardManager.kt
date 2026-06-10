@@ -34,6 +34,8 @@ class GkeysClipboardManager(
     private val onVibrate: () -> Unit,
     private val onPanelOpen: () -> Unit = {},
     private val onPanelClose: () -> Unit = {},
+    private val onTextPromptOpen: () -> Unit = {},
+    private val onTextPromptClose: () -> Unit = {},
     private val shouldPreservePreviewHint: () -> Boolean = { false }
 ) {
     companion object {
@@ -61,6 +63,7 @@ class GkeysClipboardManager(
     private var observeJob: Job? = null
     private var cachedFolders: List<ClipboardFolder> = emptyList()
     private var modalOverlay: View? = null
+    private var activeTextPromptInput: EditText? = null
 
     private val prefs by lazy {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -218,6 +221,34 @@ class GkeysClipboardManager(
     }
 
     fun isPanelOpen(): Boolean = overlayContainer.visibility == View.VISIBLE
+
+    fun isTextPromptActive(): Boolean = activeTextPromptInput != null
+
+    fun insertTextPromptText(text: String) {
+        val input = activeTextPromptInput ?: return
+        if (text.isEmpty()) return
+        val start = input.selectionStart.coerceAtLeast(0)
+        val end = input.selectionEnd.coerceAtLeast(0)
+        val selStart = minOf(start, end)
+        val selEnd = maxOf(start, end)
+        input.text.replace(selStart, selEnd, text)
+        input.setSelection(selStart + text.length)
+    }
+
+    fun deleteTextPromptChar() {
+        val input = activeTextPromptInput ?: return
+        val start = input.selectionStart
+        val end = input.selectionEnd
+        if (start != end) {
+            val selStart = minOf(start, end)
+            val selEnd = maxOf(start, end)
+            input.text.delete(selStart, selEnd)
+            input.setSelection(selStart)
+        } else if (start > 0) {
+            input.text.delete(start - 1, start)
+            input.setSelection(start - 1)
+        }
+    }
 
     fun refreshPreview() {
         scope.launch { refreshFromStore() }
@@ -806,7 +837,15 @@ class GkeysClipboardManager(
         return overlayView as? ViewGroup ?: overlayContainer
     }
 
+    private fun clearTextPromptState() {
+        if (activeTextPromptInput != null) {
+            activeTextPromptInput = null
+            onTextPromptClose()
+        }
+    }
+
     private fun dismissModalOverlay() {
+        clearTextPromptState()
         modalOverlay?.let { overlay ->
             (overlay.parent as? ViewGroup)?.removeView(overlay)
         }
@@ -874,6 +913,7 @@ class GkeysClipboardManager(
         if (initialText.isNotEmpty()) {
             input.setSelection(initialText.length)
         }
+        input.setOnClickListener { input.requestFocus() }
         prompt.findViewById<TextView>(R.id.btn_prompt_confirm).text = confirmLabel
         prompt.findViewById<View>(R.id.btn_prompt_cancel).setOnClickListener {
             onVibrate()
@@ -889,9 +929,14 @@ class GkeysClipboardManager(
         prompt.findViewById<View>(R.id.prompt_scrim).setOnClickListener {
             dismissModalOverlay()
         }
-        prompt.findViewById<View>(R.id.prompt_card).setOnClickListener { }
+        prompt.findViewById<View>(R.id.prompt_card).setOnClickListener { input.requestFocus() }
+        activeTextPromptInput = input
+        onTextPromptOpen()
         showModalOverlay(prompt)
-        input.requestFocus()
+        input.post {
+            input.requestFocus()
+            input.setSelection(input.text.length)
+        }
     }
 
     private fun showCreateFolderDialog(onCreated: ((Long?) -> Unit)? = null) {

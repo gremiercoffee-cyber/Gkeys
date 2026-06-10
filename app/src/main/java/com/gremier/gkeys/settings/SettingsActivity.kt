@@ -40,6 +40,7 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var etAnthropicKey: TextInputEditText
     private lateinit var etDeepgramKey: TextInputEditText
     private lateinit var etSpeechProfile: TextInputEditText
+    private lateinit var etAiInstructions: TextInputEditText
     private lateinit var sliderKeyRepeat: Slider
     private lateinit var sliderDeleteSpeed: Slider
     private lateinit var switchVibration: SwitchMaterial
@@ -239,6 +240,9 @@ class SettingsActivity : AppCompatActivity() {
         etAnthropicKey = findViewById(R.id.et_anthropic_key)
         etDeepgramKey = findViewById(R.id.et_deepgram_key)
         etSpeechProfile = findViewById(R.id.et_speech_profile)
+        enableNestedScrollInParent(etSpeechProfile)
+        etAiInstructions = findViewById(R.id.et_ai_instructions)
+        enableNestedScrollInParent(etAiInstructions)
         sliderKeyRepeat = findViewById(R.id.slider_key_repeat)
         sliderDeleteSpeed = findViewById(R.id.slider_delete_speed)
         switchVibration = findViewById(R.id.switch_vibration)
@@ -292,6 +296,7 @@ class SettingsActivity : AppCompatActivity() {
             etAnthropicKey.setText(GkeysSettings.anthropicKey(this@SettingsActivity).first())
             etDeepgramKey.setText(GkeysSettings.deepgramKey(this@SettingsActivity).first())
             etSpeechProfile.setText(GkeysSettings.speechProfile(this@SettingsActivity).first())
+            etAiInstructions.setText(GkeysSettings.aiInstructions(this@SettingsActivity).first())
             sliderKeyRepeat.value = clampToSlider(sliderKeyRepeat, GkeysSettings.keyRepeatSpeed(this@SettingsActivity).first().toFloat())
             sliderDeleteSpeed.value = clampToSlider(sliderDeleteSpeed, GkeysSettings.deleteSpeed(this@SettingsActivity).first().toFloat())
             switchVibration.isChecked = GkeysSettings.vibrationEnabled(this@SettingsActivity).first()
@@ -364,6 +369,9 @@ class SettingsActivity : AppCompatActivity() {
         }
         etSpeechProfile.setOnFocusChangeListener { _, hasFocus ->
             if (!hasFocus) autoSave { GkeysSettings.saveSpeechProfile(this@SettingsActivity, etSpeechProfile.text.toString()) }
+        }
+        etAiInstructions.setOnFocusChangeListener { _, hasFocus ->
+            if (!hasFocus) autoSave { GkeysSettings.saveAiInstructions(this@SettingsActivity, etAiInstructions.text.toString()) }
         }
 
         sliderKeyRepeat.addOnChangeListener { _, _, fromUser ->
@@ -674,5 +682,18 @@ class SettingsActivity : AppCompatActivity() {
         val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
         val isEnabled = imm.enabledInputMethodList.any { it.packageName == packageName }
         btnEnableKeyboard.text = if (isEnabled) "✓ Gkeys is enabled" else "Enable Gkeys Keyboard"
+    }
+
+    private fun enableNestedScrollInParent(editText: TextInputEditText) {
+        editText.setOnTouchListener { view, event ->
+            view.parent.requestDisallowInterceptTouchEvent(true)
+            when (event.actionMasked) {
+                android.view.MotionEvent.ACTION_UP,
+                android.view.MotionEvent.ACTION_CANCEL -> {
+                    view.parent.requestDisallowInterceptTouchEvent(false)
+                }
+            }
+            false
+        }
     }
 }
