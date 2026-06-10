@@ -26,7 +26,7 @@ class GkeysClipboardManager(
     private val context: Context,
     themeContext: Context,
     private val overlayContainer: ViewGroup,
-    private val keyboardPanelHost: ViewGroup,
+    private val toolbarSlotHost: ViewGroup,
     private val previewTapTarget: View,
     private val previewView: TextView,
     private val previewImage: ImageView,
@@ -67,6 +67,7 @@ class GkeysClipboardManager(
     private var textPromptView: View? = null
     private var textPromptBuffer = StringBuilder()
     private var textPromptHint: String = ""
+    private var textPromptTitle: String = ""
     private var textPromptDisplay: TextView? = null
     private var clipboardPanelOpen = false
 
@@ -249,7 +250,11 @@ class GkeysClipboardManager(
     private fun refreshTextPromptDisplay() {
         val display = textPromptDisplay ?: return
         if (textPromptBuffer.isEmpty()) {
-            display.text = textPromptHint
+            display.text = if (textPromptTitle.isNotEmpty()) {
+                "$textPromptTitle…"
+            } else {
+                textPromptHint
+            }
             display.setTextColor(themeContext.getColor(R.color.gkeys_text_muted))
         } else {
             display.text = textPromptBuffer.toString()
@@ -850,6 +855,7 @@ class GkeysClipboardManager(
             textPromptDisplay = null
             textPromptBuffer.clear()
             textPromptHint = ""
+            textPromptTitle = ""
             onTextPromptClose()
         }
     }
@@ -922,9 +928,10 @@ class GkeysClipboardManager(
     ) {
         dismissTextPrompt()
         val prompt = themedInflater()
-            .inflate(R.layout.clipboard_text_prompt, keyboardPanelHost, false)
-        prompt.findViewById<TextView>(R.id.tv_prompt_title).text = title
+            .inflate(R.layout.clipboard_text_prompt, toolbarSlotHost, false)
+        textPromptTitle = title
         textPromptHint = inputHint
+        prompt.contentDescription = title
         textPromptBuffer.clear()
         if (initialText.isNotEmpty()) {
             textPromptBuffer.append(initialText)
@@ -945,13 +952,10 @@ class GkeysClipboardManager(
         }
         textPromptView = prompt
         onTextPromptOpen()
-        keyboardPanelHost.addView(
+        toolbarSlotHost.addView(
             prompt,
-            FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                android.view.Gravity.TOP,
-            ),
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.MATCH_PARENT,
         )
     }
 

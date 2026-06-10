@@ -171,6 +171,8 @@ class GkeysIME : InputMethodService() {
     private var postAutocorrectUndo: Pair<String, String>? = null
     private lateinit var userWordsRepository: UserWordsRepository
     private lateinit var aiStrip: LinearLayout
+    private lateinit var aiStripSecondary: LinearLayout
+    private var aiBarSecondaryVisible = false
     private lateinit var keyboardPanel: FrameLayout
     private lateinit var keyboardKeysHost: FrameLayout
     private lateinit var keyboardRows: KeyboardTouchLayout
@@ -188,6 +190,9 @@ class GkeysIME : InputMethodService() {
     private lateinit var micAiShimmer: View
     private lateinit var micAiSparkles: ImageView
     private lateinit var btnKeyboard: ImageButton
+    private lateinit var btnAiBarPage: ImageButton
+    private lateinit var btnAiBarBack: ImageButton
+    private lateinit var btnSettings: ImageButton
     private lateinit var btnVoiceBubble: ImageButton
     private lateinit var btnWand: ImageButton
     private lateinit var btnLiveTranscribe: ImageButton
@@ -443,6 +448,7 @@ class GkeysIME : InputMethodService() {
         if (::keyboardPanel.isInitialized) keyboardPanel.setBackgroundColor(bg)
         if (::keyboardKeysHost.isInitialized) keyboardKeysHost.setBackgroundColor(bg)
         if (::aiStrip.isInitialized) aiStrip.setBackgroundColor(themeColor(R.color.gkeys_toolbar))
+        if (::aiStripSecondary.isInitialized) aiStripSecondary.setBackgroundColor(themeColor(R.color.gkeys_toolbar))
         if (::suggestionStrip.isInitialized) {
             suggestionStrip.setBackgroundColor(themeColor(R.color.gkeys_suggestion_bar))
         }
@@ -491,6 +497,7 @@ class GkeysIME : InputMethodService() {
         }
         userWordsRepository = UserWordsRepository(applicationContext)
         aiStrip = keyboardView.findViewById(R.id.ai_strip)
+        aiStripSecondary = keyboardView.findViewById(R.id.ai_strip_secondary)
         keyboardPanel = keyboardView.findViewById(R.id.keyboard_panel)
         keyboardKeysHost = keyboardView.findViewById(R.id.keyboard_keys_host)
         keyboardRows = keyboardView.findViewById(R.id.keyboard_rows)
@@ -508,6 +515,9 @@ class GkeysIME : InputMethodService() {
         micAiShimmer = keyboardView.findViewById(R.id.mic_ai_shimmer)
         micAiSparkles = keyboardView.findViewById(R.id.mic_ai_sparkles)
         btnKeyboard = keyboardView.findViewById(R.id.btn_keyboard)
+        btnAiBarPage = keyboardView.findViewById(R.id.btn_ai_bar_page)
+        btnAiBarBack = keyboardView.findViewById(R.id.btn_ai_bar_back)
+        btnSettings = keyboardView.findViewById(R.id.btn_settings)
         btnVoiceBubble = keyboardView.findViewById(R.id.btn_voice_bubble)
         btnWand = keyboardView.findViewById(R.id.btn_wand)
         btnLiveTranscribe = keyboardView.findViewById(R.id.btn_live_transcribe)
@@ -560,12 +570,12 @@ class GkeysIME : InputMethodService() {
         }
 
         val overlayContainer = keyboardView.findViewById<FrameLayout>(R.id.clipboard_overlay_container)
-        val keyboardPanel = keyboardView.findViewById<FrameLayout>(R.id.keyboard_panel)
+        val toolbarSlot = keyboardView.findViewById<FrameLayout>(R.id.toolbar_slot)
         clipboardManager = GkeysClipboardManager(
             context = this,
             themeContext = themedContext(),
             overlayContainer = overlayContainer,
-            keyboardPanelHost = keyboardPanel,
+            toolbarSlotHost = toolbarSlot,
             previewTapTarget = clipboardPreviewStrip,
             previewView = tvClipboard,
             previewImage = ivClipboardPreview,
@@ -576,13 +586,21 @@ class GkeysIME : InputMethodService() {
             onPanelClose = { keyboardKeysHost.visibility = View.VISIBLE },
             onTextPromptOpen = {
                 overlayContainer.visibility = View.GONE
+                aiStrip.visibility = View.GONE
+                aiStripSecondary.visibility = View.GONE
+                suggestionStrip.visibility = View.GONE
                 keyboardKeysHost.visibility = View.VISIBLE
             },
             onTextPromptClose = {
+                restoreAiBarPage()
+                applyAiBarVisibility()
                 if (clipboardManager?.isPanelOpen() == true) {
                     overlayContainer.visibility = View.VISIBLE
                     keyboardKeysHost.visibility = View.GONE
+                } else {
+                    keyboardKeysHost.visibility = View.VISIBLE
                 }
+                refreshSuggestions()
             },
             shouldPreservePreviewHint = { isRecording || micIsProcessing || liveSttActive || liveSttConnecting }
         )
@@ -1356,6 +1374,19 @@ class GkeysIME : InputMethodService() {
             updateNumpadButton()
         }
 
+        btnAiBarPage.setOnClickListener {
+            hapticKeyTap()
+            showSecondaryAiBar()
+        }
+        btnAiBarBack.setOnClickListener {
+            hapticKeyTap()
+            showPrimaryAiBar()
+        }
+        btnSettings.setOnClickListener {
+            hapticKeyTap()
+            openAppSettings()
+        }
+
         btnVoiceBubble.setOnClickListener {
             vibrate()
             if (voiceBubbleModeActive && voiceBubbleController?.isShowing == true) {
@@ -1948,6 +1979,28 @@ class GkeysIME : InputMethodService() {
     private fun updateVoiceBubbleButtonVisibility() {
         if (!::btnVoiceBubble.isInitialized) return
         btnVoiceBubble.visibility = if (voiceBubbleEnabled) View.VISIBLE else View.GONE
+    }
+
+    private fun showPrimaryAiBar() {
+        aiBarSecondaryVisible = false
+        if (::aiStrip.isInitialized) aiStrip.visibility = View.VISIBLE
+        if (::aiStripSecondary.isInitialized) aiStripSecondary.visibility = View.GONE
+    }
+
+    private fun showSecondaryAiBar() {
+        aiBarSecondaryVisible = true
+        if (::aiStrip.isInitialized) aiStrip.visibility = View.GONE
+        if (::aiStripSecondary.isInitialized) aiStripSecondary.visibility = View.VISIBLE
+        updateUndoButtonState()
+    }
+
+    private fun restoreAiBarPage() {
+        if (aiBarSecondaryVisible) showSecondaryAiBar() else showPrimaryAiBar()
+    }
+
+    private fun hideAiBarsForOverlay() {
+        if (::aiStrip.isInitialized) aiStrip.visibility = View.GONE
+        if (::aiStripSecondary.isInitialized) aiStripSecondary.visibility = View.GONE
     }
 
     private fun applyAiBarVisibility() {
@@ -3099,10 +3152,10 @@ class GkeysIME : InputMethodService() {
         if (!showTyping && !showUndo) {
             controller.setActive(false)
             controller.clear()
-            if (::aiStrip.isInitialized) aiStrip.visibility = View.VISIBLE
+            restoreAiBarPage()
             return
         }
-        if (::aiStrip.isInitialized) aiStrip.visibility = View.GONE
+        hideAiBarsForOverlay()
         val model = if (showUndo && undo != null) {
             SuggestionEngine.buildPostAutocorrectUndo(undo.first, undo.second)
         } else {

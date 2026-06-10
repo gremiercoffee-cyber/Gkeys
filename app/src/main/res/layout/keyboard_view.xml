@@ -46,7 +46,73 @@
 
 
 
-        <!-- Toolbar: wand | polish | clipboard | mic | numpad -->
+        <!-- Secondary AI bar (page 2 — settings, undo, bubble, …) -->
+
+        <LinearLayout
+            android:id="@+id/ai_strip_secondary"
+            android:layout_width="match_parent"
+            android:layout_height="46dp"
+            android:orientation="horizontal"
+            android:background="@color/gkeys_toolbar"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:gravity="center_vertical"
+            android:visibility="gone"
+            android:layoutDirection="ltr">
+
+            <ImageButton
+                android:id="@+id/btn_ai_bar_back"
+                android:layout_width="30dp"
+                android:layout_height="30dp"
+                android:src="@drawable/ic_back_arrow"
+                android:background="@drawable/btn_circle_bg"
+                android:contentDescription="Back to main toolbar"
+                android:scaleType="centerInside"
+                android:padding="5dp" />
+
+            <ImageButton
+                android:id="@+id/btn_settings"
+                android:layout_width="30dp"
+                android:layout_height="30dp"
+                android:layout_marginStart="5dp"
+                android:src="@drawable/ic_settings"
+                android:background="@drawable/btn_circle_bg"
+                android:contentDescription="Gkeys settings"
+                android:scaleType="centerInside"
+                android:padding="5dp" />
+
+            <ImageButton
+                android:id="@+id/btn_clipboard_undo"
+                android:layout_width="30dp"
+                android:layout_height="30dp"
+                android:layout_marginStart="5dp"
+                android:src="@drawable/ic_undo"
+                android:background="@drawable/btn_circle_bg"
+                android:contentDescription="Undo"
+                android:scaleType="centerInside"
+                android:padding="5dp" />
+
+            <ImageButton
+                android:id="@+id/btn_voice_bubble"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:layout_marginStart="5dp"
+                android:src="@drawable/ic_gkeys_mark_zoomed"
+                android:background="@drawable/btn_circle_bg"
+                android:contentDescription="Voice Bubble Mode — hide keyboard, dictate with floating bubble"
+                android:scaleType="centerCrop"
+                android:padding="2dp" />
+
+            <View
+                android:layout_width="0dp"
+                android:layout_height="0dp"
+                android:layout_weight="1" />
+
+        </LinearLayout>
+
+
+
+        <!-- Primary AI bar (page 1 — dictation, clipboard, mic, …) -->
 
         <LinearLayout
 
@@ -67,6 +133,18 @@
             android:gravity="center_vertical"
 
             android:layoutDirection="ltr">
+
+
+
+            <ImageButton
+                android:id="@+id/btn_ai_bar_page"
+                android:layout_width="30dp"
+                android:layout_height="30dp"
+                android:src="@drawable/ic_chevron_forward"
+                android:background="@drawable/btn_circle_bg"
+                android:contentDescription="More toolbar options"
+                android:scaleType="centerInside"
+                android:padding="5dp" />
 
 
 
@@ -121,17 +199,6 @@
                 android:contentDescription="Natural dictation — tap to change polish mode" />
 
 
-
-            <ImageButton
-                android:id="@+id/btn_clipboard_undo"
-                android:layout_width="28dp"
-                android:layout_height="28dp"
-                android:layout_marginStart="5dp"
-                android:src="@drawable/ic_undo"
-                android:background="@drawable/btn_circle_bg"
-                android:contentDescription="Undo"
-                android:scaleType="centerInside"
-                android:padding="5dp" />
 
             <ImageButton
                 android:id="@+id/btn_clipboard_clear_all"
@@ -241,7 +308,7 @@
 
                 android:layout_height="38dp"
 
-                android:layout_marginStart="5dp"
+                android:layout_marginStart="10dp"
 
                 android:background="@drawable/ai_mic_bg"
 
@@ -326,28 +393,6 @@
 
 
             </FrameLayout>
-
-
-
-            <ImageButton
-
-                android:id="@+id/btn_voice_bubble"
-
-                android:layout_width="32dp"
-
-                android:layout_height="32dp"
-
-                android:layout_marginStart="5dp"
-
-                android:src="@drawable/ic_gkeys_mark_zoomed"
-
-                android:background="@drawable/btn_circle_bg"
-
-                android:contentDescription="Voice Bubble Mode — hide keyboard, dictate with floating bubble"
-
-                android:scaleType="centerCrop"
-
-                android:padding="2dp" />
 
 
 
