@@ -220,12 +220,18 @@ $profile""")
         }
     }
 
-    /** Final pass: enforce saved AI instructions on any text (dictation, polish, translate, ghostwriter). */
+    /** Final pass: local rules first, then optional GPT; always re-apply local after GPT. */
     suspend fun finalizeWithUserInstructions(text: String, openAiKey: String): Result<String> =
         withContext(Dispatchers.IO) {
             val instructions = GkeysSettings.aiInstructions(appContext).first().trim()
             if (instructions.isEmpty()) return@withContext Result.success(text)
-            applyUserInstructionsOnly(text, openAiKey).recover { text }
+
+            val afterLocal = AiInstructionEnforcer.applyLocal(text, instructions)
+
+            val afterAi = applyUserInstructionsOnly(afterLocal, openAiKey)
+                .getOrElse { afterLocal }
+
+            Result.success(AiInstructionEnforcer.applyLocal(afterAi, instructions))
         }
 
     suspend fun transcribe(
@@ -304,7 +310,10 @@ $profile""")
 
                 }
 
-                Result.success(text)
+                val instructions = GkeysSettings.aiInstructions(appContext).first().trim()
+                val cleaned = AiInstructionEnforcer.applyLocal(text, instructions)
+
+                Result.success(cleaned)
 
             } catch (e: Exception) {
 
@@ -326,30 +335,23 @@ $profile""")
 
     ): Result<String> = withContext(Dispatchers.IO) {
 
+        val instructions = GkeysSettings.aiInstructions(appContext).first().trim()
         val prompt = systemPromptForLevel(level)
 
         if (prompt == null) {
-            return@withContext Result.success(text)
+            return@withContext Result.success(AiInstructionEnforcer.applyLocal(text, instructions))
         }
 
-        val instructions = GkeysSettings.aiInstructions(appContext).first().trim()
-
-        callGpt(
-
+        val polished = callGpt(
             systemPrompt = promptWithUserContext(prompt),
-
             userContent = polishUserContent(text, level, instructions),
-
             model = "gpt-4o-mini",
-
             authHeader = "Bearer $openAiKey",
-
             url = "https://api.openai.com/v1/chat/completions",
+            temperature = temperatureForLevel(level),
+        ).getOrElse { return@withContext Result.success(AiInstructionEnforcer.applyLocal(text, instructions)) }
 
-            temperature = temperatureForLevel(level)
-
-        )
-
+        Result.success(AiInstructionEnforcer.applyLocal(polished, instructions))
     }
 
     /** Raw mode or any text — apply only the user's saved instructions, nothing else. */
