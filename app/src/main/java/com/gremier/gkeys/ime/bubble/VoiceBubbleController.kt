@@ -81,6 +81,27 @@ class VoiceBubbleController(
 
     companion object {
 
+        /** Tracks the single overlay view in this process so orphans are always removed. */
+        @Volatile
+        private var globalOverlayView: View? = null
+
+        private fun removeOverlayFromWindow(wm: WindowManager, view: View?) {
+            if (view == null) return
+            try {
+                if (view.isAttachedToWindow) {
+                    wm.removeView(view)
+                }
+            } catch (_: Exception) {
+            }
+            if (globalOverlayView === view) {
+                globalOverlayView = null
+            }
+        }
+
+        private fun removeAnyGlobalOverlay(wm: WindowManager) {
+            removeOverlayFromWindow(wm, globalOverlayView)
+        }
+
         private const val BUBBLE_ALPHA_IDLE = 0.55f
         private const val BUBBLE_ALPHA_RECORDING = 0.82f
         private const val BUBBLE_ALPHA_PROCESSING = 0.72f
@@ -189,7 +210,12 @@ class VoiceBubbleController(
 
     private var attachInProgress = false
 
+    private var pendingShow = false
+
     private var hideAnimationRunning = false
+
+    /** Invalidates in-flight hide end-actions so they cannot remove a newer overlay. */
+    private var hideOperationId = 0L
 
 
 
@@ -204,19 +230,46 @@ class VoiceBubbleController(
         synchronized(overlayLock) {
             if (isAttached && rootView != null) {
                 cancelHideAnimation()
-                revealIfHidden()
-                applyWindowPosition()
+                if (!isDragging) {
+                    revealIfHidden()
+                    applyWindowPosition()
+                }
                 return
             }
-            if (attachInProgress) return
+            if (attachInProgress) {
+                pendingShow = true
+                return
+            }
             attachInProgress = true
             try {
-                detachOverlayQuietly()
+                purgeAllOverlayViews()
                 attachOverlay()
             } finally {
                 attachInProgress = false
+                if (pendingShow) {
+                    pendingShow = false
+                    if (!isAttached) {
+                        attachInProgress = true
+                        try {
+                            purgeAllOverlayViews()
+                            attachOverlay()
+                        } finally {
+                            attachInProgress = false
+                        }
+                    }
+                }
             }
         }
+    }
+
+    /** Remove every known bubble overlay before attaching a new one. */
+    private fun purgeAllOverlayViews() {
+        removeAnyGlobalOverlay(windowManager)
+        val tracked = rootView
+        if (tracked != null) {
+            removeOverlayFromWindow(windowManager, tracked)
+        }
+        clearOverlayRefs()
     }
 
     private fun attachOverlay() {
@@ -257,7 +310,9 @@ class VoiceBubbleController(
         view.setOnTouchListener { _, event -> handleTouch(event) }
 
         try {
+            removeAnyGlobalOverlay(windowManager)
             windowManager.addView(view, params)
+            globalOverlayView = view
             isAttached = true
             hideAnimationRunning = false
 
@@ -293,19 +348,12 @@ class VoiceBubbleController(
     }
 
     private fun cancelHideAnimation() {
+        hideOperationId++
         rootView?.animate()?.cancel()
         hideAnimationRunning = false
     }
 
-    private fun detachOverlayQuietly() {
-        val view = rootView
-        if (view != null) {
-            cancelHideAnimation()
-            try {
-                windowManager.removeView(view)
-            } catch (_: Exception) {
-            }
-        }
+    private fun clearOverlayRefs() {
         isAttached = false
         rootView = null
         bubbleBody = null
@@ -314,6 +362,15 @@ class VoiceBubbleController(
         bubbleAiShimmer = null
         bubbleCancel = null
         layoutParams = null
+        isDragging = false
+        translateHoldActive = false
+        translateHoldPending = false
+    }
+
+    private fun detachOverlayQuietly() {
+        cancelHideAnimation()
+        removeOverlayFromWindow(windowManager, rootView)
+        clearOverlayRefs()
         stopAnimators()
     }
 
@@ -371,6 +428,7 @@ class VoiceBubbleController(
                 return
             }
 
+            val operationId = ++hideOperationId
             hideAnimationRunning = true
             view.animate()
                 .alpha(0f)
@@ -380,7 +438,7 @@ class VoiceBubbleController(
                 .withEndAction {
                     synchronized(overlayLock) {
                         hideAnimationRunning = false
-                        if (rootView === view) {
+                        if (hideOperationId == operationId && rootView === view && isAttached) {
                             removeViewImmediate(view)
                         }
                         onEnd?.invoke()
@@ -469,34 +527,12 @@ class VoiceBubbleController(
 
 
     private fun removeViewImmediate(view: View) {
-        if (!isAttached && rootView !== view) {
-            try {
-                windowManager.removeView(view)
-            } catch (_: Exception) {
-            }
-            return
-        }
-        if (!isAttached) return
-
         stopAnimators()
-        cancelHideAnimation()
-
-        try {
-            windowManager.removeView(view)
-        } catch (_: Exception) {
+        removeOverlayFromWindow(windowManager, view)
+        if (rootView === view) {
+            clearOverlayRefs()
+            state = VoiceBubbleState.IDLE
         }
-
-        isAttached = false
-        rootView = null
-        bubbleBody = null
-        bubbleIcon = null
-        bubbleAiGlow = null
-        bubbleAiShimmer = null
-        bubbleCancel = null
-        layoutParams = null
-        state = VoiceBubbleState.IDLE
-        translateHoldActive = false
-        translateHoldPending = false
     }
 
 
@@ -551,9 +587,7 @@ class VoiceBubbleController(
 
         params.y = insetTop + ((usableHeight - bubbleHeightPx) / 2f).roundToInt()
 
-        posX = params.x
-
-        posY = params.y
+        // Default placement is in-memory only; persist after the user drags.
 
     }
 
@@ -594,6 +628,7 @@ class VoiceBubbleController(
 
 
     private fun handleTouch(event: MotionEvent): Boolean {
+        if (!isAttached || rootView == null || layoutParams == null) return true
 
         val params = layoutParams ?: return true
 

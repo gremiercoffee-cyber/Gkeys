@@ -186,6 +186,7 @@ class GkeysIME : InputMethodService() {
     private lateinit var btnClipboardClearAll: ImageButton
     private lateinit var btnMic: ImageView
     private lateinit var btnMicContainer: FrameLayout
+    private lateinit var btnMicCancel: ImageButton
     private lateinit var micAiGlow: View
     private lateinit var micAiShimmer: View
     private lateinit var micAiSparkles: ImageView
@@ -341,6 +342,7 @@ class GkeysIME : InputMethodService() {
                 voiceBubbleController?.setKeepScreenOn(keepOn)
             }
             vibrator = initVibrator()
+            voiceBubbleController?.destroy()
             voiceBubbleController = VoiceBubbleController(this, voiceBubbleListener)
             observePolishLevel()
             observeAiBarSettings()
@@ -511,6 +513,7 @@ class GkeysIME : InputMethodService() {
         btnClipboardClearAll = keyboardView.findViewById(R.id.btn_clipboard_clear_all)
         btnMic = keyboardView.findViewById(R.id.btn_mic)
         btnMicContainer = keyboardView.findViewById(R.id.btn_mic_container)
+        btnMicCancel = keyboardView.findViewById(R.id.btn_mic_cancel)
         micAiGlow = keyboardView.findViewById(R.id.mic_ai_glow)
         micAiShimmer = keyboardView.findViewById(R.id.mic_ai_shimmer)
         micAiSparkles = keyboardView.findViewById(R.id.mic_ai_sparkles)
@@ -922,7 +925,7 @@ class GkeysIME : InputMethodService() {
             isRecording = true
             recordingForGhostwriter = false
             beginMicCapture()
-            showDictationStatus("Listening… tap mic when done")
+            showDictationStatus("Listening… tap mic to finish or ✕ to cancel")
             onStarted()
             if (::keyboardView.isInitialized && keyboardView.visibility == View.VISIBLE) {
                 updateMicVisuals(recording = true)
@@ -1348,6 +1351,11 @@ class GkeysIME : InputMethodService() {
                 android.util.Log.e("GkeysIME", "mic touch failed", e)
                 true
             }
+        }
+
+        btnMicCancel.setOnClickListener {
+            hapticKeyTap()
+            cancelAiBarRecording()
         }
 
         btnKeyboard.setOnClickListener {
@@ -2259,6 +2267,20 @@ class GkeysIME : InputMethodService() {
         ghostwriterOverlay.layoutParams = ghostwriterOverlay.layoutParams.apply { height = keysPx }
     }
 
+    private fun cancelAiBarRecording() {
+        if (!isRecording || recordingForGhostwriter) return
+        hideVoiceOverlay()
+        clearDictationStatus()
+        cancelRecording()
+    }
+
+    private fun updateMicCancelVisibility() {
+        if (!::btnMicCancel.isInitialized) return
+        val toolbarVisible = ::aiStrip.isInitialized && aiStrip.visibility == View.VISIBLE
+        val show = isRecording && !recordingForGhostwriter && toolbarVisible
+        btnMicCancel.visibility = if (show) View.VISIBLE else View.GONE
+    }
+
     private fun updateMicVisuals(recording: Boolean) {
         if (micIsProcessing) return
         btnMic.setImageResource(R.drawable.ic_mic_white)
@@ -2273,6 +2295,7 @@ class GkeysIME : InputMethodService() {
             micAiSparkles.setImageResource(R.drawable.mic_sparkle_pair_gold)
             micAiSparkles.rotation = 0f
         }
+        updateMicCancelVisibility()
         stopMicIdleSparkleAnimation()
     }
 
@@ -2292,6 +2315,7 @@ class GkeysIME : InputMethodService() {
     private fun startMicProcessingAnimation() {
         if (micIsProcessing) return
         micIsProcessing = true
+        updateMicCancelVisibility()
         stopMicIdleSparkleAnimation()
         val keyboardVisible = ::keyboardView.isInitialized && keyboardView.visibility == View.VISIBLE
         if (shouldUseBubbleMicVisuals()) {
@@ -2368,6 +2392,7 @@ class GkeysIME : InputMethodService() {
         }
         micIsProcessing = false
         stopMicProcessingAnimatorsOnly()
+        updateMicCancelVisibility()
         if (shouldUseBubbleMicVisuals()) {
             voiceBubbleController?.setState(VoiceBubbleState.IDLE)
         }
@@ -3505,6 +3530,7 @@ class GkeysIME : InputMethodService() {
             endMicCapture()
         }
         updateMicVisuals(recording = false)
+        updateMicCancelVisibility()
         if (voiceBubbleModeActive) {
             voiceBubbleController?.setState(VoiceBubbleState.IDLE)
         }
@@ -3519,6 +3545,7 @@ class GkeysIME : InputMethodService() {
         val file = audioRecorder.stopRecording()
         isRecording = false
         endMicCapture()
+        updateMicCancelVisibility()
         if (file == null) {
             updateMicVisuals(recording = false)
             voiceBubbleController?.setState(VoiceBubbleState.IDLE)

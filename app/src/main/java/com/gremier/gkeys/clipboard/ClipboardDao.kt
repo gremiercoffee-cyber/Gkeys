@@ -18,6 +18,16 @@ interface ClipboardDao {
     @Query("SELECT * FROM clipboard_items WHERE text = :text AND itemType = 'text' LIMIT 1")
     suspend fun findByText(text: String): ClipboardItem?
 
+    @Query(
+        "SELECT * FROM clipboard_items WHERE text = :text AND itemType = 'text' AND isPinned = 0 LIMIT 1"
+    )
+    suspend fun findUnpinnedByText(text: String): ClipboardItem?
+
+    @Query(
+        "SELECT * FROM clipboard_items WHERE text = :text AND itemType = 'text' AND isPinned = 1 LIMIT 1"
+    )
+    suspend fun findPinnedByText(text: String): ClipboardItem?
+
     @Query("SELECT * FROM clipboard_items WHERE imageUri = :uri LIMIT 1")
     suspend fun findByImageUri(uri: String): ClipboardItem?
 

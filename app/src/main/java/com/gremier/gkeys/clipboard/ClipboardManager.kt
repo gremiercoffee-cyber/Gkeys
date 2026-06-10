@@ -51,6 +51,7 @@ class GkeysClipboardManager(
         private const val PREFS = "gkeys_clipboard"
         private const val KEY_BLOCKED = "blocked_texts"
         private const val MAX_BLOCKED = 100
+        private val HREF_PATTERN = Regex("""href\s*=\s*["']([^"']+)["']""", RegexOption.IGNORE_CASE)
     }
 
     private val dao = ClipboardDatabase.getInstance(context).clipboardDao()
@@ -91,7 +92,7 @@ class GkeysClipboardManager(
         try {
             val capture = readSystemClip() ?: return@OnPrimaryClipChangedListener
             val key = captureKey(capture)
-            if (key != lastCapturedKey && !isBlockedKey(key)) {
+            if (!isBlockedKey(key)) {
                 lastCapturedKey = key
                 scope.launch {
                     when (capture) {
@@ -288,13 +289,19 @@ class GkeysClipboardManager(
     private suspend fun addTextItem(text: String) {
         if (isBlockedKey(text)) return
         withContext(Dispatchers.IO) {
-            val existing = dao.findByText(text)
-            if (existing != null) {
-                dao.update(existing.copy(timestamp = System.currentTimeMillis()))
-            } else {
+            val unpinned = dao.findUnpinnedByText(text)
+            if (unpinned != null) {
+                dao.update(unpinned.copy(timestamp = System.currentTimeMillis()))
+                return@withContext
+            }
+            // Text matches a pinned item — keep the pin and add a fresh recent copy.
+            if (dao.findPinnedByText(text) != null) {
                 dao.insert(ClipboardItem(text = text, itemType = ClipboardItem.TYPE_TEXT))
                 trimUnpinnedHistory()
+                return@withContext
             }
+            dao.insert(ClipboardItem(text = text, itemType = ClipboardItem.TYPE_TEXT))
+            trimUnpinnedHistory()
         }
     }
 
@@ -344,11 +351,6 @@ class GkeysClipboardManager(
     private suspend fun deleteItem(item: ClipboardItem) {
         withContext(Dispatchers.IO) {
             dao.deleteById(item.id)
-            if (item.isImage) {
-                dao.deleteByImageUri(item.imageUri.orEmpty())
-            } else {
-                dao.deleteByText(item.text)
-            }
             blockItem(item)
         }
         withContext(Dispatchers.Main) {
@@ -464,17 +466,44 @@ class GkeysClipboardManager(
         return try {
             val clip = systemClipboard.primaryClip ?: return null
             if (clip.itemCount == 0) return null
-            val item = clip.getItemAt(0)
-            val uri = item.uri
-            if (uri != null && clip.description.hasMimeType("image/*")) {
-                return ClipCapture.Image(uri)
+            if (clip.description.hasMimeType("image/*")) {
+                for (index in 0 until clip.itemCount) {
+                    val uri = clip.getItemAt(index).uri
+                    if (uri != null) return ClipCapture.Image(uri)
+                }
             }
-            val text = item.coerceToText(context)?.toString()?.trim()?.takeIf { it.isNotBlank() }
-            if (text != null) ClipCapture.Text(text) else null
+            for (index in 0 until clip.itemCount) {
+                extractTextFromClipItem(clip.getItemAt(index))?.let { return ClipCapture.Text(it) }
+            }
+            null
         } catch (e: Exception) {
             Log.w(TAG, "Unable to read clipboard", e)
             null
         }
+    }
+
+    private fun extractTextFromClipItem(item: ClipData.Item): String? {
+        val coerced = item.coerceToText(context)?.toString()?.trim()?.takeIf { it.isNotBlank() }
+        if (coerced != null) return coerced
+
+        item.uri?.toString()?.trim()?.takeIf { isLikelyLinkText(it) }?.let { return it }
+
+        item.htmlText?.trim()?.takeIf { it.isNotBlank() }?.let { html ->
+            HREF_PATTERN.find(html)?.groupValues?.getOrNull(1)
+                ?.trim()
+                ?.takeIf { it.isNotBlank() }
+                ?.let { return it }
+            if (isLikelyLinkText(html)) return html
+        }
+        return null
+    }
+
+    private fun isLikelyLinkText(value: String): Boolean {
+        val lower = value.lowercase()
+        return lower.startsWith("http://") ||
+            lower.startsWith("https://") ||
+            lower.startsWith("ftp://") ||
+            lower.startsWith("mailto:")
     }
 
     private fun readSystemClipText(): String? =

@@ -300,6 +300,27 @@
                 android:focusable="true"
                 android:foreground="?android:attr/selectableItemBackgroundBorderless" />
 
+            <LinearLayout
+                android:id="@+id/mic_group"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="10dp"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:clipChildren="false">
+
+                <ImageButton
+                    android:id="@+id/btn_mic_cancel"
+                    android:layout_width="28dp"
+                    android:layout_height="28dp"
+                    android:layout_marginEnd="4dp"
+                    android:src="@drawable/ic_cancel_recording"
+                    android:background="@drawable/btn_circle_bg"
+                    android:contentDescription="Cancel dictation"
+                    android:scaleType="centerInside"
+                    android:padding="5dp"
+                    android:visibility="gone" />
+
             <FrameLayout
 
                 android:id="@+id/btn_mic_container"
@@ -307,8 +328,6 @@
                 android:layout_width="38dp"
 
                 android:layout_height="38dp"
-
-                android:layout_marginStart="10dp"
 
                 android:background="@drawable/ai_mic_bg"
 
@@ -393,6 +412,8 @@
 
 
             </FrameLayout>
+
+            </LinearLayout>
 
 
 
