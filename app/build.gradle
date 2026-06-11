@@ -14,6 +14,12 @@ android {
         targetSdk 34
         versionCode 127
         versionName "1.9.62"
+
+        externalNativeBuild {
+            cmake {
+                cppFlags "-std=c++17"
+            }
+        }
     }
 
     signingConfigs {
@@ -27,6 +33,13 @@ android {
 
     buildFeatures {
         buildConfig true
+    }
+
+    externalNativeBuild {
+        cmake {
+            path file('src/main/cpp/CMakeLists.txt')
+            version '3.22.1'
+        }
     }
 
     buildTypes {

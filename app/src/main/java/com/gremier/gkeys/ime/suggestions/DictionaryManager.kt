@@ -70,6 +70,16 @@ object DictionaryManager {
             .toList()
     }
 
+    fun topWords(language: Language, limit: Int = 40_000): List<String> {
+        val dict = dict(language) ?: return emptyList()
+        return dict.byFirstChar.values
+            .asSequence()
+            .flatten()
+            .sortedBy { frequencyRank(language, it) }
+            .take(limit)
+            .toList()
+    }
+
     fun correctionCandidates(language: Language, typed: String): List<String> {
         val lower = normalize(typed, language)
         if (lower.length < 2) return emptyList()

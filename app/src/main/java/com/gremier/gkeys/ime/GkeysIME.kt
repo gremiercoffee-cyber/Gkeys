@@ -47,6 +47,9 @@ import com.gremier.gkeys.ime.suggestions.SuggestionStripController
 import com.gremier.gkeys.ime.suggestions.SuggestionVisibilityController
 import com.gremier.gkeys.ime.suggestions.UserWordsRepository
 import com.gremier.gkeys.ime.touch.AdaptiveTouchIntelligence
+import com.gremier.gkeys.ime.touch.AospGestureTypingEngine
+import com.gremier.gkeys.ime.touch.SwipePoint
+import com.gremier.gkeys.ime.touch.SwipeLearningStore
 import com.gremier.gkeys.ime.touch.TouchInputResolver
 import com.gremier.gkeys.ime.touch.TouchPersonalization
 import com.gremier.gkeys.settings.AppVersionTracker
@@ -227,11 +230,18 @@ class GkeysIME : InputMethodService() {
     private lateinit var touchPersonalization: TouchPersonalization
     private lateinit var adaptiveTouch: AdaptiveTouchIntelligence
     private lateinit var touchResolver: TouchInputResolver
+    private lateinit var aospGestureTyping: AospGestureTypingEngine
     private val touchKeyViews = mutableListOf<Triple<View, String, Int>>()
     private var lastTypedChar: Char? = null
     private var currentWordPrefix = ""
     private var lastCompletedWord = ""
     private var awaitingTouchCorrection = false
+    private var pendingSwipeDeleteText: String? = null
+    private var pendingSwipeDeleteTimeMs = 0L
+    private var pendingSwipePathKey: String? = null
+    private var pendingSwipeWord: String? = null
+    private var pendingSwipeCorrectionPathKey: String? = null
+    private var pendingSwipeCorrectionWrongWord: String? = null
     private var adaptiveTouchEnabled = GkeysSettings.DEFAULT_ADAPTIVE_TOUCH
 
     private var emojiPanelVisible = false
@@ -254,6 +264,7 @@ class GkeysIME : InputMethodService() {
         private const val SHOW_SOFT_INPUT_REASON = 1
         private const val KEY_EMOJI_PANEL = "\uE000"
         private const val FIELD_TEXT_SCAN_LIMIT = 100_000
+        private const val SWIPE_BACKSPACE_WINDOW_MS = 8000L
 
         private val letterLongPressAlts = mapOf(
             "q" to "1", "w" to "2", "e" to "3", "r" to "4", "t" to "5",
@@ -606,10 +617,17 @@ class GkeysIME : InputMethodService() {
         adaptiveTouch.load()
         adaptiveTouch.setEnabled(adaptiveTouchEnabled)
         touchResolver = TouchInputResolver(touchPersonalization, adaptiveTouch)
+        aospGestureTyping = AospGestureTypingEngine(
+            applicationContext,
+            SwipeLearningStore(applicationContext),
+        )
         keyboardRows.touchResolver = touchResolver
         keyboardRows.onKeyTap = { key ->
             handleKey(key)
             hapticKeyTap()
+        }
+        keyboardRows.onSwipeGesture = { firstLabel, points ->
+            handleAospSwipeGesture(firstLabel, points)
         }
         keyboardRows.onBackspaceDown = { startDeleteRepeat(skipInitial = true) }
         keyboardRows.onBackspaceUp = { stopDeleteRepeat() }
@@ -682,6 +700,9 @@ class GkeysIME : InputMethodService() {
             val lang = DictionaryManager.languageForKeyboard(isHebrew)
             DictionaryManager.ensureLoaded(applicationContext, lang)
             userWordsRepository.ensureCache(lang)
+            if (lang == DictionaryManager.Language.EN && ::aospGestureTyping.isInitialized) {
+                aospGestureTyping.ensureDictionary(userWordsRepository.words(lang))
+            }
         }
         buildKeyboard()
         attachTouchTargetLayoutWatcher(keyboardRows)
@@ -2846,6 +2867,7 @@ class GkeysIME : InputMethodService() {
                     if (touchKeyViews.isEmpty() || !touchResolver.enabled) return
                     touchResolver.rightHandedMode = isLayoutRightBiased()
                     touchResolver.refreshFromViews(targetContainer, touchKeyViews)
+                    refreshAospGestureGeometry(targetContainer)
                 }
             }
         )
@@ -2869,6 +2891,16 @@ class GkeysIME : InputMethodService() {
         if (touchKeyViews.isEmpty() || !touchResolver.enabled) return@Runnable
         touchResolver.rightHandedMode = isLayoutRightBiased()
         touchResolver.refreshFromViews(container, touchKeyViews)
+        refreshAospGestureGeometry(container)
+    }
+
+    private fun refreshAospGestureGeometry(container: KeyboardTouchLayout) {
+        if (!::aospGestureTyping.isInitialized || isHebrew || isSymbols || isNumpad || emojiPanelVisible) return
+        aospGestureTyping.updateGeometry(
+            keyboardWidth = container.width,
+            keyboardHeight = container.height,
+            targets = touchResolver.letterTargets(),
+        )
     }
 
     private fun dp(value: Int): Int =
@@ -3543,12 +3575,70 @@ class GkeysIME : InputMethodService() {
             val lang = activeSuggestionLanguage()
             DictionaryManager.ensureLoaded(applicationContext, lang)
             userWordsRepository.ensureCache(lang)
+            if (lang == DictionaryManager.Language.EN && ::aospGestureTyping.isInitialized) {
+                aospGestureTyping.ensureDictionary(userWordsRepository.words(lang))
+            }
         }
+    }
+
+    private fun handleAospSwipeGesture(firstLabel: String, points: List<SwipePoint>) {
+        if (!suggestionsSupported() || isHebrew || isSymbols || isNumpad || emojiPanelVisible) return
+        val ic = currentInputConnection ?: return
+        if (!::aospGestureTyping.isInitialized || points.size < 5) return
+
+        val decoded = aospGestureTyping.decode(
+            points = points,
+            userWords = userWordsForSuggestions(),
+            previousWord = lastCompletedWord,
+        ) ?: return
+        val decodedWord = decoded.word.trim()
+        if (decodedWord.length < 2) return
+        maybeRecordSwipeCorrection(decodedWord)
+
+        val before = ic.getTextBeforeCursor(1, 0)?.toString().orEmpty()
+        if (before.equals(firstLabel, ignoreCase = true)) {
+            ic.deleteSurroundingText(1, 0)
+        }
+
+        val output = if (isShifted && decodedWord.isNotEmpty()) {
+            decodedWord.replaceFirstChar { it.uppercaseChar() }
+        } else {
+            decodedWord
+        }
+        val inserted = "$output "
+        ic.commitText(inserted, 1)
+        fieldUndo.recordInsert(inserted)
+        pendingSwipeDeleteText = inserted
+        pendingSwipeDeleteTimeMs = SystemClock.uptimeMillis()
+        pendingSwipePathKey = decoded.pathKey
+        pendingSwipeWord = decodedWord
+        pendingSwipeCorrectionPathKey = null
+        pendingSwipeCorrectionWrongWord = null
+        aospGestureTyping.recordAccepted(decoded.pathKey, decodedWord)
+
+        lastCompletedWord = normalizeCompletedWord(decodedWord)
+        currentWordPrefix = ""
+        learnCompletedWord(decodedWord)
+        if (::adaptiveTouch.isInitialized) {
+            adaptiveTouch.setWordPrefix("")
+            adaptiveTouch.recordWordCompleted(normalizeCompletedWord(decodedWord))
+        }
+        if (isShifted && !capsLock) {
+            isShifted = false
+            handler.post { refreshLetterCaseOnKeys() }
+        }
+        awaitingTouchCorrection = false
+        updateTouchContext(" ")
+        updateUndoButtonState()
+        suggestionVisibilityController?.extendVisible()
+        refreshSuggestions()
+        hapticKeyTap()
     }
 
     private fun applySuggestion(word: String) {
         val pick = word.trim()
         if (pick.isEmpty()) return
+        maybeRecordSwipeCorrection(pick)
 
         val undo = postAutocorrectUndo
         if (undo != null) {
@@ -3587,6 +3677,7 @@ class GkeysIME : InputMethodService() {
     private fun handleSpaceKey(ic: InputConnection) {
         syncWordPrefixFromField(ic)
         val prefix = currentWordPrefix
+        maybeRecordSwipeCorrection(prefix)
         val lang = activeSuggestionLanguage()
         val corrected = if (suggestionsSupported() && prefix.length >= 2) {
             SuggestionEngine.autocorrectOnSpace(this, lang, prefix, userWordsForSuggestions())
@@ -3674,11 +3765,11 @@ class GkeysIME : InputMethodService() {
         val ic = currentInputConnection ?: return
         when (key) {
             "⌫" -> {
-                deleteOneCharWithUndo(ic)
-                if (::touchResolver.isInitialized && touchResolver.enabled) {
+                val deletedSwipeWord = deletePendingSwipeWord(ic)
+                if (!deletedSwipeWord && ::touchResolver.isInitialized && touchResolver.enabled) {
                     touchResolver.recordBackspaceOnRecentTap()
                 }
-                awaitingTouchCorrection = true
+                awaitingTouchCorrection = !deletedSwipeWord
                 syncWordPrefixAndRefreshSuggestions(ic)
                 updateUndoButtonState()
             }
@@ -3712,9 +3803,11 @@ class GkeysIME : InputMethodService() {
             }
             else -> {
                 if (key == "SPACE") {
+                    clearPendingSwipeDelete()
                     handleSpaceKey(ic)
                     return
                 }
+                clearPendingSwipeDelete()
                 val toInsert = if (isShifted && !isHebrew && key.length == 1 && key[0].isLetter()) key.uppercase()
                 else key
 
@@ -3746,6 +3839,7 @@ class GkeysIME : InputMethodService() {
 
     private fun completeCurrentWord() {
         val word = currentWordPrefix
+        maybeRecordSwipeCorrection(word)
         if (word.isNotEmpty()) {
             lastCompletedWord = normalizeCompletedWord(word)
         }
@@ -3988,20 +4082,70 @@ class GkeysIME : InputMethodService() {
     private fun deleteOneCharWithUndo(ic: InputConnection) {
         val selected = ic.getSelectedText(0)
         if (!selected.isNullOrEmpty()) {
+            clearPendingSwipeDelete()
             fieldUndo.recordDelete(selected.toString())
             ic.commitText("", 1)
         } else {
             val deleted = ic.getTextBeforeCursor(1, 0)?.toString().orEmpty()
             if (deleted.isNotEmpty()) {
+                clearPendingSwipeDelete()
                 fieldUndo.recordDelete(deleted)
             }
             ic.deleteSurroundingText(1, 0)
         }
     }
 
+    private fun maybeRecordSwipeCorrection(correctWord: String) {
+        val pathKey = pendingSwipeCorrectionPathKey ?: return
+        val wrongWord = pendingSwipeCorrectionWrongWord ?: return
+        val correct = normalizeCompletedWord(correctWord.trim())
+        if (correct.length >= 2 && correct != wrongWord) {
+            aospGestureTyping.recordCorrection(pathKey, wrongWord, correct)
+        }
+        pendingSwipeCorrectionPathKey = null
+        pendingSwipeCorrectionWrongWord = null
+    }
+
+    private fun deletePendingSwipeWord(ic: InputConnection): Boolean {
+        val inserted = pendingSwipeDeleteText ?: return false
+        val isFresh = SystemClock.uptimeMillis() - pendingSwipeDeleteTimeMs <= SWIPE_BACKSPACE_WINDOW_MS
+        val hasSelection = !ic.getSelectedText(0).isNullOrEmpty()
+        val beforeCursor = ic.getTextBeforeCursor(inserted.length, 0)?.toString().orEmpty()
+        if (!isFresh || hasSelection || beforeCursor != inserted) {
+            clearPendingSwipeDelete()
+            deleteOneCharWithUndo(ic)
+            return false
+        }
+
+        ic.deleteSurroundingText(inserted.length, 0)
+        fieldUndo.recordDelete(inserted)
+        val pathKey = pendingSwipePathKey
+        val word = pendingSwipeWord
+        if (!pathKey.isNullOrBlank() && !word.isNullOrBlank()) {
+            aospGestureTyping.recordRejected(pathKey, word)
+            pendingSwipeCorrectionPathKey = pathKey
+            pendingSwipeCorrectionWrongWord = word
+        }
+        clearPendingSwipeDelete()
+        postAutocorrectUndo = null
+        currentWordPrefix = ""
+        if (::adaptiveTouch.isInitialized) {
+            adaptiveTouch.setWordPrefix("")
+        }
+        return true
+    }
+
+    private fun clearPendingSwipeDelete() {
+        pendingSwipeDeleteText = null
+        pendingSwipeDeleteTimeMs = 0L
+        pendingSwipePathKey = null
+        pendingSwipeWord = null
+    }
+
     private fun deleteForward() {
         val ic = currentInputConnection ?: return
         hapticKeyTap()
+        clearPendingSwipeDelete()
         ic.deleteSurroundingText(0, 1)
     }
 
@@ -4182,6 +4326,9 @@ class GkeysIME : InputMethodService() {
         voiceBubbleController?.destroy()
         if (::micSessionGuard.isInitialized) {
             micSessionGuard.forceRelease()
+        }
+        if (::aospGestureTyping.isInitialized) {
+            aospGestureTyping.close()
         }
         super.onDestroy()
         clipboardManager?.destroy()
