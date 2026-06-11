@@ -171,6 +171,7 @@ class GkeysIME : InputMethodService() {
     private lateinit var suggestionStrip: LinearLayout
     private lateinit var suggestionLeft: TextView
     private lateinit var suggestionCenter: TextView
+    private lateinit var suggestionRight: TextView
     private lateinit var suggestionDismiss: ImageButton
     private lateinit var suggestionDividerLeft: View
     private lateinit var suggestionDividerRight: View
@@ -523,6 +524,7 @@ class GkeysIME : InputMethodService() {
         suggestionStrip = keyboardView.findViewById(R.id.suggestion_strip)
         suggestionLeft = keyboardView.findViewById(R.id.suggestion_left)
         suggestionCenter = keyboardView.findViewById(R.id.suggestion_center)
+        suggestionRight = keyboardView.findViewById(R.id.suggestion_right)
         suggestionDismiss = keyboardView.findViewById(R.id.suggestion_dismiss)
         suggestionDividerLeft = keyboardView.findViewById(R.id.suggestion_divider_left)
         suggestionDividerRight = keyboardView.findViewById(R.id.suggestion_divider_right)
@@ -530,6 +532,7 @@ class GkeysIME : InputMethodService() {
             strip = suggestionStrip,
             leftView = suggestionLeft,
             centerView = suggestionCenter,
+            rightView = suggestionRight,
             dismissButton = suggestionDismiss,
             dividerLeft = suggestionDividerLeft,
             dividerRight = suggestionDividerRight,
@@ -3473,7 +3476,7 @@ class GkeysIME : InputMethodService() {
     private fun refreshSuggestions() {
         val controller = suggestionStripController ?: return
         val undo = postAutocorrectUndo
-        val showTyping = suggestionsSupported() && suggestionBarVisible && currentWordPrefix.isNotEmpty()
+        val showTyping = suggestionsSupported() && suggestionBarVisible
         val showUndo = undo != null && suggestionBarVisible
         if (!showTyping && !showUndo) {
             controller.setActive(false)
@@ -3619,7 +3622,9 @@ class GkeysIME : InputMethodService() {
         updateTouchContext(" ")
         completeCurrentWord()
         updateUndoButtonState()
-        hideSuggestionBar()
+        if (suggestionsSupported()) {
+            suggestionVisibilityController?.extendVisible()
+        }
         refreshSuggestions()
     }
 

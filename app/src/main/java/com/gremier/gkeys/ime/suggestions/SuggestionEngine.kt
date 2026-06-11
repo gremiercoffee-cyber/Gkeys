@@ -13,6 +13,7 @@ data class SuggestionChip(
 data class SuggestionStripModel(
     val left: SuggestionChip?,
     val center: SuggestionChip?,
+    val right: SuggestionChip?,
 )
 
 object SuggestionEngine {
@@ -26,7 +27,7 @@ object SuggestionEngine {
     ): SuggestionStripModel {
         DictionaryManager.ensureLoaded(context, language)
         val normalizedPrefix = normalize(prefix, language)
-        if (normalizedPrefix.isEmpty()) return SuggestionStripModel(null, null)
+        if (normalizedPrefix.isEmpty()) return SuggestionStripModel(null, null, null)
 
         val en = language == DictionaryManager.Language.EN
 
@@ -58,13 +59,15 @@ object SuggestionEngine {
         val centerWord = completions.getOrNull(0)?.word ?: normalizedPrefix
         val center = SuggestionChip(centerWord, isPrimary = true)
         val left = completions.getOrNull(1)?.let { SuggestionChip(it.word) }
-        return SuggestionStripModel(left, center)
+        val right = completions.getOrNull(2)?.let { SuggestionChip(it.word) }
+        return SuggestionStripModel(left, center, right)
     }
 
     fun buildPostAutocorrectUndo(original: String, corrected: String): SuggestionStripModel {
         return SuggestionStripModel(
             left = SuggestionChip(original, isLiteralTyped = true),
             center = SuggestionChip(corrected, isPrimary = true),
+            right = null,
         )
     }
 
@@ -101,6 +104,7 @@ object SuggestionEngine {
     private fun correctionModel(typed: String, fix: String) = SuggestionStripModel(
         left = SuggestionChip(typed, isLiteralTyped = true),
         center = SuggestionChip(fix, isPrimary = true, isCorrection = true),
+        right = null,
     )
 
     /** Curated, unambiguous contractions — every source here is NOT a normal English word. */

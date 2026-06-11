@@ -11,6 +11,7 @@ class SuggestionStripController(
     private val strip: LinearLayout,
     private val leftView: TextView,
     private val centerView: TextView,
+    private val rightView: TextView,
     private val dismissButton: ImageButton,
     private val dividerLeft: View,
     private val dividerRight: View,
@@ -24,6 +25,7 @@ class SuggestionStripController(
         }
         leftView.setOnClickListener(listener)
         centerView.setOnClickListener(listener)
+        rightView.setOnClickListener(listener)
         dismissButton.setOnClickListener {
             onDismiss()
         }
@@ -37,19 +39,23 @@ class SuggestionStripController(
     fun render(model: SuggestionStripModel, primaryColor: Int, secondaryColor: Int) {
         bindChip(leftView, model.left, secondaryColor)
         bindChip(centerView, model.center, primaryColor, primary = true)
+        bindChip(rightView, model.right, secondaryColor)
 
         val hasLeft = !leftView.text.isNullOrBlank()
         val hasCenter = !centerView.text.isNullOrBlank()
+        val hasRight = !rightView.text.isNullOrBlank()
         dividerLeft.visibility = if (hasLeft && hasCenter) View.VISIBLE else View.GONE
-        dividerRight.visibility = if (hasCenter) View.VISIBLE else View.GONE
+        dividerRight.visibility = if (hasCenter && hasRight) View.VISIBLE else View.GONE
         dismissButton.visibility = View.VISIBLE
     }
 
     fun clear() {
         leftView.text = ""
         centerView.text = ""
+        rightView.text = ""
         leftView.visibility = View.INVISIBLE
         centerView.visibility = View.INVISIBLE
+        rightView.visibility = View.INVISIBLE
         dividerLeft.visibility = View.GONE
         dividerRight.visibility = View.GONE
         dismissButton.visibility = View.GONE
