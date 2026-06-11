@@ -97,7 +97,8 @@ class GkeysIME : InputMethodService() {
     private var voiceBubbleEnabled = GkeysSettings.DEFAULT_VOICE_BUBBLE_ENABLED
     private var aiBarWandEnabled = GkeysSettings.DEFAULT_AI_BAR_FEATURE_ENABLED
     private var aiBarPolishButtonEnabled = GkeysSettings.DEFAULT_AI_BAR_FEATURE_ENABLED
-    private var aiBarMicEnabled = GkeysSettings.DEFAULT_AI_BAR_FEATURE_ENABLED
+    private var aiBarMicToolbarEnabled = GkeysSettings.DEFAULT_AI_BAR_FEATURE_ENABLED
+    private var aiBarVoiceInputIncludesMic = true
     private var aiBarLiveTranscribeEnabled = GkeysSettings.DEFAULT_AI_BAR_FEATURE_ENABLED
     private var aiBarClearAllEnabled = GkeysSettings.DEFAULT_AI_BAR_FEATURE_ENABLED
     private var aiBarClipboardToolbarEnabled = GkeysSettings.DEFAULT_AI_BAR_FEATURE_ENABLED
@@ -387,11 +388,12 @@ class GkeysIME : InputMethodService() {
                 combine(
                     GkeysSettings.aiBarWandEnabled(this@GkeysIME),
                     GkeysSettings.aiBarPolishButtonEnabled(this@GkeysIME),
-                    GkeysSettings.aiBarMicEnabled(this@GkeysIME),
+                    GkeysSettings.aiBarMicToolbarEnabled(this@GkeysIME),
+                    GkeysSettings.aiBarVoiceInputIncludesMic(this@GkeysIME),
                     GkeysSettings.aiBarLiveTranscribeEnabled(this@GkeysIME),
                     GkeysSettings.voiceBubbleEnabled(this@GkeysIME),
-                ) { wand, polish, mic, live, bubble ->
-                    arrayOf(wand, polish, mic, live, bubble)
+                ) { wand, polish, micToolbar, micMode, live, bubble ->
+                    arrayOf(wand, polish, micToolbar, micMode, live, bubble)
                 },
                 combine(
                     GkeysSettings.aiBarPrimaryOrder(this@GkeysIME),
@@ -405,9 +407,10 @@ class GkeysIME : InputMethodService() {
             ) { toggles, layout ->
                 aiBarWandEnabled = toggles[0] as Boolean
                 aiBarPolishButtonEnabled = toggles[1] as Boolean
-                aiBarMicEnabled = toggles[2] as Boolean
-                aiBarLiveTranscribeEnabled = toggles[3] as Boolean
-                voiceBubbleEnabled = toggles[4] as Boolean
+                aiBarMicToolbarEnabled = toggles[2] as Boolean
+                aiBarVoiceInputIncludesMic = toggles[3] as Boolean
+                aiBarLiveTranscribeEnabled = toggles[4] as Boolean
+                voiceBubbleEnabled = toggles[5] as Boolean
                 @Suppress("UNCHECKED_CAST")
                 aiBarPrimaryOrder = layout[0] as List<String>
                 @Suppress("UNCHECKED_CAST")
@@ -1439,7 +1442,8 @@ class GkeysIME : InputMethodService() {
                 updateVoiceBubbleButtonVisibility()
                 aiBarWandEnabled = GkeysSettings.aiBarWandEnabled(this@GkeysIME).first()
                 aiBarPolishButtonEnabled = GkeysSettings.aiBarPolishButtonEnabled(this@GkeysIME).first()
-                aiBarMicEnabled = GkeysSettings.aiBarMicEnabled(this@GkeysIME).first()
+                aiBarMicToolbarEnabled = GkeysSettings.aiBarMicToolbarEnabled(this@GkeysIME).first()
+                aiBarVoiceInputIncludesMic = GkeysSettings.aiBarVoiceInputIncludesMic(this@GkeysIME).first()
                 aiBarLiveTranscribeEnabled = GkeysSettings.aiBarLiveTranscribeEnabled(this@GkeysIME).first()
                 aiBarPrimaryOrder = GkeysSettings.aiBarPrimaryOrder(this@GkeysIME).first()
                 aiBarSecondaryOrder = GkeysSettings.aiBarSecondaryOrder(this@GkeysIME).first()
@@ -2238,6 +2242,8 @@ class GkeysIME : InputMethodService() {
         AiBarLayout.PAGE -> if (::btnAiBarPage.isInitialized) btnAiBarPage else null
         AiBarLayout.WAND -> if (::btnWand.isInitialized) btnWand else null
         AiBarLayout.DELETE_FORWARD -> if (::btnDeleteForward.isInitialized) btnDeleteForward else null
+        AiBarLayout.POLISH -> if (::btnPolishLevel.isInitialized) btnPolishLevel else null
+        AiBarLayout.RAW_POLISH -> if (::btnRawPolish.isInitialized) btnRawPolish else null
         AiBarLayout.CLEAR_ALL -> if (::btnClipboardClearAll.isInitialized) btnClipboardClearAll else null
         AiBarLayout.CLIPBOARD -> if (::clipboardArea.isInitialized) clipboardArea else null
         AiBarLayout.LIVE -> if (::btnLiveTranscribe.isInitialized) btnLiveTranscribe else null
@@ -2303,11 +2309,21 @@ class GkeysIME : InputMethodService() {
             btnKeyboard.visibility = if (aiBarNumpadEnabled) View.VISIBLE else View.GONE
         }
         if (::micGroup.isInitialized) {
-            micGroup.visibility =
-                if (aiBarMicEnabled && !voiceBubbleModeActive) View.VISIBLE else View.GONE
+            val showMic = aiBarVoiceInputIncludesMic &&
+                aiBarMicToolbarEnabled &&
+                !voiceBubbleModeActive
+            micGroup.visibility = if (showMic) View.VISIBLE else View.GONE
         }
         btnLiveTranscribe.visibility = if (aiBarLiveTranscribeEnabled) View.VISIBLE else View.GONE
-        if (!aiBarMicEnabled && isRecording && !recordingForGhostwriter) {
+        if (!aiBarVoiceInputIncludesMic && isRecording && !recordingForGhostwriter && !voiceBubbleModeActive) {
+            cancelRecording()
+        }
+        if (aiBarVoiceInputIncludesMic &&
+            !aiBarMicToolbarEnabled &&
+            isRecording &&
+            !recordingForGhostwriter &&
+            !voiceBubbleModeActive
+        ) {
             cancelRecording()
         }
         if (!aiBarLiveTranscribeEnabled && (liveSttActive || liveSttConnecting)) {

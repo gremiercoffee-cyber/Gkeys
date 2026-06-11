@@ -21,17 +21,19 @@ object AiBarLayout {
 
     const val SPACER_TAG = "ai_bar_spacer"
 
-    val DEFAULT_PRIMARY_ORDER = listOf(PAGE, WAND, DELETE_FORWARD, CLEAR_ALL, CLIPBOARD, LIVE, MIC, NUMPAD)
-    val DEFAULT_SECONDARY_ORDER = listOf(BACK, POLISH, RAW_POLISH, SETTINGS, UNDO, SELECT_ALL, BUBBLE)
+    val DEFAULT_PRIMARY_ORDER = listOf(
+        PAGE, WAND, POLISH, RAW_POLISH, DELETE_FORWARD, CLEAR_ALL, CLIPBOARD, LIVE, MIC, NUMPAD,
+    )
+    val DEFAULT_SECONDARY_ORDER = listOf(BACK, SETTINGS, UNDO, SELECT_ALL, BUBBLE)
 
-    /** Moves polish to row 2 and delete-forward to row 1 for users with older saved layouts. */
+    /** Ensures polish controls sit on the main row and stray items stay valid. */
     fun migrateBarOrders(primary: List<String>, secondary: List<String>): Pair<List<String>, List<String>> {
         val p = if (primary.isEmpty()) DEFAULT_PRIMARY_ORDER.toMutableList() else primary.toMutableList()
         val s = if (secondary.isEmpty()) DEFAULT_SECONDARY_ORDER.toMutableList() else secondary.toMutableList()
-        for (id in listOf(RAW_POLISH, POLISH)) {
-            if (p.remove(id) && id !in s) {
-                val insertAt = (s.indexOf(BACK) + 1).coerceAtMost(s.size)
-                s.add(insertAt, id)
+        for (id in listOf(POLISH, RAW_POLISH)) {
+            if (s.remove(id) && id !in p) {
+                val insertAt = (p.indexOf(WAND) + 1).coerceAtMost(p.size)
+                p.add(insertAt, id)
             }
         }
         if (s.remove(DELETE_FORWARD) && DELETE_FORWARD !in p) {
@@ -40,6 +42,25 @@ object AiBarLayout {
         }
         return parseOrder(serializeOrder(p), DEFAULT_PRIMARY_ORDER) to
             parseOrder(serializeOrder(s), DEFAULT_SECONDARY_ORDER)
+    }
+
+    fun iconRes(id: String): Int = when (id) {
+        PAGE -> com.gremier.gkeys.R.drawable.ic_chevron_forward
+        WAND -> com.gremier.gkeys.R.drawable.ic_ghostwriter
+        POLISH -> com.gremier.gkeys.R.drawable.ic_polish
+        RAW_POLISH -> com.gremier.gkeys.R.drawable.ic_polish
+        CLEAR_ALL -> com.gremier.gkeys.R.drawable.ic_clear_all
+        CLIPBOARD -> com.gremier.gkeys.R.drawable.ic_clipboard_toolbar
+        LIVE -> com.gremier.gkeys.R.drawable.ic_live_speech
+        MIC -> com.gremier.gkeys.R.drawable.ic_mic_white
+        NUMPAD -> com.gremier.gkeys.R.drawable.ic_dialpad
+        BACK -> com.gremier.gkeys.R.drawable.ic_back_arrow
+        SETTINGS -> com.gremier.gkeys.R.drawable.ic_settings
+        UNDO -> com.gremier.gkeys.R.drawable.ic_undo
+        DELETE_FORWARD -> com.gremier.gkeys.R.drawable.ic_delete_forward
+        SELECT_ALL -> com.gremier.gkeys.R.drawable.ic_select_all
+        BUBBLE -> com.gremier.gkeys.R.drawable.ic_voice_bubble
+        else -> com.gremier.gkeys.R.drawable.ic_settings
     }
 
     fun splitOrderRaw(raw: String?): List<String> =
@@ -56,7 +77,7 @@ object AiBarLayout {
         CLEAR_ALL -> "Clear all text"
         CLIPBOARD -> "Clipboard preview"
         LIVE -> "Live transcribe"
-        MIC -> "Mic dictation"
+        MIC -> "Mic on toolbar"
         NUMPAD -> "Number pad"
         BACK -> "Back (← main row)"
         SETTINGS -> "Settings"

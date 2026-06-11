@@ -22,6 +22,7 @@ import com.gremier.gkeys.R
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.slider.Slider
 import com.google.android.material.switchmaterial.SwitchMaterial
+import androidx.recyclerview.widget.ItemTouchHelper
 import com.google.android.material.tabs.TabLayout
 import com.google.android.material.textfield.TextInputEditText
 import kotlinx.coroutines.flow.first
@@ -59,8 +60,8 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var btnOverlayPermission: MaterialButton
     private lateinit var switchVoiceBubbleEnabled: SwitchMaterial
     private lateinit var radioAiBarVoiceInput: RadioGroup
-    private lateinit var layoutAiBarPrimaryOrder: android.widget.LinearLayout
-    private lateinit var layoutAiBarSecondaryOrder: android.widget.LinearLayout
+    private lateinit var rvAiBarPrimaryOrder: androidx.recyclerview.widget.RecyclerView
+    private lateinit var rvAiBarSecondaryOrder: androidx.recyclerview.widget.RecyclerView
     private lateinit var switchDefaultVoiceBubble: SwitchMaterial
     private lateinit var voiceBubbleDefaultRow: android.view.View
     private lateinit var switchAdaptiveTouch: SwitchMaterial
@@ -78,6 +79,8 @@ class SettingsActivity : AppCompatActivity() {
     private var suppressPolishAutoSave = false
     private var suppressVoiceInputAutoSave = false
     private var suppressAiBarOrderAutoSave = false
+    private lateinit var primaryOrderAdapter: AiBarOrderDragAdapter
+    private lateinit var secondaryOrderAdapter: AiBarOrderDragAdapter
     private var suppressThemeAutoSave = false
     private lateinit var radioTheme: RadioGroup
 
@@ -290,8 +293,9 @@ class SettingsActivity : AppCompatActivity() {
         btnOverlayPermission = findViewById(R.id.btn_overlay_permission)
         switchVoiceBubbleEnabled = findViewById(R.id.switch_voice_bubble_enabled)
         radioAiBarVoiceInput = findViewById(R.id.radio_ai_bar_voice_input)
-        layoutAiBarPrimaryOrder = findViewById(R.id.layout_ai_bar_primary_order)
-        layoutAiBarSecondaryOrder = findViewById(R.id.layout_ai_bar_secondary_order)
+        rvAiBarPrimaryOrder = findViewById(R.id.rv_ai_bar_primary_order)
+        rvAiBarSecondaryOrder = findViewById(R.id.rv_ai_bar_secondary_order)
+        setupAiBarOrderLists()
         switchDefaultVoiceBubble = findViewById(R.id.switch_default_voice_bubble)
         voiceBubbleDefaultRow = findViewById(R.id.voice_bubble_default_row)
         switchAdaptiveTouch = findViewById(R.id.switch_adaptive_touch)
@@ -370,6 +374,7 @@ class SettingsActivity : AppCompatActivity() {
                 clearAllEnabled = GkeysSettings.aiBarClearAllEnabled(this@SettingsActivity).first(),
                 clipboardEnabled = GkeysSettings.aiBarClipboardToolbarEnabled(this@SettingsActivity).first(),
                 numpadEnabled = GkeysSettings.aiBarNumpadEnabled(this@SettingsActivity).first(),
+                micToolbarEnabled = GkeysSettings.aiBarMicToolbarEnabled(this@SettingsActivity).first(),
                 voiceBubbleToolbarEnabled = GkeysSettings.voiceBubbleEnabled(this@SettingsActivity).first(),
             )
             switchDefaultVoiceBubble.isChecked =
@@ -760,6 +765,76 @@ class SettingsActivity : AppCompatActivity() {
     private var aiBarPrimaryOrderState = com.gremier.gkeys.ime.AiBarLayout.DEFAULT_PRIMARY_ORDER
     private var aiBarSecondaryOrderState = com.gremier.gkeys.ime.AiBarLayout.DEFAULT_SECONDARY_ORDER
 
+    private fun setupAiBarOrderLists() {
+        rvAiBarPrimaryOrder.layoutManager = androidx.recyclerview.widget.LinearLayoutManager(this)
+        rvAiBarSecondaryOrder.layoutManager = androidx.recyclerview.widget.LinearLayoutManager(this)
+        rvAiBarPrimaryOrder.isNestedScrollingEnabled = false
+        rvAiBarSecondaryOrder.isNestedScrollingEnabled = false
+
+        val primaryTouchHelper = ItemTouchHelper(createOrderDragCallback(isPrimary = true))
+        primaryOrderAdapter = AiBarOrderDragAdapter(
+            rows = mutableListOf(),
+            onOrderChanged = { order ->
+                if (!settingsLoaded || suppressAiBarOrderAutoSave) return@AiBarOrderDragAdapter
+                aiBarPrimaryOrderState = order
+                autoSave { GkeysSettings.saveAiBarPrimaryOrder(this@SettingsActivity, order) }
+            },
+            onToggleChanged = { id, enabled ->
+                if (!settingsLoaded || suppressAiBarOrderAutoSave) return@AiBarOrderDragAdapter
+                saveAiBarItemEnabled(isPrimary = true, id = id, enabled = enabled)
+            },
+        )
+        primaryOrderAdapter.attachTouchHelper(primaryTouchHelper)
+        val secondaryTouchHelper = ItemTouchHelper(createOrderDragCallback(isPrimary = false))
+        secondaryOrderAdapter = AiBarOrderDragAdapter(
+            rows = mutableListOf(),
+            onOrderChanged = { order ->
+                if (!settingsLoaded || suppressAiBarOrderAutoSave) return@AiBarOrderDragAdapter
+                aiBarSecondaryOrderState = order
+                autoSave { GkeysSettings.saveAiBarSecondaryOrder(this@SettingsActivity, order) }
+            },
+            onToggleChanged = { id, enabled ->
+                if (!settingsLoaded || suppressAiBarOrderAutoSave) return@AiBarOrderDragAdapter
+                saveAiBarItemEnabled(isPrimary = false, id = id, enabled = enabled)
+            },
+        )
+        secondaryOrderAdapter.attachTouchHelper(secondaryTouchHelper)
+        rvAiBarPrimaryOrder.adapter = primaryOrderAdapter
+        rvAiBarSecondaryOrder.adapter = secondaryOrderAdapter
+        primaryTouchHelper.attachToRecyclerView(rvAiBarPrimaryOrder)
+        secondaryTouchHelper.attachToRecyclerView(rvAiBarSecondaryOrder)
+    }
+
+    private fun createOrderDragCallback(isPrimary: Boolean): ItemTouchHelper.SimpleCallback {
+        return object : ItemTouchHelper.SimpleCallback(
+            ItemTouchHelper.UP or ItemTouchHelper.DOWN,
+            0,
+        ) {
+            override fun onMove(
+                recyclerView: androidx.recyclerview.widget.RecyclerView,
+                viewHolder: androidx.recyclerview.widget.RecyclerView.ViewHolder,
+                target: androidx.recyclerview.widget.RecyclerView.ViewHolder,
+            ): Boolean {
+                val adapter = if (isPrimary) primaryOrderAdapter else secondaryOrderAdapter
+                val from = viewHolder.bindingAdapterPosition
+                val to = target.bindingAdapterPosition
+                if (from == androidx.recyclerview.widget.RecyclerView.NO_POSITION ||
+                    to == androidx.recyclerview.widget.RecyclerView.NO_POSITION
+                ) return false
+                if (adapter.isFixedPosition(from) || adapter.isFixedPosition(to)) return false
+                adapter.moveItem(from, to)
+                return true
+            }
+
+            override fun onSwiped(
+                viewHolder: androidx.recyclerview.widget.RecyclerView.ViewHolder,
+                direction: Int,
+            ) = Unit
+
+            override fun isLongPressDragEnabled(): Boolean = true
+        }
+    }
+
     private fun rebuildAiBarOrderUi(
         primaryOrder: List<String>,
         secondaryOrder: List<String>,
@@ -768,45 +843,53 @@ class SettingsActivity : AppCompatActivity() {
         clearAllEnabled: Boolean,
         clipboardEnabled: Boolean,
         numpadEnabled: Boolean,
+        micToolbarEnabled: Boolean,
         voiceBubbleToolbarEnabled: Boolean,
     ) {
         suppressAiBarOrderAutoSave = true
         aiBarPrimaryOrderState = primaryOrder.toList()
         aiBarSecondaryOrderState = secondaryOrder.toList()
-        layoutAiBarPrimaryOrder.removeAllViews()
-        layoutAiBarSecondaryOrder.removeAllViews()
-        aiBarPrimaryOrderState.forEachIndexed { index, id ->
-            layoutAiBarPrimaryOrder.addView(
-                createAiBarOrderRow(
-                    container = layoutAiBarPrimaryOrder,
-                    isPrimary = true,
+        primaryOrderAdapter.updateRows(
+            primaryOrder.map { id ->
+                AiBarOrderRow(
                     id = id,
-                    index = index,
-                    orderSize = aiBarPrimaryOrderState.size,
                     enabled = primaryItemEnabled(
-                        id,
-                        wandEnabled,
-                        polishEnabled,
-                        clearAllEnabled,
-                        clipboardEnabled,
-                        numpadEnabled,
+                        id, wandEnabled, polishEnabled, clearAllEnabled, clipboardEnabled,
+                        numpadEnabled, micToolbarEnabled,
                     ),
+                    canToggle = primaryItemCanToggle(id),
+                    isFixed = id == com.gremier.gkeys.ime.AiBarLayout.PAGE,
                 )
-            )
-        }
-        aiBarSecondaryOrderState.forEachIndexed { index, id ->
-            layoutAiBarSecondaryOrder.addView(
-                createAiBarOrderRow(
-                    container = layoutAiBarSecondaryOrder,
-                    isPrimary = false,
+            }
+        )
+        secondaryOrderAdapter.updateRows(
+            secondaryOrder.map { id ->
+                AiBarOrderRow(
                     id = id,
-                    index = index,
-                    orderSize = aiBarSecondaryOrderState.size,
                     enabled = secondaryItemEnabled(id, voiceBubbleToolbarEnabled),
+                    canToggle = secondaryItemCanToggle(id),
+                    isFixed = id == com.gremier.gkeys.ime.AiBarLayout.BACK,
                 )
-            )
-        }
+            }
+        )
         suppressAiBarOrderAutoSave = false
+    }
+
+    private fun primaryItemCanToggle(id: String): Boolean = when (id) {
+        com.gremier.gkeys.ime.AiBarLayout.PAGE -> false
+        com.gremier.gkeys.ime.AiBarLayout.RAW_POLISH -> false
+        com.gremier.gkeys.ime.AiBarLayout.LIVE -> false
+        com.gremier.gkeys.ime.AiBarLayout.MIC -> voiceInputIncludesMic()
+        else -> true
+    }
+
+    private fun secondaryItemCanToggle(id: String): Boolean = when (id) {
+        com.gremier.gkeys.ime.AiBarLayout.BACK,
+        com.gremier.gkeys.ime.AiBarLayout.SETTINGS,
+        com.gremier.gkeys.ime.AiBarLayout.UNDO,
+        com.gremier.gkeys.ime.AiBarLayout.SELECT_ALL,
+        -> false
+        else -> true
     }
 
     private fun primaryItemEnabled(
@@ -816,13 +899,15 @@ class SettingsActivity : AppCompatActivity() {
         clearAllEnabled: Boolean,
         clipboardEnabled: Boolean,
         numpadEnabled: Boolean,
+        micToolbarEnabled: Boolean,
     ): Boolean = when (id) {
         com.gremier.gkeys.ime.AiBarLayout.WAND -> wandEnabled
         com.gremier.gkeys.ime.AiBarLayout.POLISH -> polishEnabled
+        com.gremier.gkeys.ime.AiBarLayout.RAW_POLISH -> polishEnabled
         com.gremier.gkeys.ime.AiBarLayout.CLEAR_ALL -> clearAllEnabled
         com.gremier.gkeys.ime.AiBarLayout.CLIPBOARD -> clipboardEnabled
         com.gremier.gkeys.ime.AiBarLayout.NUMPAD -> numpadEnabled
-        com.gremier.gkeys.ime.AiBarLayout.MIC -> voiceInputIncludesMic()
+        com.gremier.gkeys.ime.AiBarLayout.MIC -> micToolbarEnabled
         com.gremier.gkeys.ime.AiBarLayout.LIVE -> voiceInputIncludesLive()
         else -> true
     }
@@ -832,80 +917,6 @@ class SettingsActivity : AppCompatActivity() {
             com.gremier.gkeys.ime.AiBarLayout.BUBBLE -> voiceBubbleToolbarEnabled
             else -> true
         }
-
-    private fun createAiBarOrderRow(
-        container: android.widget.LinearLayout,
-        isPrimary: Boolean,
-        id: String,
-        index: Int,
-        orderSize: Int,
-        enabled: Boolean,
-    ): android.view.View {
-        val row = layoutInflater.inflate(R.layout.item_ai_bar_order_row, container, false)
-        row.findViewById<android.widget.TextView>(R.id.tv_order_label).text =
-            com.gremier.gkeys.ime.AiBarLayout.label(id)
-        val switch = row.findViewById<SwitchMaterial>(R.id.switch_order_enabled)
-        val fixedAnchor = id == com.gremier.gkeys.ime.AiBarLayout.PAGE ||
-            id == com.gremier.gkeys.ime.AiBarLayout.BACK
-        val alwaysOnSecondary = !isPrimary && (
-            id == com.gremier.gkeys.ime.AiBarLayout.SETTINGS ||
-                id == com.gremier.gkeys.ime.AiBarLayout.UNDO ||
-                id == com.gremier.gkeys.ime.AiBarLayout.DELETE_FORWARD ||
-                id == com.gremier.gkeys.ime.AiBarLayout.SELECT_ALL
-            )
-        val runtimePrimary = isPrimary && id == com.gremier.gkeys.ime.AiBarLayout.RAW_POLISH
-        val voiceControlled = id == com.gremier.gkeys.ime.AiBarLayout.MIC ||
-            id == com.gremier.gkeys.ime.AiBarLayout.LIVE
-        when {
-            fixedAnchor || alwaysOnSecondary || runtimePrimary -> {
-                switch.visibility = android.view.View.GONE
-            }
-            voiceControlled -> {
-                switch.isEnabled = false
-                switch.isChecked = enabled
-            }
-            else -> {
-                switch.isChecked = enabled
-                switch.setOnCheckedChangeListener { _, checked ->
-                    if (!settingsLoaded || suppressAiBarOrderAutoSave) return@setOnCheckedChangeListener
-                    saveAiBarItemEnabled(isPrimary, id, checked)
-                }
-            }
-        }
-        val btnUp = row.findViewById<android.widget.ImageButton>(R.id.btn_order_up)
-        val btnDown = row.findViewById<android.widget.ImageButton>(R.id.btn_order_down)
-        btnUp.isEnabled = index > 1
-        btnDown.isEnabled = !fixedAnchor && index < orderSize - 1
-        btnUp.setOnClickListener {
-            moveAiBarOrderItem(isPrimary, index, delta = -1)
-        }
-        btnDown.setOnClickListener {
-            moveAiBarOrderItem(isPrimary, index, delta = 1)
-        }
-        return row
-    }
-
-    private fun moveAiBarOrderItem(isPrimary: Boolean, index: Int, delta: Int) {
-        val order = if (isPrimary) aiBarPrimaryOrderState.toMutableList()
-        else aiBarSecondaryOrderState.toMutableList()
-        val target = index + delta
-        if (target < 0 || target >= order.size) return
-        if (order[index] == com.gremier.gkeys.ime.AiBarLayout.PAGE ||
-            order[index] == com.gremier.gkeys.ime.AiBarLayout.BACK
-        ) return
-        if (target == 0) return
-        val item = order.removeAt(index)
-        order.add(target, item)
-        if (isPrimary) aiBarPrimaryOrderState = order else aiBarSecondaryOrderState = order
-        lifecycleScope.launch {
-            if (isPrimary) {
-                GkeysSettings.saveAiBarPrimaryOrder(this@SettingsActivity, order)
-            } else {
-                GkeysSettings.saveAiBarSecondaryOrder(this@SettingsActivity, order)
-            }
-            rebuildAiBarOrderUiFromPrefs()
-        }
-    }
 
     private fun saveAiBarItemEnabled(isPrimary: Boolean, id: String, enabled: Boolean) {
         autoSave {
@@ -920,6 +931,8 @@ class SettingsActivity : AppCompatActivity() {
                     GkeysSettings.saveAiBarClipboardToolbarEnabled(this@SettingsActivity, enabled)
                 com.gremier.gkeys.ime.AiBarLayout.NUMPAD ->
                     GkeysSettings.saveAiBarNumpadEnabled(this@SettingsActivity, enabled)
+                com.gremier.gkeys.ime.AiBarLayout.MIC ->
+                    GkeysSettings.saveAiBarMicToolbarEnabled(this@SettingsActivity, enabled)
                 com.gremier.gkeys.ime.AiBarLayout.SETTINGS -> Unit
                 com.gremier.gkeys.ime.AiBarLayout.UNDO -> Unit
                 com.gremier.gkeys.ime.AiBarLayout.SELECT_ALL -> Unit
@@ -941,6 +954,7 @@ class SettingsActivity : AppCompatActivity() {
             clearAllEnabled = GkeysSettings.aiBarClearAllEnabled(this@SettingsActivity).first(),
             clipboardEnabled = GkeysSettings.aiBarClipboardToolbarEnabled(this@SettingsActivity).first(),
             numpadEnabled = GkeysSettings.aiBarNumpadEnabled(this@SettingsActivity).first(),
+            micToolbarEnabled = GkeysSettings.aiBarMicToolbarEnabled(this@SettingsActivity).first(),
             voiceBubbleToolbarEnabled = GkeysSettings.voiceBubbleEnabled(this@SettingsActivity).first(),
         )
     }

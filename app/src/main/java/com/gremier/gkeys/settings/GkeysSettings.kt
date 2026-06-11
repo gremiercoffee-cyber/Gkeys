@@ -53,6 +53,7 @@ object GkeysSettings {
     val AI_BAR_CLEAR_ALL_ENABLED = booleanPreferencesKey("ai_bar_clear_all_enabled")
     val AI_BAR_CLIPBOARD_TOOLBAR_ENABLED = booleanPreferencesKey("ai_bar_clipboard_toolbar_enabled")
     val AI_BAR_NUMPAD_ENABLED = booleanPreferencesKey("ai_bar_numpad_enabled")
+    val AI_BAR_MIC_TOOLBAR_ENABLED = booleanPreferencesKey("ai_bar_mic_toolbar_enabled")
     val SPEECH_PROFILE = stringPreferencesKey("speech_profile")
     val AI_INSTRUCTIONS = stringPreferencesKey("ai_instructions")
     val THEME_MODE = stringPreferencesKey("theme_mode")
@@ -210,10 +211,22 @@ object GkeysSettings {
             mode == AI_BAR_VOICE_BOTH || mode == AI_BAR_VOICE_LIVE
         }
 
-    fun aiBarMicEnabled(context: Context): Flow<Boolean> =
+    fun aiBarVoiceInputIncludesMic(context: Context): Flow<Boolean> =
         aiBarVoiceInputMode(context).map { mode ->
             mode == AI_BAR_VOICE_BOTH || mode == AI_BAR_VOICE_MIC
         }
+
+    fun aiBarMicToolbarEnabled(context: Context): Flow<Boolean> =
+        settingsStore(context).data.map {
+            it[AI_BAR_MIC_TOOLBAR_ENABLED] ?: DEFAULT_AI_BAR_FEATURE_ENABLED
+        }
+
+    /** True when the mic button may appear on the AI toolbar. */
+    fun aiBarMicEnabled(context: Context): Flow<Boolean> =
+        kotlinx.coroutines.flow.combine(
+            aiBarVoiceInputIncludesMic(context),
+            aiBarMicToolbarEnabled(context),
+        ) { includesMic, toolbarMic -> includesMic && toolbarMic }
 
     fun aiBarPrimaryOrder(context: Context): Flow<List<String>> =
         settingsStore(context).data.map { prefs ->
@@ -493,6 +506,10 @@ object GkeysSettings {
 
     suspend fun saveAiBarNumpadEnabled(context: Context, enabled: Boolean) {
         settingsStore(context).edit { it[AI_BAR_NUMPAD_ENABLED] = enabled }
+    }
+
+    suspend fun saveAiBarMicToolbarEnabled(context: Context, enabled: Boolean) {
+        settingsStore(context).edit { it[AI_BAR_MIC_TOOLBAR_ENABLED] = enabled }
     }
 
     suspend fun saveSpeechProfile(context: Context, profile: String) {

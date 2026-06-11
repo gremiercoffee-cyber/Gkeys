@@ -49,7 +49,7 @@
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="Choose mic dictation, live transcribe, or both on the toolbar"
+                    android:text="Mic only keeps dictation available — turn off the mic icon to use the floating bubble instead. Live transcribe is hidden in mic-only mode."
                     android:textColor="@color/settings_card_muted"
                     android:textSize="12sp"
                     android:layout_marginBottom="8dp" />
@@ -91,32 +91,40 @@
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="Main toolbar order"
+                    android:text="Main toolbar row"
                     android:textColor="@color/settings_card_text"
                     android:textSize="14sp"
                     android:layout_marginTop="4dp"
                     android:layout_marginBottom="4dp" />
 
-                <LinearLayout
-                    android:id="@+id/layout_ai_bar_primary_order"
+                <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="vertical"
+                    android:text="Long-press an icon and drag to reorder. Toggle items on or off."
+                    android:textColor="@color/settings_card_muted"
+                    android:textSize="12sp"
+                    android:layout_marginBottom="8dp" />
+
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/rv_ai_bar_primary_order"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:nestedScrollingEnabled="false"
                     android:layout_marginBottom="12dp" />
 
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="Second toolbar order"
+                    android:text="Second toolbar row"
                     android:textColor="@color/settings_card_text"
                     android:textSize="14sp"
                     android:layout_marginBottom="4dp" />
 
-                <LinearLayout
-                    android:id="@+id/layout_ai_bar_secondary_order"
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/rv_ai_bar_secondary_order"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="vertical"
+                    android:nestedScrollingEnabled="false"
                     android:layout_marginBottom="12dp" />
 
                 <LinearLayout
