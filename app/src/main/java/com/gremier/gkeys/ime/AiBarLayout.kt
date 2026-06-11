@@ -115,4 +115,7 @@ object AiBarLayout {
 
     fun serializeOrder(order: List<String>): String =
         order.filter { it in DEFAULT_ORDER }.joinToString(",")
+
+    fun normalizeOrder(order: List<String>): List<String> =
+        parseOrder(serializeOrder(order), DEFAULT_ORDER)
 }

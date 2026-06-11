@@ -404,7 +404,7 @@ class GkeysIME : InputMethodService() {
                 aiBarLiveTranscribeEnabled = toggles[4]
                 voiceBubbleEnabled = bubble
                 @Suppress("UNCHECKED_CAST")
-                aiBarOrder = layout[0] as List<String>
+                aiBarOrder = com.gremier.gkeys.ime.AiBarLayout.normalizeOrder(layout[0] as List<String>)
                 aiBarClearAllEnabled = layout[1] as Boolean
                 aiBarClipboardToolbarEnabled = layout[2] as Boolean
                 aiBarNumpadEnabled = layout[3] as Boolean
@@ -511,6 +511,7 @@ class GkeysIME : InputMethodService() {
             ghostwriterOverlay.setBackgroundColor(themeColor(R.color.gkeys_overlay_scrim))
         }
         clipboardManager?.updateTheme(darkTheme)
+        updateLiveTranscribeButton()
     }
 
     private fun buildInputView(): View {
@@ -1437,7 +1438,9 @@ class GkeysIME : InputMethodService() {
                 aiBarMicToolbarEnabled = GkeysSettings.aiBarMicToolbarEnabled(this@GkeysIME).first()
                 aiBarVoiceInputIncludesMic = GkeysSettings.aiBarVoiceInputIncludesMic(this@GkeysIME).first()
                 aiBarLiveTranscribeEnabled = GkeysSettings.aiBarLiveTranscribeEnabled(this@GkeysIME).first()
-                aiBarOrder = GkeysSettings.aiBarOrder(this@GkeysIME).first()
+                aiBarOrder = com.gremier.gkeys.ime.AiBarLayout.normalizeOrder(
+                    GkeysSettings.aiBarOrder(this@GkeysIME).first()
+                )
                 aiBarClearAllEnabled = GkeysSettings.aiBarClearAllEnabled(this@GkeysIME).first()
                 aiBarClipboardToolbarEnabled = GkeysSettings.aiBarClipboardToolbarEnabled(this@GkeysIME).first()
                 aiBarNumpadEnabled = GkeysSettings.aiBarNumpadEnabled(this@GkeysIME).first()
@@ -1813,10 +1816,13 @@ class GkeysIME : InputMethodService() {
     private fun updateLiveTranscribeButton() {
         if (!::btnLiveTranscribe.isInitialized) return
         val active = liveTranscribe.isRunning
-        btnLiveTranscribe.setBackgroundResource(
-            if (active) R.drawable.ai_mic_bg_active else R.drawable.btn_circle_bg
-        )
+        btnLiveTranscribe.background = themeDrawable(R.drawable.ai_bar_icon_btn_bg)
         btnLiveTranscribe.alpha = if (active) 1f else 0.92f
+        btnLiveTranscribe.imageTintList = if (active) {
+            android.content.res.ColorStateList.valueOf(themeColor(R.color.gkeys_accent))
+        } else {
+            null
+        }
     }
 
     private fun sttLanguageCode(): String = when {

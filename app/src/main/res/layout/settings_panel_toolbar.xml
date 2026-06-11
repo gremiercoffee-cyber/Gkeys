@@ -105,11 +105,10 @@
                     android:textSize="12sp"
                     android:layout_marginBottom="8dp" />
 
-                <androidx.recyclerview.widget.RecyclerView
+                <com.gremier.gkeys.settings.FullyExpandedRecyclerView
                     android:id="@+id/rv_ai_bar_order"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:nestedScrollingEnabled="false"
                     android:layout_marginBottom="12dp" />
 
                 <LinearLayout

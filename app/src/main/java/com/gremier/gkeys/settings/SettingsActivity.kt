@@ -60,7 +60,7 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var btnOverlayPermission: MaterialButton
     private lateinit var switchVoiceBubbleEnabled: SwitchMaterial
     private lateinit var radioAiBarVoiceInput: RadioGroup
-    private lateinit var rvAiBarOrder: androidx.recyclerview.widget.RecyclerView
+    private lateinit var rvAiBarOrder: FullyExpandedRecyclerView
     private lateinit var switchDefaultVoiceBubble: SwitchMaterial
     private lateinit var voiceBubbleDefaultRow: android.view.View
     private lateinit var switchAdaptiveTouch: SwitchMaterial
@@ -762,15 +762,14 @@ class SettingsActivity : AppCompatActivity() {
     private var aiBarOrderState = com.gremier.gkeys.ime.AiBarLayout.DEFAULT_ORDER
 
     private fun setupAiBarOrderLists() {
-        configureOrderListRecyclerView(rvAiBarOrder)
-
         val touchHelper = ItemTouchHelper(createOrderDragCallback())
         orderAdapter = AiBarOrderDragAdapter(
             rows = mutableListOf(),
             onOrderChanged = { order ->
                 if (!settingsLoaded || suppressAiBarOrderAutoSave) return@AiBarOrderDragAdapter
-                aiBarOrderState = order
-                autoSave { GkeysSettings.saveAiBarOrder(this@SettingsActivity, order) }
+                val normalized = com.gremier.gkeys.ime.AiBarLayout.normalizeOrder(order)
+                aiBarOrderState = normalized
+                autoSave { GkeysSettings.saveAiBarOrder(this@SettingsActivity, normalized) }
             },
             onToggleChanged = { id, enabled ->
                 if (!settingsLoaded || suppressAiBarOrderAutoSave) return@AiBarOrderDragAdapter
@@ -778,22 +777,20 @@ class SettingsActivity : AppCompatActivity() {
             },
         )
         orderAdapter.attachTouchHelper(touchHelper)
+        orderAdapter.registerAdapterDataObserver(object : androidx.recyclerview.widget.RecyclerView.AdapterDataObserver() {
+            override fun onChanged() = refreshOrderListHeights()
+            override fun onItemRangeMoved(fromPosition: Int, toPosition: Int, itemCount: Int) =
+                refreshOrderListHeights()
+        })
         rvAiBarOrder.adapter = orderAdapter
         touchHelper.attachToRecyclerView(rvAiBarOrder)
     }
 
-    private fun configureOrderListRecyclerView(recyclerView: androidx.recyclerview.widget.RecyclerView) {
-        recyclerView.layoutManager = FullyExpandedLinearLayoutManager(this)
-        recyclerView.isNestedScrollingEnabled = false
-        recyclerView.overScrollMode = android.view.View.OVER_SCROLL_NEVER
-        recyclerView.itemAnimator = androidx.recyclerview.widget.DefaultItemAnimator().apply {
-            supportsChangeAnimations = false
-        }
-        recyclerView.setHasFixedSize(false)
-    }
-
     private fun refreshOrderListHeights() {
-        rvAiBarOrder.post { rvAiBarOrder.requestLayout() }
+        rvAiBarOrder.post {
+            rvAiBarOrder.requestLayout()
+            (rvAiBarOrder.parent as? android.view.View)?.requestLayout()
+        }
     }
 
     private fun createOrderDragCallback(): ItemTouchHelper.SimpleCallback {
@@ -856,10 +853,10 @@ class SettingsActivity : AppCompatActivity() {
         voiceBubbleToolbarEnabled: Boolean,
     ) {
         suppressAiBarOrderAutoSave = true
-        aiBarOrderState = order.toList()
+        val fullOrder = com.gremier.gkeys.ime.AiBarLayout.normalizeOrder(order)
+        aiBarOrderState = fullOrder
         orderAdapter.updateRows(
-            order.mapNotNull { id ->
-                if (com.gremier.gkeys.ime.AiBarLayout.label(id).isEmpty()) return@mapNotNull null
+            fullOrder.map { id ->
                 AiBarOrderRow(
                     id = id,
                     enabled = itemEnabled(

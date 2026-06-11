@@ -486,8 +486,9 @@ object GkeysSettings {
     }
 
     suspend fun saveAiBarOrder(context: Context, order: List<String>) {
+        val normalized = com.gremier.gkeys.ime.AiBarLayout.normalizeOrder(order)
         settingsStore(context).edit {
-            it[AI_BAR_ORDER] = com.gremier.gkeys.ime.AiBarLayout.serializeOrder(order)
+            it[AI_BAR_ORDER] = com.gremier.gkeys.ime.AiBarLayout.serializeOrder(normalized)
         }
     }
 
@@ -501,10 +502,12 @@ object GkeysSettings {
     /** Writes unified toolbar order so settings and the IME stay in sync. */
     suspend fun persistMigratedAiBarOrders(context: Context) {
         val prefs = settingsStore(context).data.first()
-        val resolved = com.gremier.gkeys.ime.AiBarLayout.resolveOrder(
-            prefs[AI_BAR_ORDER],
-            prefs[AI_BAR_PRIMARY_ORDER],
-            prefs[AI_BAR_SECONDARY_ORDER],
+        val resolved = com.gremier.gkeys.ime.AiBarLayout.normalizeOrder(
+            com.gremier.gkeys.ime.AiBarLayout.resolveOrder(
+                prefs[AI_BAR_ORDER],
+                prefs[AI_BAR_PRIMARY_ORDER],
+                prefs[AI_BAR_SECONDARY_ORDER],
+            )
         )
         val serialized = com.gremier.gkeys.ime.AiBarLayout.serializeOrder(resolved)
         if (prefs[AI_BAR_ORDER] != serialized) {
