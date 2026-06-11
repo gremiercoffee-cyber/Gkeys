@@ -80,8 +80,12 @@ object DictionaryManager {
             else -> 2
         }
         val dict = dict(language) ?: return emptyList()
-        val pool = LinkedHashSet<String>()
+val pool = LinkedHashSet<String>()
         collectBucket(pool, dict, lower.firstOrNull(), len, maxDist)
+        // Second-char bucket: catches first-pair transpositions ("hte" -> "the")
+        // and a stray leading letter ("hhello" -> "hello"), where the real word's
+        // first letter is the typed word's SECOND letter.
+        if (lower.length >= 2) collectBucket(pool, dict, lower[1], len, maxDist)
         for (neighbor in KeyboardProximity.neighborKeys(lower[0])) {
             collectBucket(pool, dict, neighbor, len, maxDist)
         }
@@ -145,21 +149,31 @@ object DictionaryManager {
         Language.HE -> word
     }
 
+/** Damerau-Levenshtein: a swap of two adjacent letters costs 1, not 2,
+     *  so common transpositions ("form"/"from") survive the maxDist filter. */
     private fun editDistance(a: String, b: String): Int {
         if (a == b) return 0
         if (a.isEmpty()) return b.length
         if (b.isEmpty()) return a.length
-        val dp = IntArray(b.length + 1) { it }
-        for (i in 1..a.length) {
-            var prev = dp[0]
-            dp[0] = i
-            for (j in 1..b.length) {
-                val temp = dp[j]
+        val n = a.length
+        val m = b.length
+        val d = Array(n + 1) { IntArray(m + 1) }
+        for (i in 0..n) d[i][0] = i
+        for (j in 0..m) d[0][j] = j
+        for (i in 1..n) {
+            for (j in 1..m) {
                 val cost = if (a[i - 1] == b[j - 1]) 0 else 1
-                dp[j] = minOf(dp[j] + 1, dp[j - 1] + 1, prev + cost)
-                prev = temp
+                var best = minOf(
+                    d[i - 1][j] + 1,
+                    d[i][j - 1] + 1,
+                    d[i - 1][j - 1] + cost,
+                )
+                if (i > 1 && j > 1 && a[i - 1] == b[j - 2] && a[i - 2] == b[j - 1]) {
+                    best = minOf(best, d[i - 2][j - 2] + 1)
+                }
+                d[i][j] = best
             }
         }
-        return dp[b.length]
+        return d[n][m]
     }
 }
