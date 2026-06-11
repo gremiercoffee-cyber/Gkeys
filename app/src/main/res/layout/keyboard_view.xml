@@ -79,6 +79,7 @@
                 android:visibility="gone" />
 
         <HorizontalScrollView
+            android:id="@+id/ai_bar_scroll"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:scrollbars="none"

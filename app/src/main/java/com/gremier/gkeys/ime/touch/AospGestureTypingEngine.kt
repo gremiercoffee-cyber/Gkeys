@@ -21,7 +21,7 @@ class AospGestureTypingEngine(
     @Synchronized
     fun ensureDictionary(
         userWords: Map<String, Int>,
-        maxSystemWords: Int = 45_000,
+        maxSystemWords: Int = 12_000,
     ) {
         if (dictionary != null && loadedWordCount > 0) return
         DictionaryManager.ensureLoaded(context, DictionaryManager.Language.EN)

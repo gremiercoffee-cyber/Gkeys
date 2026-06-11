@@ -184,6 +184,7 @@ class GkeysIME : InputMethodService() {
     /** After autocorrect on space: original typed word -> corrected word (for undo chip). */
     private var postAutocorrectUndo: Pair<String, String>? = null
     private lateinit var userWordsRepository: UserWordsRepository
+    private lateinit var aiBarScroll: HorizontalScrollView
     private lateinit var aiStrip: LinearLayout
     private lateinit var aiBarShellPrimary: FrameLayout
     private lateinit var aiBarShimmerPrimary: View
@@ -244,6 +245,7 @@ class GkeysIME : InputMethodService() {
     private var pendingSwipeCorrectionWrongWord: String? = null
     private var adaptiveTouchEnabled = GkeysSettings.DEFAULT_ADAPTIVE_TOUCH
     private var experimentalSwipeTypingEnabled = GkeysSettings.DEFAULT_EXPERIMENTAL_SWIPE_TYPING
+    private var aospGestureWarmupInProgress = false
 
     private var emojiPanelVisible = false
     private var emojiOpenedFromNumpad = false
@@ -558,6 +560,7 @@ class GkeysIME : InputMethodService() {
             refreshSuggestions()
         }
         userWordsRepository = UserWordsRepository(applicationContext)
+        aiBarScroll = keyboardView.findViewById(R.id.ai_bar_scroll)
         aiStrip = keyboardView.findViewById(R.id.ai_strip)
         aiBarShellPrimary = keyboardView.findViewById(R.id.ai_bar_shell_primary)
         aiBarShimmerPrimary = keyboardView.findViewById(R.id.ai_bar_shimmer_primary)
@@ -2237,8 +2240,19 @@ class GkeysIME : InputMethodService() {
             }
             recoverOrphanedToolbarViews(views.toSet())
             applyAiBarVisibility()
+            scrollAiBarToEnd()
         } catch (e: Throwable) {
             android.util.Log.e("GkeysIME", "applyAiBarLayout failed", e)
+        }
+    }
+
+    private fun scrollAiBarToEnd() {
+        if (!::aiBarScroll.isInitialized) return
+        aiBarScroll.post {
+            aiBarScroll.fullScroll(View.FOCUS_RIGHT)
+            aiBarScroll.post {
+                aiBarScroll.fullScroll(View.FOCUS_RIGHT)
+            }
         }
     }
 
@@ -2275,7 +2289,6 @@ class GkeysIME : InputMethodService() {
 
     private fun aiBarItemLayoutParams(view: View): LinearLayout.LayoutParams {
         val iconSize = dp(AiBarLayout.ICON_SIZE_DP)
-        val previous = view.layoutParams as? LinearLayout.LayoutParams
         val width = when (view.id) {
             R.id.clipboard_area -> dp(AiBarLayout.CLIPBOARD_WIDTH_DP)
             R.id.mic_group -> LinearLayout.LayoutParams.WRAP_CONTENT
@@ -2283,10 +2296,10 @@ class GkeysIME : InputMethodService() {
         }
         val height = if (view.id == R.id.mic_group) iconSize else iconSize
         return LinearLayout.LayoutParams(width, height).apply {
-            marginStart = previous?.marginStart ?: if (aiStrip.childCount == 0) 0 else dp(5)
-            marginEnd = previous?.marginEnd ?: 0
-            topMargin = previous?.topMargin ?: 0
-            bottomMargin = previous?.bottomMargin ?: 0
+            marginStart = if (aiStrip.childCount == 0) 0 else dp(5)
+            marginEnd = 0
+            topMargin = 0
+            bottomMargin = 0
             gravity = android.view.Gravity.CENTER_VERTICAL
         }
     }
@@ -2915,20 +2928,6 @@ class GkeysIME : InputMethodService() {
             return
         }
 
-        if (aospGestureTyping == null) {
-            try {
-                aospGestureTyping = AospGestureTypingEngine(
-                    applicationContext,
-                    SwipeLearningStore(applicationContext),
-                )
-            } catch (e: Throwable) {
-                android.util.Log.e("GkeysIME", "Swipe engine startup failed", e)
-                com.gremier.gkeys.diag.CrashLogger.record(this, e)
-                disableAospGestureTypingAfterFailure()
-                return
-            }
-        }
-
         keyboardRows.onSwipeGesture = { firstLabel, points ->
             try {
                 handleAospSwipeGesture(firstLabel, points)
@@ -2938,9 +2937,43 @@ class GkeysIME : InputMethodService() {
                 disableAospGestureTypingAfterFailure()
             }
         }
-        preloadSuggestionLanguage()
-        if (::touchResolver.isInitialized) {
-            refreshAospGestureGeometry(keyboardRows)
+    }
+
+    private fun warmUpAospGestureTyping() {
+        if (!ALLOW_AOSP_GESTURE_TYPING || !experimentalSwipeTypingEnabled) return
+        if (aospGestureTyping != null || aospGestureWarmupInProgress) return
+        aospGestureWarmupInProgress = true
+        scope.launch(Dispatchers.IO) {
+            val engine = try {
+                AospGestureTypingEngine(
+                    applicationContext,
+                    SwipeLearningStore(applicationContext),
+                ).also { created ->
+                    DictionaryManager.ensureLoaded(applicationContext, DictionaryManager.Language.EN)
+                    userWordsRepository.ensureCache(DictionaryManager.Language.EN)
+                    created.ensureDictionary(userWordsRepository.words(DictionaryManager.Language.EN))
+                }
+            } catch (e: Throwable) {
+                android.util.Log.e("GkeysIME", "Swipe engine warmup failed", e)
+                com.gremier.gkeys.diag.CrashLogger.record(this@GkeysIME, e)
+                withContext(Dispatchers.Main) {
+                    aospGestureWarmupInProgress = false
+                    disableAospGestureTypingAfterFailure()
+                }
+                return@launch
+            }
+
+            withContext(Dispatchers.Main) {
+                aospGestureWarmupInProgress = false
+                if (!ALLOW_AOSP_GESTURE_TYPING || !experimentalSwipeTypingEnabled) {
+                    runCatching { engine.close() }
+                    return@withContext
+                }
+                aospGestureTyping = engine
+                if (::keyboardRows.isInitialized && ::touchResolver.isInitialized) {
+                    refreshAospGestureGeometry(keyboardRows)
+                }
+            }
         }
     }
 
@@ -2965,7 +2998,13 @@ class GkeysIME : InputMethodService() {
         }
         runCatching { aospGestureTyping?.close() }
         aospGestureTyping = null
+        aospGestureWarmupInProgress = false
         experimentalSwipeTypingEnabled = false
+        scope.launch {
+            runCatching {
+                GkeysSettings.saveExperimentalSwipeTypingEnabled(this@GkeysIME, false)
+            }
+        }
         clearPendingSwipeDelete()
         pendingSwipeCorrectionPathKey = null
         pendingSwipeCorrectionWrongWord = null
@@ -3658,8 +3697,14 @@ class GkeysIME : InputMethodService() {
     private fun handleAospSwipeGesture(firstLabel: String, points: List<SwipePoint>) {
         if (!suggestionsSupported() || isHebrew || isSymbols || isNumpad || emojiPanelVisible) return
         val ic = currentInputConnection ?: return
-        val gestureTyping = aospGestureTyping ?: return
+        val gestureTyping = aospGestureTyping ?: run {
+            warmUpAospGestureTyping()
+            return
+        }
         if (!isAospGestureTypingActive() || points.size < 5) return
+        if (::keyboardRows.isInitialized && ::touchResolver.isInitialized) {
+            refreshAospGestureGeometry(keyboardRows)
+        }
 
         val decoded = gestureTyping.decode(
             points = points,
