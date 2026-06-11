@@ -103,8 +103,7 @@ class GkeysIME : InputMethodService() {
     private var aiBarClearAllEnabled = GkeysSettings.DEFAULT_AI_BAR_FEATURE_ENABLED
     private var aiBarClipboardToolbarEnabled = GkeysSettings.DEFAULT_AI_BAR_FEATURE_ENABLED
     private var aiBarNumpadEnabled = GkeysSettings.DEFAULT_AI_BAR_FEATURE_ENABLED
-    private var aiBarPrimaryOrder = AiBarLayout.DEFAULT_PRIMARY_ORDER
-    private var aiBarSecondaryOrder = AiBarLayout.DEFAULT_SECONDARY_ORDER
+    private var aiBarOrder = AiBarLayout.DEFAULT_ORDER
     private var darkTheme = true
     private var voiceBubbleController: VoiceBubbleController? = null
     private var activeInputConnection: InputConnection? = null
@@ -182,12 +181,8 @@ class GkeysIME : InputMethodService() {
     private var postAutocorrectUndo: Pair<String, String>? = null
     private lateinit var userWordsRepository: UserWordsRepository
     private lateinit var aiStrip: LinearLayout
-    private lateinit var aiStripSecondary: LinearLayout
     private lateinit var aiBarShellPrimary: FrameLayout
-    private lateinit var aiBarShellSecondary: FrameLayout
     private lateinit var aiBarShimmerPrimary: View
-    private lateinit var aiBarShimmerSecondary: View
-    private var aiBarSecondaryVisible = false
     private lateinit var keyboardPanel: FrameLayout
     private lateinit var keyboardKeysHost: FrameLayout
     private lateinit var keyboardRows: KeyboardTouchLayout
@@ -209,8 +204,6 @@ class GkeysIME : InputMethodService() {
     private lateinit var micAiShimmer: View
     private lateinit var micAiSparkles: ImageView
     private lateinit var btnKeyboard: ImageButton
-    private lateinit var btnAiBarPage: ImageButton
-    private lateinit var btnAiBarBack: ImageButton
     private lateinit var btnSettings: ImageButton
     private lateinit var btnVoiceBubble: ImageButton
     private lateinit var btnWand: FrameLayout
@@ -310,7 +303,7 @@ class GkeysIME : InputMethodService() {
         listOf("q","w","e","r","t","y","u","i","o","p"),
         listOf("a","s","d","f","g","h","j","k","l"),
         listOf("⇧","z","x","c","v","b","n","m","⌫"),
-        listOf("?123","🌐",",","SPACE",".","?","↵")
+        listOf("?123","🌐",",","!","SPACE",".","?","↵")
     )
 
     override fun onConfigureWindow(window: android.view.Window, isFullscreen: Boolean, isExtract: Boolean) {
@@ -332,7 +325,7 @@ class GkeysIME : InputMethodService() {
         listOf("'","-","ק","ר","א","ט","ו","ן","ם","פ"),
         listOf("ש","ד","ג","כ","ע","י","ח","ל","ך","ף"),
         listOf("ז","ס","ב","ה","נ","מ","צ","ת","ץ","⌫"),
-        listOf("?123","🌐",",","SPACE",".","?","↵")
+        listOf("?123","🌐",",","!","SPACE",".","?","↵")
     )
 
     private fun orderKeysForDisplay(keys: List<String>): List<String> {
@@ -350,7 +343,7 @@ class GkeysIME : InputMethodService() {
         listOf("!","@","#","$","%","^","&","*","(",")"),
         listOf("-","_","=","+","[","]","{","}","\\"),
         listOf(";","'","\"","<",">","?","/","⌫"),
-        listOf("ABC","🌐",",","SPACE",".","?","↵")
+        listOf("ABC","🌐",",","!","SPACE",".","?","↵")
     )
 
     override fun onCreate() {
@@ -396,13 +389,12 @@ class GkeysIME : InputMethodService() {
                 },
                 GkeysSettings.voiceBubbleEnabled(this@GkeysIME),
                 combine(
-                    GkeysSettings.aiBarPrimaryOrder(this@GkeysIME),
-                    GkeysSettings.aiBarSecondaryOrder(this@GkeysIME),
+                    GkeysSettings.aiBarOrder(this@GkeysIME),
                     GkeysSettings.aiBarClearAllEnabled(this@GkeysIME),
                     GkeysSettings.aiBarClipboardToolbarEnabled(this@GkeysIME),
                     GkeysSettings.aiBarNumpadEnabled(this@GkeysIME),
-                ) { primary, secondary, clearAll, clipboard, numpad ->
-                    arrayOf(primary, secondary, clearAll, clipboard, numpad)
+                ) { order, clearAll, clipboard, numpad ->
+                    arrayOf(order, clearAll, clipboard, numpad)
                 },
             ) { toggles, bubble, layout ->
                 aiBarWandEnabled = toggles[0]
@@ -412,12 +404,10 @@ class GkeysIME : InputMethodService() {
                 aiBarLiveTranscribeEnabled = toggles[4]
                 voiceBubbleEnabled = bubble
                 @Suppress("UNCHECKED_CAST")
-                aiBarPrimaryOrder = layout[0] as List<String>
-                @Suppress("UNCHECKED_CAST")
-                aiBarSecondaryOrder = layout[1] as List<String>
-                aiBarClearAllEnabled = layout[2] as Boolean
-                aiBarClipboardToolbarEnabled = layout[3] as Boolean
-                aiBarNumpadEnabled = layout[4] as Boolean
+                aiBarOrder = layout[0] as List<String>
+                aiBarClearAllEnabled = layout[1] as Boolean
+                aiBarClipboardToolbarEnabled = layout[2] as Boolean
+                aiBarNumpadEnabled = layout[3] as Boolean
             }.collect {
                 try {
                     if (::aiStrip.isInitialized) {
@@ -504,10 +494,6 @@ class GkeysIME : InputMethodService() {
             aiBarShellPrimary.findViewById<View>(R.id.ai_bar_bg_primary)?.background =
                 themeDrawable(R.drawable.ai_bar_shell_bg)
         }
-        if (::aiBarShellSecondary.isInitialized) {
-            aiBarShellSecondary.findViewById<View>(R.id.ai_bar_bg_secondary)?.background =
-                themeDrawable(R.drawable.ai_bar_shell_bg)
-        }
         if (::suggestionStrip.isInitialized) {
             suggestionStrip.setBackgroundColor(themeColor(R.color.gkeys_suggestion_bar))
         }
@@ -518,7 +504,7 @@ class GkeysIME : InputMethodService() {
         }
         if (::btnPolishLevel.isInitialized) btnPolishLevel.setTextColor(themeColor(R.color.gkeys_text_primary))
         if (::clipboardArea.isInitialized) {
-            clipboardArea.background = themeDrawable(R.drawable.clipboard_pill_bg)
+            clipboardArea.background = themeDrawable(R.drawable.ai_bar_icon_btn_bg)
         }
         if (::voiceOverlay.isInitialized) voiceOverlay.setBackgroundColor(themeColor(R.color.gkeys_overlay_scrim))
         if (::ghostwriterOverlay.isInitialized) {
@@ -556,11 +542,8 @@ class GkeysIME : InputMethodService() {
         }
         userWordsRepository = UserWordsRepository(applicationContext)
         aiStrip = keyboardView.findViewById(R.id.ai_strip)
-        aiStripSecondary = keyboardView.findViewById(R.id.ai_strip_secondary)
         aiBarShellPrimary = keyboardView.findViewById(R.id.ai_bar_shell_primary)
-        aiBarShellSecondary = keyboardView.findViewById(R.id.ai_bar_shell_secondary)
         aiBarShimmerPrimary = keyboardView.findViewById(R.id.ai_bar_shimmer_primary)
-        aiBarShimmerSecondary = keyboardView.findViewById(R.id.ai_bar_shimmer_secondary)
         keyboardPanel = keyboardView.findViewById(R.id.keyboard_panel)
         keyboardKeysHost = keyboardView.findViewById(R.id.keyboard_keys_host)
         keyboardRows = keyboardView.findViewById(R.id.keyboard_rows)
@@ -582,8 +565,6 @@ class GkeysIME : InputMethodService() {
         micAiShimmer = keyboardView.findViewById(R.id.mic_ai_shimmer)
         micAiSparkles = keyboardView.findViewById(R.id.mic_ai_sparkles)
         btnKeyboard = keyboardView.findViewById(R.id.btn_keyboard)
-        btnAiBarPage = keyboardView.findViewById(R.id.btn_ai_bar_page)
-        btnAiBarBack = keyboardView.findViewById(R.id.btn_ai_bar_back)
         btnSettings = keyboardView.findViewById(R.id.btn_settings)
         btnVoiceBubble = keyboardView.findViewById(R.id.btn_voice_bubble)
         btnWand = keyboardView.findViewById(R.id.btn_wand)
@@ -690,7 +671,6 @@ class GkeysIME : InputMethodService() {
 
         setupAiStrip()
         applyAiBarLayout()
-        showPrimaryAiBar()
         handler.post { applyAiBarLayout() }
         applyKeyboardTheme()
         applyUniversalShellHeight()
@@ -1457,8 +1437,7 @@ class GkeysIME : InputMethodService() {
                 aiBarMicToolbarEnabled = GkeysSettings.aiBarMicToolbarEnabled(this@GkeysIME).first()
                 aiBarVoiceInputIncludesMic = GkeysSettings.aiBarVoiceInputIncludesMic(this@GkeysIME).first()
                 aiBarLiveTranscribeEnabled = GkeysSettings.aiBarLiveTranscribeEnabled(this@GkeysIME).first()
-                aiBarPrimaryOrder = GkeysSettings.aiBarPrimaryOrder(this@GkeysIME).first()
-                aiBarSecondaryOrder = GkeysSettings.aiBarSecondaryOrder(this@GkeysIME).first()
+                aiBarOrder = GkeysSettings.aiBarOrder(this@GkeysIME).first()
                 aiBarClearAllEnabled = GkeysSettings.aiBarClearAllEnabled(this@GkeysIME).first()
                 aiBarClipboardToolbarEnabled = GkeysSettings.aiBarClipboardToolbarEnabled(this@GkeysIME).first()
                 aiBarNumpadEnabled = GkeysSettings.aiBarNumpadEnabled(this@GkeysIME).first()
@@ -1554,14 +1533,6 @@ class GkeysIME : InputMethodService() {
             updateNumpadButton()
         }
 
-        btnAiBarPage.setOnClickListener {
-            hapticKeyTap()
-            showSecondaryAiBar()
-        }
-        btnAiBarBack.setOnClickListener {
-            hapticKeyTap()
-            showPrimaryAiBar()
-        }
         btnSettings.setOnClickListener {
             hapticKeyTap()
             openAppSettings()
@@ -1597,7 +1568,6 @@ class GkeysIME : InputMethodService() {
         updateNumpadButton()
         updateVoiceBubbleButtonVisibility()
         AiBarShimmer.attach(aiBarShimmerPrimary)
-        AiBarShimmer.attach(aiBarShimmerSecondary)
         startMicIdleSparkleAnimation()
     }
 
@@ -2214,67 +2184,26 @@ class GkeysIME : InputMethodService() {
         btnVoiceBubble.visibility = if (voiceBubbleEnabled) View.VISIBLE else View.GONE
     }
 
-    private fun showPrimaryAiBar() {
-        aiBarSecondaryVisible = false
-        if (::aiBarShellPrimary.isInitialized) aiBarShellPrimary.visibility = View.VISIBLE
-        if (::aiBarShellSecondary.isInitialized) aiBarShellSecondary.visibility = View.GONE
-    }
-
-    private fun showSecondaryAiBar() {
-        aiBarSecondaryVisible = true
-        if (::aiBarShellPrimary.isInitialized) aiBarShellPrimary.visibility = View.GONE
-        if (::aiBarShellSecondary.isInitialized) aiBarShellSecondary.visibility = View.VISIBLE
-        updateUndoButtonState()
-    }
-
     private fun restoreAiBarPage() {
-        if (aiBarSecondaryVisible) showSecondaryAiBar() else showPrimaryAiBar()
+        if (::aiBarShellPrimary.isInitialized) aiBarShellPrimary.visibility = View.VISIBLE
     }
 
     private fun hideAiBarsForOverlay() {
         if (::aiBarShellPrimary.isInitialized) aiBarShellPrimary.visibility = View.GONE
-        if (::aiBarShellSecondary.isInitialized) aiBarShellSecondary.visibility = View.GONE
     }
 
     private fun applyAiBarLayout() {
         if (!::aiStrip.isInitialized) return
         try {
-            val assigned = mutableSetOf<View>()
-            val primaryViews = buildAiBarStripViews(
-                order = aiBarPrimaryOrder,
-                viewForId = { primaryAiBarViewForId(it) },
-                assigned = assigned,
-            )
-            val secondaryViews = buildAiBarStripViews(
-                order = aiBarSecondaryOrder,
-                viewForId = { secondaryAiBarViewForId(it) },
-                assigned = assigned,
-            )
+            val views = aiBarOrder.mapNotNull { aiBarViewForId(it) }
             aiStrip.removeAllViews()
-            aiStripSecondary.removeAllViews()
-            populateAiBarStrip(aiStrip, primaryViews)
-            populateAiBarStrip(aiStripSecondary, secondaryViews)
-            recoverOrphanedToolbarViews(assigned)
+            for (view in views) {
+                aiStrip.addView(view, aiBarItemLayoutParams(view))
+            }
+            recoverOrphanedToolbarViews(views.toSet())
             applyAiBarVisibility()
         } catch (e: Throwable) {
             android.util.Log.e("GkeysIME", "applyAiBarLayout failed", e)
-        }
-    }
-
-    private fun buildAiBarStripViews(
-        order: List<String>,
-        viewForId: (String) -> View?,
-        assigned: MutableSet<View>,
-    ): List<View> = order.mapNotNull { id ->
-        viewForId(id)?.takeIf { it !in assigned }?.also { assigned.add(it) }
-    }
-
-    private fun populateAiBarStrip(
-        strip: LinearLayout,
-        views: List<View>,
-    ) {
-        for (view in views) {
-            strip.addView(view, aiBarItemLayoutParams(view))
         }
     }
 
@@ -2287,16 +2216,12 @@ class GkeysIME : InputMethodService() {
     }
 
     private fun allKnownToolbarViews(): List<View> = buildList {
-        for (id in AiBarLayout.ALL_PRIMARY) {
-            primaryAiBarViewForId(id)?.let { add(it) }
-        }
-        for (id in AiBarLayout.ALL_SECONDARY) {
-            secondaryAiBarViewForId(id)?.let { add(it) }
+        for (id in AiBarLayout.ALL_ITEMS) {
+            aiBarViewForId(id)?.let { add(it) }
         }
     }.distinctBy { it.id }
 
-    private fun primaryAiBarViewForId(id: String): View? = when (id) {
-        AiBarLayout.PAGE -> if (::btnAiBarPage.isInitialized) btnAiBarPage else null
+    private fun aiBarViewForId(id: String): View? = when (id) {
         AiBarLayout.WAND -> if (::btnWand.isInitialized) btnWand else null
         AiBarLayout.DELETE_FORWARD -> if (::btnDeleteForward.isInitialized) btnDeleteForward else null
         AiBarLayout.POLISH -> if (::btnPolishLevel.isInitialized) btnPolishLevel else null
@@ -2306,11 +2231,6 @@ class GkeysIME : InputMethodService() {
         AiBarLayout.LIVE -> if (::btnLiveTranscribe.isInitialized) btnLiveTranscribe else null
         AiBarLayout.MIC -> if (::micGroup.isInitialized) micGroup else null
         AiBarLayout.NUMPAD -> if (::btnKeyboard.isInitialized) btnKeyboard else null
-        else -> null
-    }
-
-    private fun secondaryAiBarViewForId(id: String): View? = when (id) {
-        AiBarLayout.BACK -> if (::btnAiBarBack.isInitialized) btnAiBarBack else null
         AiBarLayout.SETTINGS -> if (::btnSettings.isInitialized) btnSettings else null
         AiBarLayout.UNDO -> if (::btnClipboardUndo.isInitialized) btnClipboardUndo else null
         AiBarLayout.SELECT_ALL -> if (::btnSelectAll.isInitialized) btnSelectAll else null
@@ -2319,22 +2239,20 @@ class GkeysIME : InputMethodService() {
     }
 
     private fun aiBarItemLayoutParams(view: View): LinearLayout.LayoutParams {
+        val iconSize = dp(AiBarLayout.ICON_SIZE_DP)
         val previous = view.layoutParams as? LinearLayout.LayoutParams
         val width = when (view.id) {
-            R.id.clipboard_area -> dp(84)
+            R.id.clipboard_area -> dp(AiBarLayout.CLIPBOARD_WIDTH_DP)
             R.id.mic_group -> LinearLayout.LayoutParams.WRAP_CONTENT
-            else -> LinearLayout.LayoutParams.WRAP_CONTENT
+            else -> iconSize
         }
-        return LinearLayout.LayoutParams(width, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-            marginStart = previous?.marginStart ?: when (view.id) {
-                R.id.btn_ai_bar_page, R.id.btn_ai_bar_back -> 0
-                else -> dp(5)
-            }
+        val height = if (view.id == R.id.mic_group) iconSize else iconSize
+        return LinearLayout.LayoutParams(width, height).apply {
+            marginStart = previous?.marginStart ?: if (aiStrip.childCount == 0) 0 else dp(5)
             marginEnd = previous?.marginEnd ?: 0
             topMargin = previous?.topMargin ?: 0
             bottomMargin = previous?.bottomMargin ?: 0
-            weight = if (view.id == R.id.clipboard_area) 0f else previous?.weight ?: 0f
-            gravity = previous?.gravity ?: android.view.Gravity.CENTER_VERTICAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
         }
     }
 

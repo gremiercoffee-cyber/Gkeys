@@ -57,108 +57,8 @@
 
 
 
-        <!-- Secondary AI bar (page 2 — settings, undo, bubble, …) -->
 
-        <FrameLayout
-            android:id="@+id/ai_bar_shell_secondary"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:visibility="gone">
-
-            <View
-                android:id="@+id/ai_bar_bg_secondary"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:background="@drawable/ai_bar_shell_bg" />
-
-            <View
-                android:id="@+id/ai_bar_shimmer_secondary"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:background="@drawable/ai_bar_shimmer_sweep"
-                android:visibility="gone" />
-
-        <HorizontalScrollView
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:scrollbars="none"
-            android:fillViewport="true"
-            android:overScrollMode="never">
-
-        <LinearLayout
-            android:id="@+id/ai_strip_secondary"
-            android:layout_width="wrap_content"
-            android:layout_height="match_parent"
-            android:orientation="horizontal"
-            android:background="@android:color/transparent"
-            android:paddingStart="3dp"
-            android:paddingEnd="3dp"
-            android:gravity="center_vertical"
-            android:layoutDirection="ltr">
-
-            <ImageButton
-                android:id="@+id/btn_ai_bar_back"
-                android:layout_width="30dp"
-                android:layout_height="30dp"
-                android:src="@drawable/ic_back_arrow"
-                android:background="@drawable/ai_bar_icon_btn_bg"
-                android:contentDescription="Back to main toolbar"
-                android:scaleType="centerInside"
-                android:padding="5dp" />
-
-            <ImageButton
-                android:id="@+id/btn_settings"
-                android:layout_width="30dp"
-                android:layout_height="30dp"
-                android:layout_marginStart="5dp"
-                android:src="@drawable/ic_settings"
-                android:background="@drawable/ai_bar_icon_btn_bg"
-                android:contentDescription="Gkeys settings"
-                android:scaleType="centerInside"
-                android:padding="5dp" />
-
-            <ImageButton
-                android:id="@+id/btn_clipboard_undo"
-                android:layout_width="30dp"
-                android:layout_height="30dp"
-                android:layout_marginStart="5dp"
-                android:src="@drawable/ic_undo"
-                android:background="@drawable/ai_bar_icon_btn_bg"
-                android:contentDescription="Undo"
-                android:scaleType="centerInside"
-                android:padding="5dp" />
-
-            <ImageButton
-                android:id="@+id/btn_select_all"
-                android:layout_width="30dp"
-                android:layout_height="30dp"
-                android:layout_marginStart="5dp"
-                android:src="@drawable/ic_select_all"
-                android:background="@drawable/ai_bar_icon_btn_bg"
-                android:contentDescription="Select all"
-                android:scaleType="centerInside"
-                android:padding="5dp" />
-
-            <ImageButton
-                android:id="@+id/btn_voice_bubble"
-                android:layout_width="32dp"
-                android:layout_height="32dp"
-                android:layout_marginStart="5dp"
-                android:src="@drawable/ic_gkeys_mark_zoomed"
-                android:background="@drawable/ai_bar_icon_btn_bg"
-                android:contentDescription="Voice Bubble Mode — hide keyboard, dictate with floating bubble"
-                android:scaleType="centerCrop"
-                android:padding="2dp" />
-
-        </LinearLayout>
-
-        </HorizontalScrollView>
-
-        </FrameLayout>
-
-
-
-        <!-- Primary AI bar (page 1 — dictation, clipboard, mic, …) -->
+        <!-- AI toolbar — single scrollable row -->
 
         <FrameLayout
             android:id="@+id/ai_bar_shell_primary"
@@ -182,53 +82,28 @@
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:scrollbars="none"
-            android:fillViewport="true"
+            android:fillViewport="false"
             android:overScrollMode="never">
 
         <LinearLayout
-
             android:id="@+id/ai_strip"
-
             android:layout_width="wrap_content"
-
             android:layout_height="match_parent"
-
             android:orientation="horizontal"
-
             android:background="@android:color/transparent"
-
             android:paddingStart="3dp"
-
             android:paddingEnd="3dp"
-
             android:gravity="center_vertical"
-
             android:layoutDirection="ltr">
-
-
-
-            <ImageButton
-                android:id="@+id/btn_ai_bar_page"
-                android:layout_width="28dp"
-                android:layout_height="28dp"
-                android:src="@drawable/ic_chevron_forward"
-                android:background="@drawable/ai_bar_icon_btn_bg"
-                android:contentDescription="More toolbar options"
-                android:scaleType="centerInside"
-                android:padding="4dp" />
-
-
 
             <FrameLayout
                 android:id="@+id/btn_wand"
                 android:layout_width="30dp"
                 android:layout_height="30dp"
-                android:layout_marginStart="6dp"
                 android:background="@drawable/ai_bar_icon_btn_bg"
                 android:clickable="true"
                 android:focusable="true"
-                android:contentDescription="Ghostwriter — tap for AI writing"
-                android:foreground="?android:attr/selectableItemBackgroundBorderless">
+                android:contentDescription="Ghostwriter — tap for AI writing">
 
                 <ImageView
                     android:id="@+id/wand_ai_sparkles"
@@ -258,10 +133,9 @@
                 android:textColor="#FFFFFF"
                 android:textSize="12sp"
                 android:textStyle="bold"
-                android:background="@drawable/polish_toggle_bg"
+                android:background="@drawable/ai_bar_icon_btn_bg"
                 android:clickable="true"
                 android:focusable="true"
-                android:foreground="?android:attr/selectableItemBackgroundBorderless"
                 android:contentDescription="Natural dictation — tap to change polish mode" />
 
             <ImageButton
@@ -288,12 +162,10 @@
                 android:scaleType="centerInside"
                 android:padding="5dp" />
 
-
-
             <ImageButton
                 android:id="@+id/btn_clipboard_clear_all"
-                android:layout_width="28dp"
-                android:layout_height="28dp"
+                android:layout_width="30dp"
+                android:layout_height="30dp"
                 android:layout_marginStart="5dp"
                 android:src="@drawable/ic_clear_all"
                 android:background="@drawable/ai_bar_icon_btn_bg"
@@ -304,10 +176,9 @@
             <FrameLayout
                 android:id="@+id/clipboard_area"
                 android:layout_width="84dp"
-                android:layout_height="26dp"
-                android:layout_marginStart="3dp"
-                android:layout_marginEnd="2dp"
-                android:background="@drawable/clipboard_pill_bg">
+                android:layout_height="30dp"
+                android:layout_marginStart="5dp"
+                android:background="@drawable/ai_bar_icon_btn_bg">
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -379,30 +250,27 @@
                 android:id="@+id/btn_live_transcribe"
                 android:layout_width="30dp"
                 android:layout_height="30dp"
-                android:layout_marginStart="4dp"
+                android:layout_marginStart="5dp"
                 android:src="@drawable/ic_live_speech"
                 android:background="@drawable/ai_bar_icon_btn_bg"
                 android:contentDescription="Live transcribe — tap to start and stop"
                 android:scaleType="centerInside"
-                android:padding="5dp"
-                android:clickable="true"
-                android:focusable="true"
-                android:foreground="?android:attr/selectableItemBackgroundBorderless" />
+                android:padding="5dp" />
 
             <LinearLayout
                 android:id="@+id/mic_group"
                 android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="10dp"
+                android:layout_height="30dp"
+                android:layout_marginStart="5dp"
                 android:orientation="horizontal"
                 android:gravity="center_vertical"
                 android:clipChildren="false">
 
                 <ImageButton
                     android:id="@+id/btn_mic_cancel"
-                    android:layout_width="28dp"
-                    android:layout_height="28dp"
-                    android:layout_marginEnd="4dp"
+                    android:layout_width="30dp"
+                    android:layout_height="30dp"
+                    android:layout_marginEnd="5dp"
                     android:src="@drawable/ic_cancel_recording"
                     android:background="@drawable/ai_bar_icon_btn_bg"
                     android:contentDescription="Cancel dictation"
@@ -411,130 +279,114 @@
                     android:visibility="gone" />
 
             <FrameLayout
-
                 android:id="@+id/btn_mic_container"
-
-                android:layout_width="38dp"
-
-                android:layout_height="38dp"
-
-                android:background="@drawable/ai_mic_bg"
-
+                android:layout_width="30dp"
+                android:layout_height="30dp"
+                android:background="@drawable/ai_bar_icon_btn_bg"
                 android:clickable="true"
-
                 android:focusable="true"
-
                 android:clipChildren="false">
 
-
-
                 <View
-
                     android:id="@+id/mic_ai_glow"
-
                     android:layout_width="match_parent"
-
                     android:layout_height="match_parent"
-
                     android:background="@drawable/mic_ai_glow_ring"
-
                     android:visibility="gone"
-
                     android:importantForAccessibility="no" />
-
-
 
                 <View
-
                     android:id="@+id/mic_ai_shimmer"
-
                     android:layout_width="match_parent"
-
                     android:layout_height="match_parent"
-
                     android:background="@drawable/mic_shimmer_sweep"
-
                     android:visibility="gone"
-
                     android:importantForAccessibility="no" />
 
-
-
                 <ImageView
-
                     android:id="@+id/mic_ai_sparkles"
-
                     android:layout_width="match_parent"
-
                     android:layout_height="match_parent"
-
                     android:src="@drawable/mic_sparkle_pair_gold"
-
                     android:visibility="visible"
-
                     android:alpha="0.95"
-
                     android:importantForAccessibility="no" />
-
-
 
                 <ImageView
-
                     android:id="@+id/btn_mic"
-
-                    android:layout_width="22dp"
-
-                    android:layout_height="22dp"
-
+                    android:layout_width="18dp"
+                    android:layout_height="18dp"
                     android:layout_gravity="center"
-
                     android:src="@drawable/ic_mic_white"
-
                     android:contentDescription="Voice dictation"
-
                     android:clickable="false"
-
                     android:focusable="false"
-
                     android:importantForAccessibility="no" />
-
-
 
             </FrameLayout>
 
             </LinearLayout>
 
-
-
             <ImageButton
-
                 android:id="@+id/btn_keyboard"
-
                 android:layout_width="30dp"
-
                 android:layout_height="30dp"
-
                 android:layout_marginStart="5dp"
-
                 android:src="@drawable/ic_dialpad"
-
                 android:background="@drawable/ai_bar_icon_btn_bg"
-
                 android:contentDescription="Number pad"
-
                 android:scaleType="centerInside"
-
                 android:padding="5dp" />
 
+            <ImageButton
+                android:id="@+id/btn_settings"
+                android:layout_width="30dp"
+                android:layout_height="30dp"
+                android:layout_marginStart="5dp"
+                android:src="@drawable/ic_settings"
+                android:background="@drawable/ai_bar_icon_btn_bg"
+                android:contentDescription="Gkeys settings"
+                android:scaleType="centerInside"
+                android:padding="5dp" />
 
+            <ImageButton
+                android:id="@+id/btn_clipboard_undo"
+                android:layout_width="30dp"
+                android:layout_height="30dp"
+                android:layout_marginStart="5dp"
+                android:src="@drawable/ic_undo"
+                android:background="@drawable/ai_bar_icon_btn_bg"
+                android:contentDescription="Undo"
+                android:scaleType="centerInside"
+                android:padding="5dp" />
+
+            <ImageButton
+                android:id="@+id/btn_select_all"
+                android:layout_width="30dp"
+                android:layout_height="30dp"
+                android:layout_marginStart="5dp"
+                android:src="@drawable/ic_select_all"
+                android:background="@drawable/ai_bar_icon_btn_bg"
+                android:contentDescription="Select all"
+                android:scaleType="centerInside"
+                android:padding="5dp" />
+
+            <ImageButton
+                android:id="@+id/btn_voice_bubble"
+                android:layout_width="30dp"
+                android:layout_height="30dp"
+                android:layout_marginStart="5dp"
+                android:src="@drawable/ic_gkeys_mark_zoomed"
+                android:background="@drawable/ai_bar_icon_btn_bg"
+                android:contentDescription="Voice Bubble Mode — hide keyboard, dictate with floating bubble"
+                android:scaleType="centerCrop"
+                android:padding="3dp" />
 
         </LinearLayout>
 
         </HorizontalScrollView>
 
         </FrameLayout>
-
-
 
         <LinearLayout
 

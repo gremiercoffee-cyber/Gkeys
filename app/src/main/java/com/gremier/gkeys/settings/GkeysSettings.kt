@@ -50,6 +50,7 @@ object GkeysSettings {
     val AI_BAR_VOICE_INPUT_MODE = stringPreferencesKey("ai_bar_voice_input_mode")
     val AI_BAR_PRIMARY_ORDER = stringPreferencesKey("ai_bar_primary_order")
     val AI_BAR_SECONDARY_ORDER = stringPreferencesKey("ai_bar_secondary_order")
+    val AI_BAR_ORDER = stringPreferencesKey("ai_bar_order")
     val AI_BAR_CLEAR_ALL_ENABLED = booleanPreferencesKey("ai_bar_clear_all_enabled")
     val AI_BAR_CLIPBOARD_TOOLBAR_ENABLED = booleanPreferencesKey("ai_bar_clipboard_toolbar_enabled")
     val AI_BAR_NUMPAD_ENABLED = booleanPreferencesKey("ai_bar_numpad_enabled")
@@ -228,21 +229,21 @@ object GkeysSettings {
             aiBarMicToolbarEnabled(context),
         ) { includesMic, toolbarMic -> includesMic && toolbarMic }
 
-    fun aiBarPrimaryOrder(context: Context): Flow<List<String>> =
+    fun aiBarOrder(context: Context): Flow<List<String>> =
         settingsStore(context).data.map { prefs ->
-            com.gremier.gkeys.ime.AiBarLayout.migrateBarOrders(
-                com.gremier.gkeys.ime.AiBarLayout.splitOrderRaw(prefs[AI_BAR_PRIMARY_ORDER]),
-                com.gremier.gkeys.ime.AiBarLayout.splitOrderRaw(prefs[AI_BAR_SECONDARY_ORDER]),
-            ).first
+            com.gremier.gkeys.ime.AiBarLayout.resolveOrder(
+                prefs[AI_BAR_ORDER],
+                prefs[AI_BAR_PRIMARY_ORDER],
+                prefs[AI_BAR_SECONDARY_ORDER],
+            )
         }
 
+    /** @deprecated Use [aiBarOrder] */
+    fun aiBarPrimaryOrder(context: Context): Flow<List<String>> = aiBarOrder(context)
+
+    /** @deprecated Legacy two-row prefs — always empty; use [aiBarOrder] */
     fun aiBarSecondaryOrder(context: Context): Flow<List<String>> =
-        settingsStore(context).data.map { prefs ->
-            com.gremier.gkeys.ime.AiBarLayout.migrateBarOrders(
-                com.gremier.gkeys.ime.AiBarLayout.splitOrderRaw(prefs[AI_BAR_PRIMARY_ORDER]),
-                com.gremier.gkeys.ime.AiBarLayout.splitOrderRaw(prefs[AI_BAR_SECONDARY_ORDER]),
-            ).second
-        }
+        kotlinx.coroutines.flow.flowOf(emptyList())
 
     fun aiBarClearAllEnabled(context: Context): Flow<Boolean> =
         settingsStore(context).data.map { it[AI_BAR_CLEAR_ALL_ENABLED] ?: DEFAULT_AI_BAR_FEATURE_ENABLED }
@@ -484,33 +485,31 @@ object GkeysSettings {
         }
     }
 
-    suspend fun saveAiBarPrimaryOrder(context: Context, order: List<String>) {
+    suspend fun saveAiBarOrder(context: Context, order: List<String>) {
         settingsStore(context).edit {
-            it[AI_BAR_PRIMARY_ORDER] = com.gremier.gkeys.ime.AiBarLayout.serializeOrder(order)
+            it[AI_BAR_ORDER] = com.gremier.gkeys.ime.AiBarLayout.serializeOrder(order)
         }
     }
 
-    suspend fun saveAiBarSecondaryOrder(context: Context, order: List<String>) {
-        settingsStore(context).edit {
-            it[AI_BAR_SECONDARY_ORDER] = com.gremier.gkeys.ime.AiBarLayout.serializeOrder(order)
-        }
-    }
+    /** @deprecated Use [saveAiBarOrder] */
+    suspend fun saveAiBarPrimaryOrder(context: Context, order: List<String>) =
+        saveAiBarOrder(context, order)
 
-    /** Writes migrated toolbar orders so settings and the IME stay in sync. */
+    /** @deprecated No-op — single toolbar row */
+    suspend fun saveAiBarSecondaryOrder(context: Context, order: List<String>) = Unit
+
+    /** Writes unified toolbar order so settings and the IME stay in sync. */
     suspend fun persistMigratedAiBarOrders(context: Context) {
         val prefs = settingsStore(context).data.first()
-        val (primary, secondary) = com.gremier.gkeys.ime.AiBarLayout.migrateBarOrders(
-            com.gremier.gkeys.ime.AiBarLayout.splitOrderRaw(prefs[AI_BAR_PRIMARY_ORDER]),
-            com.gremier.gkeys.ime.AiBarLayout.splitOrderRaw(prefs[AI_BAR_SECONDARY_ORDER]),
+        val resolved = com.gremier.gkeys.ime.AiBarLayout.resolveOrder(
+            prefs[AI_BAR_ORDER],
+            prefs[AI_BAR_PRIMARY_ORDER],
+            prefs[AI_BAR_SECONDARY_ORDER],
         )
-        val serializedPrimary = com.gremier.gkeys.ime.AiBarLayout.serializeOrder(primary)
-        val serializedSecondary = com.gremier.gkeys.ime.AiBarLayout.serializeOrder(secondary)
-        if (prefs[AI_BAR_PRIMARY_ORDER] != serializedPrimary ||
-            prefs[AI_BAR_SECONDARY_ORDER] != serializedSecondary
-        ) {
+        val serialized = com.gremier.gkeys.ime.AiBarLayout.serializeOrder(resolved)
+        if (prefs[AI_BAR_ORDER] != serialized) {
             settingsStore(context).edit {
-                it[AI_BAR_PRIMARY_ORDER] = serializedPrimary
-                it[AI_BAR_SECONDARY_ORDER] = serializedSecondary
+                it[AI_BAR_ORDER] = serialized
             }
         }
     }

@@ -120,11 +120,13 @@ object KeyboardLayoutMetrics {
 
             return when (label) {
 
-                "SPACE" -> 6.0f
+                "SPACE" -> 5.85f
 
                 "🌐" -> 0.78f
 
                 "," -> 0.88f
+
+                "!" -> 0.62f
 
                 "." -> 0.62f
 
@@ -142,11 +144,13 @@ object KeyboardLayoutMetrics {
 
         return when (label) {
 
-            "SPACE" -> 6.2f
+            "SPACE" -> 6.05f
 
             "🌐" -> 0.72f
 
             "," -> 0.85f
+
+            "!" -> 0.60f
 
             "." -> 0.60f
 
