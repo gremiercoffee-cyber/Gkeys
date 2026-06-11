@@ -48,8 +48,8 @@ object AiBarLayout {
     }
 
     fun mergeLegacyOrders(primary: List<String>, secondary: List<String>): List<String> {
-        val p = if (primary.isEmpty()) emptyList() else primary.toMutableList()
-        val s = if (secondary.isEmpty()) emptyList() else secondary.toMutableList()
+        val p = primary.toMutableList()
+        val s = secondary.toMutableList()
         for (id in listOf(POLISH, RAW_POLISH)) {
             if (s.remove(id) && id !in p) {
                 val insertAt = (p.indexOf(WAND) + 1).coerceAtMost(p.size)
