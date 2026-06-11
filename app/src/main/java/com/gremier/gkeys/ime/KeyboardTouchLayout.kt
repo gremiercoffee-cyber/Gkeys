@@ -10,6 +10,7 @@ import android.view.MotionEvent
 
 import android.widget.LinearLayout
 
+import com.gremier.gkeys.ime.touch.SwipePoint
 import com.gremier.gkeys.ime.touch.TouchInputResolver
 import com.gremier.gkeys.ime.touch.TouchResolution
 
@@ -37,6 +38,8 @@ class KeyboardTouchLayout @JvmOverloads constructor(
 
     var onKeyLongPress: ((String) -> Unit)? = null
 
+    var onSwipeGesture: ((List<SwipePoint>) -> Unit)? = null
+
     var keyLongPressAlts: Map<String, String> = emptyMap()
 
     var onBackspaceDown: (() -> Unit)? = null
@@ -54,6 +57,11 @@ class KeyboardTouchLayout @JvmOverloads constructor(
     private var pendingAltLabel: String? = null
 
     private var tappedOnDown = false
+    private var swiping = false
+    private var downX = 0f
+    private var downY = 0f
+    private var downLabel: String? = null
+    private val swipePoints = ArrayList<SwipePoint>(64)
 
 
 
@@ -114,6 +122,12 @@ class KeyboardTouchLayout @JvmOverloads constructor(
                 letterLongPressFired = false
 
                 tappedOnDown = false
+                swiping = false
+                downX = event.x
+                downY = event.y
+                downLabel = touchResolver?.resolve(event.x, event.y)?.label
+                swipePoints.clear()
+                swipePoints.add(SwipePoint(event.x, event.y, event.eventTime))
 
                 pendingAltLabel = null
 
@@ -132,6 +146,15 @@ class KeyboardTouchLayout @JvmOverloads constructor(
             }
 
             MotionEvent.ACTION_MOVE -> {
+                if (canStartSwipe() && !swiping && movedFarEnough(event.x, event.y)) {
+                    swiping = true
+                    tappedOnDown = false
+                    removeCallbacks(letterLongPressRunnable)
+                    removeCallbacks(backspaceLongPressRunnable)
+                }
+                if (swiping) {
+                    addSwipePoint(event)
+                }
 
                 return true
 
@@ -142,6 +165,14 @@ class KeyboardTouchLayout @JvmOverloads constructor(
                 removeCallbacks(backspaceLongPressRunnable)
 
                 removeCallbacks(letterLongPressRunnable)
+
+                if (event.actionMasked == MotionEvent.ACTION_CANCEL) {
+                    swipePoints.clear()
+                    swiping = false
+                    tappedOnDown = false
+                    downLabel = null
+                    return true
+                }
 
                 if (deleteRepeatActive || backspaceLongPressFired) {
 
@@ -169,6 +200,23 @@ class KeyboardTouchLayout @JvmOverloads constructor(
 
                     return true
 
+                }
+
+                if (swiping && event.actionMasked == MotionEvent.ACTION_UP) {
+                    addSwipePoint(event)
+                    val path = swipePoints.toList()
+                    swipePoints.clear()
+                    swiping = false
+                    downLabel = null
+                    onSwipeGesture?.invoke(path)
+                    return true
+                }
+
+                if (swiping) {
+                    swipePoints.clear()
+                    swiping = false
+                    downLabel = null
+                    return true
                 }
 
                 dispatchResolvedTap(event.x, event.y)
@@ -221,6 +269,8 @@ class KeyboardTouchLayout @JvmOverloads constructor(
 
         val label = resolution.label
 
+        if (isLetterLabel(label) && onSwipeGesture != null) return
+
         if (hasLongPressAlt(label)) return
 
         dispatchTap(resolution, x, y)
@@ -234,6 +284,25 @@ class KeyboardTouchLayout @JvmOverloads constructor(
     private fun hasLongPressAlt(label: String): Boolean =
 
         keyLongPressAlts.containsKey(label) || keyLongPressAlts.containsKey(label.lowercase())
+
+    private fun canStartSwipe(): Boolean =
+        onSwipeGesture != null && isLetterLabel(downLabel.orEmpty()) && !letterLongPressFired
+
+    private fun movedFarEnough(x: Float, y: Float): Boolean {
+        val threshold = SWIPE_START_THRESHOLD_DP * resources.displayMetrics.density
+        return kotlin.math.hypot(x - downX, y - downY) >= threshold
+    }
+
+    private fun addSwipePoint(event: MotionEvent) {
+        val point = SwipePoint(event.x, event.y, event.eventTime)
+        val last = swipePoints.lastOrNull()
+        if (last == null || kotlin.math.hypot(point.x - last.x, point.y - last.y) >= 2f) {
+            swipePoints.add(point)
+        }
+    }
+
+    private fun isLetterLabel(label: String): Boolean =
+        label.length == 1 && label[0].isLetter()
 
 
 
@@ -311,6 +380,7 @@ class KeyboardTouchLayout @JvmOverloads constructor(
         private const val BACKSPACE_LONG_PRESS_MS = 380L
 
         private const val KEY_LONG_PRESS_MS = 380L
+        private const val SWIPE_START_THRESHOLD_DP = 12f
 
     }
 

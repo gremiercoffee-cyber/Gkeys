@@ -34,6 +34,9 @@ class TouchInputResolver(
     fun targetForLabel(label: String): KeyHitTarget? =
         targets.firstOrNull { it.label == label }
 
+    fun letterTargets(): List<KeyHitTarget> =
+        targets.filter { it.char != null }
+
     fun registerTarget(label: String, row: Int, centerX: Float, centerY: Float, width: Float, height: Float) {
         val char = label.singleOrNull()?.lowercaseChar()?.takeIf { it.isLetter() }
         val rowShift = TouchPositionCorrection.yShiftForRow(row, height, rightHandedMode)
@@ -95,6 +98,8 @@ class TouchInputResolver(
         var bestScore = Float.MAX_VALUE
 
         for (target in targets) {
+            if (!isEligibleCandidate(correctedX, correctedY, target)) continue
+
             val (spotX, spotY) = adaptive.personalizedCenter(target)
             val dx = correctedX - spotX
             val dy = correctedY - spotY
@@ -113,6 +118,8 @@ class TouchInputResolver(
 
         if (best == null) {
             for (target in targets) {
+                if (!isEligibleCandidate(correctedX, correctedY, target)) continue
+
                 val dx = correctedX - target.centerX
                 val dy = correctedY - target.centerY
                 val distance = hypot(dx, dy)
@@ -148,12 +155,32 @@ class TouchInputResolver(
     }
 
     private fun effectiveRadius(target: KeyHitTarget): Float {
+        if (target.char == null) {
+            val shortSide = minOf(target.width, target.height)
+            return (shortSide * NON_LETTER_RADIUS_FRACTION)
+                .coerceAtLeast(averageKeyWidth * NON_LETTER_MIN_RADIUS_FRACTION)
+        }
+
         val diagonal = hypot(target.width, target.height)
         var radius = TouchPositionCorrection.BASE_RADIUS_FRACTION * diagonal
         radius *= BigramModel.frequencyMultiplier(target.char)
         radius *= bigramRadiusBoost(target)
         radius *= adaptive.adaptiveRadiusMultiplier(target)
         return radius.coerceAtLeast(averageKeyWidth * 0.28f)
+    }
+
+    private fun isEligibleCandidate(x: Float, y: Float, target: KeyHitTarget): Boolean {
+        if (target.char != null) return true
+
+        val halfWidth = target.width * 0.5f
+        val halfHeight = target.height * 0.5f
+        val horizontalPadding = minOf(averageKeyWidth * NON_LETTER_HORIZONTAL_PADDING_KEYS, target.width * 0.08f)
+        val verticalPadding = minOf(averageKeyHeight * NON_LETTER_VERTICAL_PADDING_KEYS, target.height * 0.18f)
+
+        return x >= target.centerX - halfWidth - horizontalPadding &&
+            x <= target.centerX + halfWidth + horizontalPadding &&
+            y >= target.centerY - halfHeight - verticalPadding &&
+            y <= target.centerY + halfHeight + verticalPadding
     }
 
     private fun bigramRadiusBoost(target: KeyHitTarget): Float {
@@ -164,5 +191,12 @@ class TouchInputResolver(
     private fun personalizationBlend(): Float {
         val n = personalization.sampleCount()
         return (0.25f + n / 40f).coerceIn(0.25f, 0.85f)
+    }
+
+    companion object {
+        private const val NON_LETTER_RADIUS_FRACTION = 0.58f
+        private const val NON_LETTER_MIN_RADIUS_FRACTION = 0.24f
+        private const val NON_LETTER_HORIZONTAL_PADDING_KEYS = 0.10f
+        private const val NON_LETTER_VERTICAL_PADDING_KEYS = 0.12f
     }
 }

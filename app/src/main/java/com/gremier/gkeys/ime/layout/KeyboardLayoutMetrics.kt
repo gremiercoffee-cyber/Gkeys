@@ -227,7 +227,6 @@ object KeyboardLayoutMetrics {
     fun standardRowKeyWeight(label: String): Float = when (label) {
         "⌫" -> 1.42f
         "⇧" -> 1.12f
-        "v", "b" -> 0.94f
         else -> 1f
     }
 

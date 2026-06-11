@@ -70,6 +70,24 @@ object DictionaryManager {
             .toList()
     }
 
+    fun swipeCandidates(
+        language: Language,
+        first: Char,
+        last: Char?,
+        minLength: Int = 2,
+        maxLength: Int = 24,
+        limit: Int = 900,
+    ): List<String> {
+        val dict = dict(language) ?: return emptyList()
+        val bucket = dict.byFirstChar[normalize(first.toString(), language).firstOrNull()] ?: return emptyList()
+        val normalizedLast = last?.let { normalize(it.toString(), language).firstOrNull() }
+        return bucket.asSequence()
+            .filter { it.length in minLength..maxLength }
+            .filter { normalizedLast == null || it.lastOrNull() == normalizedLast }
+            .take(limit)
+            .toList()
+    }
+
     fun correctionCandidates(language: Language, typed: String): List<String> {
         val lower = normalize(typed, language)
         if (lower.length < 2) return emptyList()
