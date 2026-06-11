@@ -265,7 +265,7 @@ class GkeysIME : InputMethodService() {
         private const val SHOW_SOFT_INPUT_REASON = 1
         private const val KEY_EMOJI_PANEL = "\uE000"
         private const val FIELD_TEXT_SCAN_LIMIT = 100_000
-        private const val ALLOW_AOSP_GESTURE_TYPING = false
+        private const val ALLOW_AOSP_GESTURE_TYPING = true
         private const val SWIPE_BACKSPACE_WINDOW_MS = 8000L
 
         private val letterLongPressAlts = mapOf(
@@ -697,7 +697,13 @@ class GkeysIME : InputMethodService() {
             DictionaryManager.ensureLoaded(applicationContext, lang)
             userWordsRepository.ensureCache(lang)
             if (isAospGestureTypingActive() && lang == DictionaryManager.Language.EN) {
-                aospGestureTyping?.ensureDictionary(userWordsRepository.words(lang))
+                try {
+                    aospGestureTyping?.ensureDictionary(userWordsRepository.words(lang))
+                } catch (e: Throwable) {
+                    android.util.Log.e("GkeysIME", "Swipe dictionary load failed", e)
+                    com.gremier.gkeys.diag.CrashLogger.record(this@GkeysIME, e)
+                    handler.post { disableAospGestureTypingAfterFailure() }
+                }
             }
         }
         buildKeyboard()
@@ -2918,8 +2924,7 @@ class GkeysIME : InputMethodService() {
             } catch (e: Throwable) {
                 android.util.Log.e("GkeysIME", "Swipe engine startup failed", e)
                 com.gremier.gkeys.diag.CrashLogger.record(this, e)
-                keyboardRows.onSwipeGesture = null
-                experimentalSwipeTypingEnabled = false
+                disableAospGestureTypingAfterFailure()
                 return
             }
         }
@@ -2930,10 +2935,7 @@ class GkeysIME : InputMethodService() {
             } catch (e: Throwable) {
                 android.util.Log.e("GkeysIME", "Swipe gesture failed", e)
                 com.gremier.gkeys.diag.CrashLogger.record(this, e)
-                keyboardRows.onSwipeGesture = null
-                runCatching { aospGestureTyping?.close() }
-                aospGestureTyping = null
-                experimentalSwipeTypingEnabled = false
+                disableAospGestureTypingAfterFailure()
             }
         }
         preloadSuggestionLanguage()
@@ -2953,11 +2955,20 @@ class GkeysIME : InputMethodService() {
         } catch (e: Throwable) {
             android.util.Log.e("GkeysIME", "Swipe geometry refresh failed", e)
             com.gremier.gkeys.diag.CrashLogger.record(this, e)
-            keyboardRows.onSwipeGesture = null
-            runCatching { aospGestureTyping?.close() }
-            aospGestureTyping = null
-            experimentalSwipeTypingEnabled = false
+            disableAospGestureTypingAfterFailure()
         }
+    }
+
+    private fun disableAospGestureTypingAfterFailure() {
+        if (::keyboardRows.isInitialized) {
+            keyboardRows.onSwipeGesture = null
+        }
+        runCatching { aospGestureTyping?.close() }
+        aospGestureTyping = null
+        experimentalSwipeTypingEnabled = false
+        clearPendingSwipeDelete()
+        pendingSwipeCorrectionPathKey = null
+        pendingSwipeCorrectionWrongWord = null
     }
 
     private fun dp(value: Int): Int =
@@ -3633,7 +3644,13 @@ class GkeysIME : InputMethodService() {
             DictionaryManager.ensureLoaded(applicationContext, lang)
             userWordsRepository.ensureCache(lang)
             if (isAospGestureTypingActive() && lang == DictionaryManager.Language.EN) {
-                aospGestureTyping?.ensureDictionary(userWordsRepository.words(lang))
+                try {
+                    aospGestureTyping?.ensureDictionary(userWordsRepository.words(lang))
+                } catch (e: Throwable) {
+                    android.util.Log.e("GkeysIME", "Swipe dictionary load failed", e)
+                    com.gremier.gkeys.diag.CrashLogger.record(this@GkeysIME, e)
+                    handler.post { disableAospGestureTypingAfterFailure() }
+                }
             }
         }
     }

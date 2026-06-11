@@ -266,6 +266,7 @@ class KeyboardTouchLayout @JvmOverloads constructor(
         val label = resolution.label
 
         if (hasLongPressAlt(label)) return
+        if (onSwipeGesture != null && isLetterLabel(label)) return
 
         dispatchTap(resolution, x, y)
 
@@ -372,7 +373,7 @@ class KeyboardTouchLayout @JvmOverloads constructor(
         private const val BACKSPACE_LONG_PRESS_MS = 380L
 
         private const val KEY_LONG_PRESS_MS = 380L
-        private const val SWIPE_START_THRESHOLD_DP = 18f
+        private const val SWIPE_START_THRESHOLD_DP = 28f
 
     }
 
