@@ -496,6 +496,25 @@ object GkeysSettings {
         }
     }
 
+    /** Writes migrated toolbar orders so settings and the IME stay in sync. */
+    suspend fun persistMigratedAiBarOrders(context: Context) {
+        val prefs = settingsStore(context).data.first()
+        val (primary, secondary) = com.gremier.gkeys.ime.AiBarLayout.migrateBarOrders(
+            com.gremier.gkeys.ime.AiBarLayout.splitOrderRaw(prefs[AI_BAR_PRIMARY_ORDER]),
+            com.gremier.gkeys.ime.AiBarLayout.splitOrderRaw(prefs[AI_BAR_SECONDARY_ORDER]),
+        )
+        val serializedPrimary = com.gremier.gkeys.ime.AiBarLayout.serializeOrder(primary)
+        val serializedSecondary = com.gremier.gkeys.ime.AiBarLayout.serializeOrder(secondary)
+        if (prefs[AI_BAR_PRIMARY_ORDER] != serializedPrimary ||
+            prefs[AI_BAR_SECONDARY_ORDER] != serializedSecondary
+        ) {
+            settingsStore(context).edit {
+                it[AI_BAR_PRIMARY_ORDER] = serializedPrimary
+                it[AI_BAR_SECONDARY_ORDER] = serializedSecondary
+            }
+        }
+    }
+
     suspend fun saveAiBarClearAllEnabled(context: Context, enabled: Boolean) {
         settingsStore(context).edit { it[AI_BAR_CLEAR_ALL_ENABLED] = enabled }
     }

@@ -112,7 +112,7 @@ object KeyboardLayoutMetrics {
 
 
 
-    /** Bottom row: wide space bar; punctuation and globe sized for comfortable taps. */
+    /** Bottom row: wide space bar; punctuation on the right kept compact to reduce space-bar mis-taps. */
 
     fun bottomRowWeight(label: String, rightHanded: Boolean): Float {
 
@@ -120,15 +120,19 @@ object KeyboardLayoutMetrics {
 
             return when (label) {
 
-                "SPACE" -> 5.2f
+                "SPACE" -> 6.0f
 
                 "🌐" -> 0.78f
 
-                ",", ".", "?" -> 0.88f
+                "," -> 0.88f
+
+                "." -> 0.62f
+
+                "?" -> 0.65f
 
                 "?123", "ABC", "NUMPAD_BACK" -> 0.92f
 
-                "↵" -> 1.2f
+                "↵" -> 0.92f
 
                 else -> 1f
 
@@ -138,15 +142,19 @@ object KeyboardLayoutMetrics {
 
         return when (label) {
 
-            "SPACE" -> 5.4f
+            "SPACE" -> 6.2f
 
             "🌐" -> 0.72f
 
-            ",", ".", "?" -> 0.85f
+            "," -> 0.85f
+
+            "." -> 0.60f
+
+            "?" -> 0.62f
 
             "?123", "ABC", "NUMPAD_BACK" -> 0.88f
 
-            "↵" -> 1.15f
+            "↵" -> 0.90f
 
             else -> 1f
 
@@ -160,15 +168,15 @@ object KeyboardLayoutMetrics {
 
     fun numpadBottomRowWeight(label: String): Float = when (label) {
 
-        "SPACE" -> 3.2f
+        "SPACE" -> 3.45f
 
         "ABC", "NUMPAD_BACK" -> 0.85f
 
         "⌫" -> 1.28f
 
-        ".", "?" -> 0.7f
+        ".", "?" -> 0.62f
 
-        "↵" -> 0.95f
+        "↵" -> 0.85f
 
         else -> 1f
 
@@ -215,6 +223,7 @@ object KeyboardLayoutMetrics {
     fun standardRowKeyWeight(label: String): Float = when (label) {
         "⌫" -> 1.42f
         "⇧" -> 1.12f
+        "v", "b" -> 0.94f
         else -> 1f
     }
 

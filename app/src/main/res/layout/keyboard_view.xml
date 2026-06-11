@@ -78,9 +78,16 @@
                 android:background="@drawable/ai_bar_shimmer_sweep"
                 android:visibility="gone" />
 
+        <HorizontalScrollView
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:scrollbars="none"
+            android:fillViewport="true"
+            android:overScrollMode="never">
+
         <LinearLayout
             android:id="@+id/ai_strip_secondary"
-            android:layout_width="match_parent"
+            android:layout_width="wrap_content"
             android:layout_height="match_parent"
             android:orientation="horizontal"
             android:background="@android:color/transparent"
@@ -98,35 +105,6 @@
                 android:contentDescription="Back to main toolbar"
                 android:scaleType="centerInside"
                 android:padding="5dp" />
-
-            <TextView
-                android:id="@+id/btn_polish_level"
-                android:layout_width="30dp"
-                android:layout_height="30dp"
-                android:layout_marginStart="5dp"
-                android:gravity="center"
-                android:text="N"
-                android:textColor="#FFFFFF"
-                android:textSize="12sp"
-                android:textStyle="bold"
-                android:background="@drawable/polish_toggle_bg"
-                android:clickable="true"
-                android:focusable="true"
-                android:foreground="?android:attr/selectableItemBackgroundBorderless"
-                android:contentDescription="Natural dictation — tap to change polish mode" />
-
-            <ImageButton
-                android:id="@+id/btn_raw_polish"
-                android:layout_width="30dp"
-                android:layout_height="30dp"
-                android:layout_marginStart="5dp"
-                android:src="@drawable/ic_polish"
-                android:background="@drawable/ai_bar_icon_btn_bg"
-                android:contentDescription="Polish text now"
-                android:scaleType="centerInside"
-                android:padding="5dp"
-                android:visibility="gone"
-                app:tint="@color/gkeys_accent" />
 
             <ImageButton
                 android:id="@+id/btn_settings"
@@ -172,13 +150,9 @@
                 android:scaleType="centerCrop"
                 android:padding="2dp" />
 
-            <View
-                android:tag="ai_bar_spacer"
-                android:layout_width="0dp"
-                android:layout_height="0dp"
-                android:layout_weight="1" />
-
         </LinearLayout>
+
+        </HorizontalScrollView>
 
         </FrameLayout>
 
@@ -204,11 +178,18 @@
                 android:background="@drawable/ai_bar_shimmer_sweep"
                 android:visibility="gone" />
 
+        <HorizontalScrollView
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:scrollbars="none"
+            android:fillViewport="true"
+            android:overScrollMode="never">
+
         <LinearLayout
 
             android:id="@+id/ai_strip"
 
-            android:layout_width="match_parent"
+            android:layout_width="wrap_content"
 
             android:layout_height="match_parent"
 
@@ -266,6 +247,35 @@
                     android:importantForAccessibility="no" />
 
             </FrameLayout>
+
+            <TextView
+                android:id="@+id/btn_polish_level"
+                android:layout_width="30dp"
+                android:layout_height="30dp"
+                android:layout_marginStart="5dp"
+                android:gravity="center"
+                android:text="N"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:background="@drawable/polish_toggle_bg"
+                android:clickable="true"
+                android:focusable="true"
+                android:foreground="?android:attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Natural dictation — tap to change polish mode" />
+
+            <ImageButton
+                android:id="@+id/btn_raw_polish"
+                android:layout_width="30dp"
+                android:layout_height="30dp"
+                android:layout_marginStart="5dp"
+                android:src="@drawable/ic_polish"
+                android:background="@drawable/ai_bar_icon_btn_bg"
+                android:contentDescription="Polish text now"
+                android:scaleType="centerInside"
+                android:padding="5dp"
+                android:visibility="gone"
+                app:tint="@color/gkeys_accent" />
 
             <ImageButton
                 android:id="@+id/btn_delete_forward"
@@ -519,6 +529,8 @@
 
 
         </LinearLayout>
+
+        </HorizontalScrollView>
 
         </FrameLayout>
 

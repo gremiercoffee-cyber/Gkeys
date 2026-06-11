@@ -377,6 +377,7 @@ class SettingsActivity : AppCompatActivity() {
                 micToolbarEnabled = GkeysSettings.aiBarMicToolbarEnabled(this@SettingsActivity).first(),
                 voiceBubbleToolbarEnabled = GkeysSettings.voiceBubbleEnabled(this@SettingsActivity).first(),
             )
+            GkeysSettings.persistMigratedAiBarOrders(this@SettingsActivity)
             switchDefaultVoiceBubble.isChecked =
                 GkeysSettings.defaultToVoiceBubble(this@SettingsActivity).first()
             updateVoiceBubbleSettingsUi()
@@ -766,10 +767,8 @@ class SettingsActivity : AppCompatActivity() {
     private var aiBarSecondaryOrderState = com.gremier.gkeys.ime.AiBarLayout.DEFAULT_SECONDARY_ORDER
 
     private fun setupAiBarOrderLists() {
-        rvAiBarPrimaryOrder.layoutManager = androidx.recyclerview.widget.LinearLayoutManager(this)
-        rvAiBarSecondaryOrder.layoutManager = androidx.recyclerview.widget.LinearLayoutManager(this)
-        rvAiBarPrimaryOrder.isNestedScrollingEnabled = false
-        rvAiBarSecondaryOrder.isNestedScrollingEnabled = false
+        configureOrderListRecyclerView(rvAiBarPrimaryOrder)
+        configureOrderListRecyclerView(rvAiBarSecondaryOrder)
 
         val primaryTouchHelper = ItemTouchHelper(createOrderDragCallback(isPrimary = true))
         primaryOrderAdapter = AiBarOrderDragAdapter(
@@ -805,6 +804,23 @@ class SettingsActivity : AppCompatActivity() {
         secondaryTouchHelper.attachToRecyclerView(rvAiBarSecondaryOrder)
     }
 
+    private fun configureOrderListRecyclerView(recyclerView: androidx.recyclerview.widget.RecyclerView) {
+        recyclerView.layoutManager = FullyExpandedLinearLayoutManager(this)
+        recyclerView.isNestedScrollingEnabled = false
+        recyclerView.overScrollMode = android.view.View.OVER_SCROLL_NEVER
+        recyclerView.itemAnimator = androidx.recyclerview.widget.DefaultItemAnimator().apply {
+            supportsChangeAnimations = false
+        }
+        recyclerView.setHasFixedSize(false)
+    }
+
+    private fun refreshOrderListHeights() {
+        rvAiBarPrimaryOrder.post {
+            rvAiBarPrimaryOrder.requestLayout()
+            rvAiBarSecondaryOrder.requestLayout()
+        }
+    }
+
     private fun createOrderDragCallback(isPrimary: Boolean): ItemTouchHelper.SimpleCallback {
         return object : ItemTouchHelper.SimpleCallback(
             ItemTouchHelper.UP or ItemTouchHelper.DOWN,
@@ -832,6 +848,27 @@ class SettingsActivity : AppCompatActivity() {
             ) = Unit
 
             override fun isLongPressDragEnabled(): Boolean = true
+
+            override fun onSelectedChanged(
+                viewHolder: androidx.recyclerview.widget.RecyclerView.ViewHolder?,
+                actionState: Int,
+            ) {
+                super.onSelectedChanged(viewHolder, actionState)
+                if (actionState == ItemTouchHelper.ACTION_STATE_DRAG && viewHolder != null) {
+                    viewHolder.itemView.alpha = 0.92f
+                    viewHolder.itemView.translationZ = 12f
+                }
+            }
+
+            override fun clearView(
+                recyclerView: androidx.recyclerview.widget.RecyclerView,
+                viewHolder: androidx.recyclerview.widget.RecyclerView.ViewHolder,
+            ) {
+                super.clearView(recyclerView, viewHolder)
+                viewHolder.itemView.alpha = 1f
+                viewHolder.itemView.translationZ = 0f
+                recyclerView.post { recyclerView.requestLayout() }
+            }
         }
     }
 
@@ -873,6 +910,7 @@ class SettingsActivity : AppCompatActivity() {
             }
         )
         suppressAiBarOrderAutoSave = false
+        refreshOrderListHeights()
     }
 
     private fun primaryItemCanToggle(id: String): Boolean = when (id) {

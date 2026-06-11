@@ -12,8 +12,8 @@ android {
         applicationId "com.gremier.gkeys"
         minSdk 26
         targetSdk 34
-        versionCode 121
-        versionName "1.9.56"
+        versionCode 124
+        versionName "1.9.59"
     }
 
     signingConfigs {

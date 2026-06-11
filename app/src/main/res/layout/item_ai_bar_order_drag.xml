@@ -4,8 +4,9 @@
     android:layout_height="wrap_content"
     android:orientation="horizontal"
     android:gravity="center_vertical"
-    android:paddingTop="6dp"
-    android:paddingBottom="6dp"
+    android:paddingTop="8dp"
+    android:paddingBottom="8dp"
+    android:minHeight="48dp"
     android:background="?android:attr/selectableItemBackground">
 
     <ImageView
@@ -34,7 +35,9 @@
         android:layout_weight="1"
         android:layout_marginStart="10dp"
         android:textColor="@color/settings_card_text"
-        android:textSize="14sp" />
+        android:textSize="14sp"
+        android:maxLines="2"
+        android:ellipsize="end" />
 
     <com.google.android.material.switchmaterial.SwitchMaterial
         android:id="@+id/switch_order_enabled"

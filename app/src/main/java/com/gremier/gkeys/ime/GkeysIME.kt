@@ -420,7 +420,9 @@ class GkeysIME : InputMethodService() {
                 aiBarNumpadEnabled = layout[4] as Boolean
             }.collect {
                 try {
-                    applyAiBarLayout()
+                    if (::aiStrip.isInitialized) {
+                        applyAiBarLayout()
+                    }
                     if (!voiceBubbleEnabled && voiceBubbleModeActive) {
                         exitVoiceBubbleMode()
                     }
@@ -689,6 +691,7 @@ class GkeysIME : InputMethodService() {
         setupAiStrip()
         applyAiBarLayout()
         showPrimaryAiBar()
+        handler.post { applyAiBarLayout() }
         applyKeyboardTheme()
         applyUniversalShellHeight()
         scope.launch(Dispatchers.IO) {
@@ -1464,6 +1467,9 @@ class GkeysIME : InputMethodService() {
                 val themeChanged = newDarkTheme != darkTheme
                 darkTheme = newDarkTheme
                 applyAiBarLayout()
+                if (::keyboardView.isInitialized) {
+                    handler.post { applyAiBarLayout() }
+                }
                 adaptiveTouchEnabled = GkeysSettings.adaptiveTouchEnabled(this@GkeysIME).first()
                 if (::adaptiveTouch.isInitialized) {
                     adaptiveTouch.setEnabled(adaptiveTouchEnabled)
@@ -2234,25 +2240,60 @@ class GkeysIME : InputMethodService() {
         if (!::aiStrip.isInitialized) return
         try {
             val assigned = mutableSetOf<View>()
-            reorderAiBarStrip(
-                strip = aiStrip,
+            val primaryViews = buildAiBarStripViews(
                 order = aiBarPrimaryOrder,
                 viewForId = { primaryAiBarViewForId(it) },
-                trailingSpacer = false,
                 assigned = assigned,
             )
-            reorderAiBarStrip(
-                strip = aiStripSecondary,
+            val secondaryViews = buildAiBarStripViews(
                 order = aiBarSecondaryOrder,
                 viewForId = { secondaryAiBarViewForId(it) },
-                trailingSpacer = true,
                 assigned = assigned,
             )
+            aiStrip.removeAllViews()
+            aiStripSecondary.removeAllViews()
+            populateAiBarStrip(aiStrip, primaryViews)
+            populateAiBarStrip(aiStripSecondary, secondaryViews)
+            recoverOrphanedToolbarViews(assigned)
             applyAiBarVisibility()
         } catch (e: Throwable) {
             android.util.Log.e("GkeysIME", "applyAiBarLayout failed", e)
         }
     }
+
+    private fun buildAiBarStripViews(
+        order: List<String>,
+        viewForId: (String) -> View?,
+        assigned: MutableSet<View>,
+    ): List<View> = order.mapNotNull { id ->
+        viewForId(id)?.takeIf { it !in assigned }?.also { assigned.add(it) }
+    }
+
+    private fun populateAiBarStrip(
+        strip: LinearLayout,
+        views: List<View>,
+    ) {
+        for (view in views) {
+            strip.addView(view, aiBarItemLayoutParams(view))
+        }
+    }
+
+    private fun recoverOrphanedToolbarViews(assigned: Set<View>) {
+        for (view in allKnownToolbarViews()) {
+            if (view in assigned || view.parent != null) continue
+            aiStrip.addView(view, aiBarItemLayoutParams(view))
+            android.util.Log.w("GkeysIME", "Recovered orphaned toolbar view id=${view.id}")
+        }
+    }
+
+    private fun allKnownToolbarViews(): List<View> = buildList {
+        for (id in AiBarLayout.ALL_PRIMARY) {
+            primaryAiBarViewForId(id)?.let { add(it) }
+        }
+        for (id in AiBarLayout.ALL_SECONDARY) {
+            secondaryAiBarViewForId(id)?.let { add(it) }
+        }
+    }.distinctBy { it.id }
 
     private fun primaryAiBarViewForId(id: String): View? = when (id) {
         AiBarLayout.PAGE -> if (::btnAiBarPage.isInitialized) btnAiBarPage else null
@@ -2276,37 +2317,6 @@ class GkeysIME : InputMethodService() {
         AiBarLayout.BUBBLE -> if (::btnVoiceBubble.isInitialized) btnVoiceBubble else null
         else -> null
     }
-
-    private fun reorderAiBarStrip(
-        strip: LinearLayout,
-        order: List<String>,
-        viewForId: (String) -> View?,
-        trailingSpacer: Boolean,
-        assigned: MutableSet<View>,
-    ) {
-        val views = order.mapNotNull { id ->
-            viewForId(id)?.takeIf { it !in assigned }?.also { assigned.add(it) }
-        }
-        strip.removeAllViews()
-        if (views.isEmpty()) {
-            if (trailingSpacer) {
-                strip.addView(createAiBarTrailingSpacer())
-            }
-            return
-        }
-        for (view in views) {
-            strip.addView(view, aiBarItemLayoutParams(view))
-        }
-        if (trailingSpacer) {
-            strip.addView(createAiBarTrailingSpacer())
-        }
-    }
-
-    private fun createAiBarTrailingSpacer(): View =
-        View(this).apply {
-            tag = AiBarLayout.SPACER_TAG
-            layoutParams = LinearLayout.LayoutParams(0, 0, 1f)
-        }
 
     private fun aiBarItemLayoutParams(view: View): LinearLayout.LayoutParams {
         val previous = view.layoutParams as? LinearLayout.LayoutParams
