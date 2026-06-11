@@ -48,6 +48,11 @@ object GkeysSettings {
     val AI_BAR_POLISH_BUTTON_ENABLED = booleanPreferencesKey("ai_bar_polish_button_enabled")
     val AI_BAR_LIVE_TRANSCRIBE_ENABLED = booleanPreferencesKey("ai_bar_live_transcribe_enabled")
     val AI_BAR_VOICE_INPUT_MODE = stringPreferencesKey("ai_bar_voice_input_mode")
+    val AI_BAR_PRIMARY_ORDER = stringPreferencesKey("ai_bar_primary_order")
+    val AI_BAR_SECONDARY_ORDER = stringPreferencesKey("ai_bar_secondary_order")
+    val AI_BAR_CLEAR_ALL_ENABLED = booleanPreferencesKey("ai_bar_clear_all_enabled")
+    val AI_BAR_CLIPBOARD_TOOLBAR_ENABLED = booleanPreferencesKey("ai_bar_clipboard_toolbar_enabled")
+    val AI_BAR_NUMPAD_ENABLED = booleanPreferencesKey("ai_bar_numpad_enabled")
     val SPEECH_PROFILE = stringPreferencesKey("speech_profile")
     val AI_INSTRUCTIONS = stringPreferencesKey("ai_instructions")
     val THEME_MODE = stringPreferencesKey("theme_mode")
@@ -209,6 +214,31 @@ object GkeysSettings {
         aiBarVoiceInputMode(context).map { mode ->
             mode == AI_BAR_VOICE_BOTH || mode == AI_BAR_VOICE_MIC
         }
+
+    fun aiBarPrimaryOrder(context: Context): Flow<List<String>> =
+        settingsStore(context).data.map { prefs ->
+            com.gremier.gkeys.ime.AiBarLayout.parseOrder(
+                prefs[AI_BAR_PRIMARY_ORDER],
+                com.gremier.gkeys.ime.AiBarLayout.DEFAULT_PRIMARY_ORDER
+            )
+        }
+
+    fun aiBarSecondaryOrder(context: Context): Flow<List<String>> =
+        settingsStore(context).data.map { prefs ->
+            com.gremier.gkeys.ime.AiBarLayout.parseOrder(
+                prefs[AI_BAR_SECONDARY_ORDER],
+                com.gremier.gkeys.ime.AiBarLayout.DEFAULT_SECONDARY_ORDER
+            )
+        }
+
+    fun aiBarClearAllEnabled(context: Context): Flow<Boolean> =
+        settingsStore(context).data.map { it[AI_BAR_CLEAR_ALL_ENABLED] ?: DEFAULT_AI_BAR_FEATURE_ENABLED }
+
+    fun aiBarClipboardToolbarEnabled(context: Context): Flow<Boolean> =
+        settingsStore(context).data.map { it[AI_BAR_CLIPBOARD_TOOLBAR_ENABLED] ?: DEFAULT_AI_BAR_FEATURE_ENABLED }
+
+    fun aiBarNumpadEnabled(context: Context): Flow<Boolean> =
+        settingsStore(context).data.map { it[AI_BAR_NUMPAD_ENABLED] ?: DEFAULT_AI_BAR_FEATURE_ENABLED }
 
     private fun legacyAiBarVoiceInputMode(prefs: Preferences): String =
         if (prefs[AI_BAR_LIVE_TRANSCRIBE_ENABLED] == false) AI_BAR_VOICE_MIC else AI_BAR_VOICE_BOTH
@@ -439,6 +469,30 @@ object GkeysSettings {
             it[AI_BAR_LIVE_TRANSCRIBE_ENABLED] =
                 normalized == AI_BAR_VOICE_BOTH || normalized == AI_BAR_VOICE_LIVE
         }
+    }
+
+    suspend fun saveAiBarPrimaryOrder(context: Context, order: List<String>) {
+        settingsStore(context).edit {
+            it[AI_BAR_PRIMARY_ORDER] = com.gremier.gkeys.ime.AiBarLayout.serializeOrder(order)
+        }
+    }
+
+    suspend fun saveAiBarSecondaryOrder(context: Context, order: List<String>) {
+        settingsStore(context).edit {
+            it[AI_BAR_SECONDARY_ORDER] = com.gremier.gkeys.ime.AiBarLayout.serializeOrder(order)
+        }
+    }
+
+    suspend fun saveAiBarClearAllEnabled(context: Context, enabled: Boolean) {
+        settingsStore(context).edit { it[AI_BAR_CLEAR_ALL_ENABLED] = enabled }
+    }
+
+    suspend fun saveAiBarClipboardToolbarEnabled(context: Context, enabled: Boolean) {
+        settingsStore(context).edit { it[AI_BAR_CLIPBOARD_TOOLBAR_ENABLED] = enabled }
+    }
+
+    suspend fun saveAiBarNumpadEnabled(context: Context, enabled: Boolean) {
+        settingsStore(context).edit { it[AI_BAR_NUMPAD_ENABLED] = enabled }
     }
 
     suspend fun saveSpeechProfile(context: Context, profile: String) {

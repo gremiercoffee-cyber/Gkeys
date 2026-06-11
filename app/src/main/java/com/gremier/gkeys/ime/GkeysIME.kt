@@ -99,6 +99,11 @@ class GkeysIME : InputMethodService() {
     private var aiBarPolishButtonEnabled = GkeysSettings.DEFAULT_AI_BAR_FEATURE_ENABLED
     private var aiBarMicEnabled = GkeysSettings.DEFAULT_AI_BAR_FEATURE_ENABLED
     private var aiBarLiveTranscribeEnabled = GkeysSettings.DEFAULT_AI_BAR_FEATURE_ENABLED
+    private var aiBarClearAllEnabled = GkeysSettings.DEFAULT_AI_BAR_FEATURE_ENABLED
+    private var aiBarClipboardToolbarEnabled = GkeysSettings.DEFAULT_AI_BAR_FEATURE_ENABLED
+    private var aiBarNumpadEnabled = GkeysSettings.DEFAULT_AI_BAR_FEATURE_ENABLED
+    private var aiBarPrimaryOrder = AiBarLayout.DEFAULT_PRIMARY_ORDER
+    private var aiBarSecondaryOrder = AiBarLayout.DEFAULT_SECONDARY_ORDER
     private var darkTheme = true
     private var voiceBubbleController: VoiceBubbleController? = null
     private var activeInputConnection: InputConnection? = null
@@ -241,9 +246,9 @@ class GkeysIME : InputMethodService() {
     companion object {
         private const val LONG_PRESS_MS = 380L
         /** Block keyboard auto-show briefly after navigation focuses a new text field. */
-        private const val BUBBLE_AUTO_SHOW_BLOCK_MS = 450L
+        private const val BUBBLE_AUTO_SHOW_BLOCK_MS = 300L
         /** Grace period before hiding the bubble after [onFinishInput] — absorbs field rebinds. */
-        private const val BUBBLE_FIELD_HIDE_DELAY_MS = 450L
+        private const val BUBBLE_FIELD_HIDE_DELAY_MS = 120L
         /** [InputMethodManager] show-soft-input bit in [onShowInputRequested] reason. */
         private const val SHOW_SOFT_INPUT_REASON = 1
         private const val KEY_EMOJI_PANEL = "\uE000"
@@ -373,19 +378,39 @@ class GkeysIME : InputMethodService() {
     private fun observeAiBarSettings() {
         scope.launch {
             combine(
-                GkeysSettings.aiBarWandEnabled(this@GkeysIME),
-                GkeysSettings.aiBarPolishButtonEnabled(this@GkeysIME),
-                GkeysSettings.aiBarMicEnabled(this@GkeysIME),
-                GkeysSettings.aiBarLiveTranscribeEnabled(this@GkeysIME),
-                GkeysSettings.voiceBubbleEnabled(this@GkeysIME),
-            ) { wand, polish, mic, live, bubble ->
-                aiBarWandEnabled = wand
-                aiBarPolishButtonEnabled = polish
-                aiBarMicEnabled = mic
-                aiBarLiveTranscribeEnabled = live
-                voiceBubbleEnabled = bubble
+                combine(
+                    GkeysSettings.aiBarWandEnabled(this@GkeysIME),
+                    GkeysSettings.aiBarPolishButtonEnabled(this@GkeysIME),
+                    GkeysSettings.aiBarMicEnabled(this@GkeysIME),
+                    GkeysSettings.aiBarLiveTranscribeEnabled(this@GkeysIME),
+                    GkeysSettings.voiceBubbleEnabled(this@GkeysIME),
+                ) { wand, polish, mic, live, bubble ->
+                    arrayOf(wand, polish, mic, live, bubble)
+                },
+                combine(
+                    GkeysSettings.aiBarPrimaryOrder(this@GkeysIME),
+                    GkeysSettings.aiBarSecondaryOrder(this@GkeysIME),
+                    GkeysSettings.aiBarClearAllEnabled(this@GkeysIME),
+                    GkeysSettings.aiBarClipboardToolbarEnabled(this@GkeysIME),
+                    GkeysSettings.aiBarNumpadEnabled(this@GkeysIME),
+                ) { primary, secondary, clearAll, clipboard, numpad ->
+                    arrayOf(primary, secondary, clearAll, clipboard, numpad)
+                },
+            ) { toggles, layout ->
+                aiBarWandEnabled = toggles[0] as Boolean
+                aiBarPolishButtonEnabled = toggles[1] as Boolean
+                aiBarMicEnabled = toggles[2] as Boolean
+                aiBarLiveTranscribeEnabled = toggles[3] as Boolean
+                voiceBubbleEnabled = toggles[4] as Boolean
+                @Suppress("UNCHECKED_CAST")
+                aiBarPrimaryOrder = layout[0] as List<String>
+                @Suppress("UNCHECKED_CAST")
+                aiBarSecondaryOrder = layout[1] as List<String>
+                aiBarClearAllEnabled = layout[2] as Boolean
+                aiBarClipboardToolbarEnabled = layout[3] as Boolean
+                aiBarNumpadEnabled = layout[4] as Boolean
             }.collect {
-                applyAiBarVisibility()
+                applyAiBarLayout()
                 if (!voiceBubbleEnabled && voiceBubbleModeActive) {
                     exitVoiceBubbleMode()
                 }
@@ -635,7 +660,7 @@ class GkeysIME : InputMethodService() {
         forceLayoutLtr(keyboardView)
 
         setupAiStrip()
-        applyAiBarVisibility()
+        applyAiBarLayout()
         applyKeyboardTheme()
         applyUniversalShellHeight()
         scope.launch(Dispatchers.IO) {
@@ -841,13 +866,15 @@ class GkeysIME : InputMethodService() {
         window?.window?.decorView?.requestLayout()
         window?.window?.decorView?.requestApplyInsets()
         updateFullscreenMode()
-        reconcileBubbleOverlayWithField()
+        if (voiceBubbleModeActive && bubbleTextFieldFocused && bubbleKeyboardCollapsed) {
+            handler.post { showBubbleOverlayIfFieldActive() }
+        }
     }
 
     override fun onWindowHidden() {
         super.onWindowHidden()
-        if (voiceBubbleModeActive) {
-            handler.post { reconcileBubbleOverlayWithField() }
+        if (voiceBubbleModeActive && bubbleTextFieldFocused && bubbleKeyboardCollapsed) {
+            handler.post { showBubbleOverlayIfFieldActive() }
         }
     }
 
@@ -904,20 +931,30 @@ class GkeysIME : InputMethodService() {
 
     /** Hide the bubble when no editable field is focused; defer briefly for chat → edit rebinds. */
     private fun scheduleHideBubbleWhenNoField() {
-        bubbleTextFieldFocused = false
         cancelBubbleFieldHide()
         val hide = Runnable {
             bubbleFieldHideRunnable = null
             if (bubbleTextFieldFocused) return@Runnable
+            if (currentInputConnection != null) return@Runnable
             if (isRecording || micIsProcessing || liveSttActive || liveSttConnecting || liveSttSessionActive) {
                 return@Runnable
             }
             if (!voiceBubbleModeActive) return@Runnable
-            hideBubbleOverlay(animate = true)
-            syncBubbleKeyboardWindow()
+            hideBubbleOverlay(animate = false)
         }
         bubbleFieldHideRunnable = hide
+        bubbleTextFieldFocused = false
         handler.postDelayed(hide, BUBBLE_FIELD_HIDE_DELAY_MS)
+    }
+
+    private fun hideBubbleForLostField() {
+        cancelBubbleFieldHide()
+        bubbleTextFieldFocused = false
+        if (!voiceBubbleModeActive) return
+        if (isRecording || micIsProcessing || liveSttActive || liveSttConnecting || liveSttSessionActive) {
+            return
+        }
+        hideBubbleOverlay(animate = false)
     }
 
     private fun canShowBubbleOverlay(): Boolean {
@@ -939,28 +976,14 @@ class GkeysIME : InputMethodService() {
         }
     }
 
-    /** Drop the bubble when the IME no longer has a live text connection. */
-    private fun reconcileBubbleOverlayWithField() {
-        if (!voiceBubbleModeActive) return
-        if (isRecording || micIsProcessing || liveSttActive || liveSttConnecting || liveSttSessionActive) {
-            return
-        }
-        if (currentInputConnection != null && bubbleTextFieldFocused) return
-        bubbleTextFieldFocused = false
-        cancelBubbleFieldHide()
-        hideBubbleOverlay(animate = true)
-        syncBubbleKeyboardWindow()
-    }
-
     private fun hideBubbleForFinishedInput() {
-        bubbleTextFieldFocused = false
         cancelBubbleFieldHide()
+        bubbleTextFieldFocused = false
         if (isRecording && !recordingForGhostwriter) {
             cancelRecording()
         }
         if (!isRecording && !micIsProcessing && !liveSttActive && !liveSttConnecting && !liveSttSessionActive) {
-            hideBubbleOverlay(animate = true)
-            syncBubbleKeyboardWindow()
+            hideBubbleOverlay(animate = false)
         }
     }
 
@@ -1117,7 +1140,7 @@ class GkeysIME : InputMethodService() {
     private fun showBubbleOverlayIfFieldActive() {
         if (!canShowBubbleOverlay() || isRecording || micIsProcessing) return
         if (voiceBubbleController?.isShowing == true) return
-        voiceBubbleController?.show()
+        voiceBubbleController?.show(fast = true)
     }
 
     /** Keep bubble visible and collapsed when the IME rebinds to a new field in bubble mode. */
@@ -1156,8 +1179,11 @@ class GkeysIME : InputMethodService() {
         if (isEditableField(attribute)) {
             markBubbleTextFieldFocused()
             prepareBubbleFieldBinding(restarting)
+            if (voiceBubbleModeActive && bubbleKeyboardCollapsed) {
+                handler.post { showBubbleOverlayIfFieldActive() }
+            }
         } else {
-            scheduleHideBubbleWhenNoField()
+            hideBubbleForLostField()
         }
         if (voiceBubbleModeActive && bubbleKeyboardCollapsed) {
             handler.post { syncBubbleKeyboardWindow() }
@@ -1252,7 +1278,6 @@ class GkeysIME : InputMethodService() {
         if (!isRecording && !micIsProcessing && !liveSttActive && !liveSttConnecting && !liveSttSessionActive) {
             activeInputConnection = null
         }
-        reconcileBubbleOverlayWithField()
         super.onFinishInput()
     }
 
@@ -1396,11 +1421,16 @@ class GkeysIME : InputMethodService() {
                 aiBarPolishButtonEnabled = GkeysSettings.aiBarPolishButtonEnabled(this@GkeysIME).first()
                 aiBarMicEnabled = GkeysSettings.aiBarMicEnabled(this@GkeysIME).first()
                 aiBarLiveTranscribeEnabled = GkeysSettings.aiBarLiveTranscribeEnabled(this@GkeysIME).first()
+                aiBarPrimaryOrder = GkeysSettings.aiBarPrimaryOrder(this@GkeysIME).first()
+                aiBarSecondaryOrder = GkeysSettings.aiBarSecondaryOrder(this@GkeysIME).first()
+                aiBarClearAllEnabled = GkeysSettings.aiBarClearAllEnabled(this@GkeysIME).first()
+                aiBarClipboardToolbarEnabled = GkeysSettings.aiBarClipboardToolbarEnabled(this@GkeysIME).first()
+                aiBarNumpadEnabled = GkeysSettings.aiBarNumpadEnabled(this@GkeysIME).first()
                 val themeMode = GkeysSettings.themeMode(this@GkeysIME).first()
                 val newDarkTheme = GkeysSettings.isDarkThemeMode(themeMode)
                 val themeChanged = newDarkTheme != darkTheme
                 darkTheme = newDarkTheme
-                applyAiBarVisibility()
+                applyAiBarLayout()
                 adaptiveTouchEnabled = GkeysSettings.adaptiveTouchEnabled(this@GkeysIME).first()
                 if (::adaptiveTouch.isInitialized) {
                     adaptiveTouch.setEnabled(adaptiveTouchEnabled)
@@ -1992,6 +2022,7 @@ class GkeysIME : InputMethodService() {
             hideBubbleOverlay(animate = false)
             syncBubbleKeyboardWindow()
         }
+        applyAiBarVisibility()
     }
 
     /** @return true if bubble mode is active (overlay shown when [showOverlay] is true). */
@@ -2017,6 +2048,7 @@ class GkeysIME : InputMethodService() {
             controller.hide(animate = false)
         }
         syncBubbleKeyboardWindow()
+        applyAiBarVisibility()
         return true
     }
 
@@ -2092,6 +2124,7 @@ class GkeysIME : InputMethodService() {
             requestShowSelf(0)
         }
         syncBubbleKeyboardWindow()
+        applyAiBarVisibility()
     }
 
     private fun updateVoiceBubbleButtonVisibility() {
@@ -2121,12 +2154,87 @@ class GkeysIME : InputMethodService() {
         if (::aiStripSecondary.isInitialized) aiStripSecondary.visibility = View.GONE
     }
 
+    private fun applyAiBarLayout() {
+        if (!::aiStrip.isInitialized) return
+        reorderAiBarStrip(
+            strip = aiStrip,
+            order = aiBarPrimaryOrder,
+            viewForId = { primaryAiBarViewForId(it) },
+            trailingSpacer = false,
+        )
+        reorderAiBarStrip(
+            strip = aiStripSecondary,
+            order = aiBarSecondaryOrder,
+            viewForId = { secondaryAiBarViewForId(it) },
+            trailingSpacer = true,
+        )
+        applyAiBarVisibility()
+    }
+
+    private fun primaryAiBarViewForId(id: String): View? = when (id) {
+        AiBarLayout.PAGE -> if (::btnAiBarPage.isInitialized) btnAiBarPage else null
+        AiBarLayout.WAND -> if (::btnWand.isInitialized) btnWand else null
+        AiBarLayout.POLISH -> if (::btnPolishLevel.isInitialized) btnPolishLevel else null
+        AiBarLayout.CLEAR_ALL -> if (::btnClipboardClearAll.isInitialized) btnClipboardClearAll else null
+        AiBarLayout.CLIPBOARD -> if (::clipboardArea.isInitialized) clipboardArea else null
+        AiBarLayout.LIVE -> if (::btnLiveTranscribe.isInitialized) btnLiveTranscribe else null
+        AiBarLayout.MIC -> if (::micGroup.isInitialized) micGroup else null
+        AiBarLayout.NUMPAD -> if (::btnKeyboard.isInitialized) btnKeyboard else null
+        else -> null
+    }
+
+    private fun secondaryAiBarViewForId(id: String): View? = when (id) {
+        AiBarLayout.BACK -> if (::btnAiBarBack.isInitialized) btnAiBarBack else null
+        AiBarLayout.SETTINGS -> if (::btnSettings.isInitialized) btnSettings else null
+        AiBarLayout.UNDO -> if (::btnClipboardUndo.isInitialized) btnClipboardUndo else null
+        AiBarLayout.SELECT_ALL -> if (::btnSelectAll.isInitialized) btnSelectAll else null
+        AiBarLayout.BUBBLE -> if (::btnVoiceBubble.isInitialized) btnVoiceBubble else null
+        else -> null
+    }
+
+    private fun reorderAiBarStrip(
+        strip: LinearLayout,
+        order: List<String>,
+        viewForId: (String) -> View?,
+        trailingSpacer: Boolean,
+    ) {
+        val views = order.mapNotNull { viewForId(it) }
+        if (views.isEmpty()) return
+        val paramsByView = views.associateWith { it.layoutParams }
+        strip.removeAllViews()
+        for (view in views) {
+            val params = paramsByView[view] ?: LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            )
+            strip.addView(view, params)
+        }
+        if (trailingSpacer) {
+            strip.addView(
+                View(this).apply {
+                    tag = AiBarLayout.SPACER_TAG
+                    layoutParams = LinearLayout.LayoutParams(0, 0, 1f)
+                }
+            )
+        }
+    }
+
     private fun applyAiBarVisibility() {
         if (!::btnWand.isInitialized) return
         btnWand.visibility = if (aiBarWandEnabled) View.VISIBLE else View.GONE
         btnPolishLevel.visibility = if (aiBarPolishButtonEnabled) View.VISIBLE else View.GONE
+        if (::btnClipboardClearAll.isInitialized) {
+            btnClipboardClearAll.visibility = if (aiBarClearAllEnabled) View.VISIBLE else View.GONE
+        }
+        if (::clipboardArea.isInitialized) {
+            clipboardArea.visibility = if (aiBarClipboardToolbarEnabled) View.VISIBLE else View.GONE
+        }
+        if (::btnKeyboard.isInitialized) {
+            btnKeyboard.visibility = if (aiBarNumpadEnabled) View.VISIBLE else View.GONE
+        }
         if (::micGroup.isInitialized) {
-            micGroup.visibility = if (aiBarMicEnabled) View.VISIBLE else View.GONE
+            micGroup.visibility =
+                if (aiBarMicEnabled && !voiceBubbleModeActive) View.VISIBLE else View.GONE
         }
         btnLiveTranscribe.visibility = if (aiBarLiveTranscribeEnabled) View.VISIBLE else View.GONE
         if (!aiBarMicEnabled && isRecording && !recordingForGhostwriter) {

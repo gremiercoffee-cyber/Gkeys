@@ -59,9 +59,9 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var btnPhotoPermission: MaterialButton
     private lateinit var btnOverlayPermission: MaterialButton
     private lateinit var switchVoiceBubbleEnabled: SwitchMaterial
-    private lateinit var switchAiBarWand: SwitchMaterial
-    private lateinit var switchAiBarPolish: SwitchMaterial
     private lateinit var radioAiBarVoiceInput: RadioGroup
+    private lateinit var layoutAiBarPrimaryOrder: android.widget.LinearLayout
+    private lateinit var layoutAiBarSecondaryOrder: android.widget.LinearLayout
     private lateinit var switchDefaultVoiceBubble: SwitchMaterial
     private lateinit var voiceBubbleDefaultRow: android.view.View
     private lateinit var switchAdaptiveTouch: SwitchMaterial
@@ -78,6 +78,7 @@ class SettingsActivity : AppCompatActivity() {
     private var settingsLoaded = false
     private var suppressPolishAutoSave = false
     private var suppressVoiceInputAutoSave = false
+    private var suppressAiBarOrderAutoSave = false
     private var suppressThemeAutoSave = false
     private lateinit var radioTheme: RadioGroup
 
@@ -264,9 +265,9 @@ class SettingsActivity : AppCompatActivity() {
         btnPhotoPermission = findViewById(R.id.btn_photo_permission)
         btnOverlayPermission = findViewById(R.id.btn_overlay_permission)
         switchVoiceBubbleEnabled = findViewById(R.id.switch_voice_bubble_enabled)
-        switchAiBarWand = findViewById(R.id.switch_ai_bar_wand)
-        switchAiBarPolish = findViewById(R.id.switch_ai_bar_polish)
         radioAiBarVoiceInput = findViewById(R.id.radio_ai_bar_voice_input)
+        layoutAiBarPrimaryOrder = findViewById(R.id.layout_ai_bar_primary_order)
+        layoutAiBarSecondaryOrder = findViewById(R.id.layout_ai_bar_secondary_order)
         switchDefaultVoiceBubble = findViewById(R.id.switch_default_voice_bubble)
         voiceBubbleDefaultRow = findViewById(R.id.voice_bubble_default_row)
         switchAdaptiveTouch = findViewById(R.id.switch_adaptive_touch)
@@ -328,10 +329,6 @@ class SettingsActivity : AppCompatActivity() {
             suppressThemeAutoSave = false
             switchVoiceBubbleEnabled.isChecked =
                 GkeysSettings.voiceBubbleEnabled(this@SettingsActivity).first()
-            switchAiBarWand.isChecked =
-                GkeysSettings.aiBarWandEnabled(this@SettingsActivity).first()
-            switchAiBarPolish.isChecked =
-                GkeysSettings.aiBarPolishButtonEnabled(this@SettingsActivity).first()
             suppressVoiceInputAutoSave = true
             selectVoiceInputRadio(
                 when (GkeysSettings.aiBarVoiceInputMode(this@SettingsActivity).first()) {
@@ -341,6 +338,16 @@ class SettingsActivity : AppCompatActivity() {
                 }
             )
             suppressVoiceInputAutoSave = false
+            rebuildAiBarOrderUi(
+                primaryOrder = GkeysSettings.aiBarPrimaryOrder(this@SettingsActivity).first(),
+                secondaryOrder = GkeysSettings.aiBarSecondaryOrder(this@SettingsActivity).first(),
+                wandEnabled = GkeysSettings.aiBarWandEnabled(this@SettingsActivity).first(),
+                polishEnabled = GkeysSettings.aiBarPolishButtonEnabled(this@SettingsActivity).first(),
+                clearAllEnabled = GkeysSettings.aiBarClearAllEnabled(this@SettingsActivity).first(),
+                clipboardEnabled = GkeysSettings.aiBarClipboardToolbarEnabled(this@SettingsActivity).first(),
+                numpadEnabled = GkeysSettings.aiBarNumpadEnabled(this@SettingsActivity).first(),
+                voiceBubbleToolbarEnabled = GkeysSettings.voiceBubbleEnabled(this@SettingsActivity).first(),
+            )
             switchDefaultVoiceBubble.isChecked =
                 GkeysSettings.defaultToVoiceBubble(this@SettingsActivity).first()
             updateVoiceBubbleSettingsUi()
@@ -453,6 +460,7 @@ class SettingsActivity : AppCompatActivity() {
                 switchDefaultVoiceBubble.isChecked = false
             }
             autoSave { saveVoiceBubbleSettings() }
+            refreshAiBarOrderVoiceRows()
         }
         switchDefaultVoiceBubble.setOnCheckedChangeListener { _, _ ->
             autoSave { saveVoiceBubbleSettings() }
@@ -471,12 +479,6 @@ class SettingsActivity : AppCompatActivity() {
             }
         }
 
-        switchAiBarWand.setOnCheckedChangeListener { _, checked ->
-            autoSave { GkeysSettings.saveAiBarWandEnabled(this@SettingsActivity, checked) }
-        }
-        switchAiBarPolish.setOnCheckedChangeListener { _, checked ->
-            autoSave { GkeysSettings.saveAiBarPolishButtonEnabled(this@SettingsActivity, checked) }
-        }
         radioAiBarVoiceInput.setOnCheckedChangeListener { _, _ ->
             if (!settingsLoaded || suppressVoiceInputAutoSave) return@setOnCheckedChangeListener
             autoSave {
@@ -485,6 +487,7 @@ class SettingsActivity : AppCompatActivity() {
                     voiceInputModeFromRadio()
                 )
             }
+            refreshAiBarOrderVoiceRows()
         }
 
         switchAdaptiveTouch.setOnCheckedChangeListener { _, checked ->
@@ -730,4 +733,207 @@ class SettingsActivity : AppCompatActivity() {
             false
         }
     }
+
+    private var aiBarPrimaryOrderState = com.gremier.gkeys.ime.AiBarLayout.DEFAULT_PRIMARY_ORDER
+    private var aiBarSecondaryOrderState = com.gremier.gkeys.ime.AiBarLayout.DEFAULT_SECONDARY_ORDER
+
+    private fun rebuildAiBarOrderUi(
+        primaryOrder: List<String>,
+        secondaryOrder: List<String>,
+        wandEnabled: Boolean,
+        polishEnabled: Boolean,
+        clearAllEnabled: Boolean,
+        clipboardEnabled: Boolean,
+        numpadEnabled: Boolean,
+        voiceBubbleToolbarEnabled: Boolean,
+    ) {
+        suppressAiBarOrderAutoSave = true
+        aiBarPrimaryOrderState = primaryOrder.toList()
+        aiBarSecondaryOrderState = secondaryOrder.toList()
+        layoutAiBarPrimaryOrder.removeAllViews()
+        layoutAiBarSecondaryOrder.removeAllViews()
+        aiBarPrimaryOrderState.forEachIndexed { index, id ->
+            layoutAiBarPrimaryOrder.addView(
+                createAiBarOrderRow(
+                    container = layoutAiBarPrimaryOrder,
+                    isPrimary = true,
+                    id = id,
+                    index = index,
+                    orderSize = aiBarPrimaryOrderState.size,
+                    enabled = primaryItemEnabled(
+                        id,
+                        wandEnabled,
+                        polishEnabled,
+                        clearAllEnabled,
+                        clipboardEnabled,
+                        numpadEnabled,
+                    ),
+                )
+            )
+        }
+        aiBarSecondaryOrderState.forEachIndexed { index, id ->
+            layoutAiBarSecondaryOrder.addView(
+                createAiBarOrderRow(
+                    container = layoutAiBarSecondaryOrder,
+                    isPrimary = false,
+                    id = id,
+                    index = index,
+                    orderSize = aiBarSecondaryOrderState.size,
+                    enabled = secondaryItemEnabled(id, voiceBubbleToolbarEnabled),
+                )
+            )
+        }
+        suppressAiBarOrderAutoSave = false
+    }
+
+    private fun primaryItemEnabled(
+        id: String,
+        wandEnabled: Boolean,
+        polishEnabled: Boolean,
+        clearAllEnabled: Boolean,
+        clipboardEnabled: Boolean,
+        numpadEnabled: Boolean,
+    ): Boolean = when (id) {
+        com.gremier.gkeys.ime.AiBarLayout.WAND -> wandEnabled
+        com.gremier.gkeys.ime.AiBarLayout.POLISH -> polishEnabled
+        com.gremier.gkeys.ime.AiBarLayout.CLEAR_ALL -> clearAllEnabled
+        com.gremier.gkeys.ime.AiBarLayout.CLIPBOARD -> clipboardEnabled
+        com.gremier.gkeys.ime.AiBarLayout.NUMPAD -> numpadEnabled
+        com.gremier.gkeys.ime.AiBarLayout.MIC -> voiceInputIncludesMic()
+        com.gremier.gkeys.ime.AiBarLayout.LIVE -> voiceInputIncludesLive()
+        else -> true
+    }
+
+    private fun secondaryItemEnabled(id: String, voiceBubbleToolbarEnabled: Boolean): Boolean =
+        when (id) {
+            com.gremier.gkeys.ime.AiBarLayout.BUBBLE -> voiceBubbleToolbarEnabled
+            else -> true
+        }
+
+    private fun createAiBarOrderRow(
+        container: android.widget.LinearLayout,
+        isPrimary: Boolean,
+        id: String,
+        index: Int,
+        orderSize: Int,
+        enabled: Boolean,
+    ): android.view.View {
+        val row = layoutInflater.inflate(R.layout.item_ai_bar_order_row, container, false)
+        row.findViewById<android.widget.TextView>(R.id.tv_order_label).text =
+            com.gremier.gkeys.ime.AiBarLayout.label(id)
+        val switch = row.findViewById<SwitchMaterial>(R.id.switch_order_enabled)
+        val fixedAnchor = id == com.gremier.gkeys.ime.AiBarLayout.PAGE ||
+            id == com.gremier.gkeys.ime.AiBarLayout.BACK
+        val alwaysOnSecondary = !isPrimary && (
+            id == com.gremier.gkeys.ime.AiBarLayout.SETTINGS ||
+                id == com.gremier.gkeys.ime.AiBarLayout.UNDO ||
+                id == com.gremier.gkeys.ime.AiBarLayout.SELECT_ALL
+            )
+        val voiceControlled = id == com.gremier.gkeys.ime.AiBarLayout.MIC ||
+            id == com.gremier.gkeys.ime.AiBarLayout.LIVE
+        when {
+            fixedAnchor || alwaysOnSecondary -> {
+                switch.visibility = android.view.View.GONE
+            }
+            voiceControlled -> {
+                switch.isEnabled = false
+                switch.isChecked = enabled
+            }
+            else -> {
+                switch.isChecked = enabled
+                switch.setOnCheckedChangeListener { _, checked ->
+                    if (!settingsLoaded || suppressAiBarOrderAutoSave) return@setOnCheckedChangeListener
+                    saveAiBarItemEnabled(isPrimary, id, checked)
+                }
+            }
+        }
+        val btnUp = row.findViewById<android.widget.ImageButton>(R.id.btn_order_up)
+        val btnDown = row.findViewById<android.widget.ImageButton>(R.id.btn_order_down)
+        btnUp.isEnabled = index > 1
+        btnDown.isEnabled = !fixedAnchor && index < orderSize - 1
+        btnUp.setOnClickListener {
+            moveAiBarOrderItem(isPrimary, index, delta = -1)
+        }
+        btnDown.setOnClickListener {
+            moveAiBarOrderItem(isPrimary, index, delta = 1)
+        }
+        return row
+    }
+
+    private fun moveAiBarOrderItem(isPrimary: Boolean, index: Int, delta: Int) {
+        val order = if (isPrimary) aiBarPrimaryOrderState.toMutableList()
+        else aiBarSecondaryOrderState.toMutableList()
+        val target = index + delta
+        if (target < 0 || target >= order.size) return
+        if (order[index] == com.gremier.gkeys.ime.AiBarLayout.PAGE ||
+            order[index] == com.gremier.gkeys.ime.AiBarLayout.BACK
+        ) return
+        if (target == 0) return
+        val item = order.removeAt(index)
+        order.add(target, item)
+        if (isPrimary) aiBarPrimaryOrderState = order else aiBarSecondaryOrderState = order
+        lifecycleScope.launch {
+            if (isPrimary) {
+                GkeysSettings.saveAiBarPrimaryOrder(this@SettingsActivity, order)
+            } else {
+                GkeysSettings.saveAiBarSecondaryOrder(this@SettingsActivity, order)
+            }
+            rebuildAiBarOrderUiFromPrefs()
+        }
+    }
+
+    private fun saveAiBarItemEnabled(isPrimary: Boolean, id: String, enabled: Boolean) {
+        autoSave {
+            when (id) {
+                com.gremier.gkeys.ime.AiBarLayout.WAND ->
+                    GkeysSettings.saveAiBarWandEnabled(this@SettingsActivity, enabled)
+                com.gremier.gkeys.ime.AiBarLayout.POLISH ->
+                    GkeysSettings.saveAiBarPolishButtonEnabled(this@SettingsActivity, enabled)
+                com.gremier.gkeys.ime.AiBarLayout.CLEAR_ALL ->
+                    GkeysSettings.saveAiBarClearAllEnabled(this@SettingsActivity, enabled)
+                com.gremier.gkeys.ime.AiBarLayout.CLIPBOARD ->
+                    GkeysSettings.saveAiBarClipboardToolbarEnabled(this@SettingsActivity, enabled)
+                com.gremier.gkeys.ime.AiBarLayout.NUMPAD ->
+                    GkeysSettings.saveAiBarNumpadEnabled(this@SettingsActivity, enabled)
+                com.gremier.gkeys.ime.AiBarLayout.SETTINGS -> Unit
+                com.gremier.gkeys.ime.AiBarLayout.UNDO -> Unit
+                com.gremier.gkeys.ime.AiBarLayout.SELECT_ALL -> Unit
+                com.gremier.gkeys.ime.AiBarLayout.BUBBLE ->
+                    GkeysSettings.saveVoiceBubbleEnabled(this@SettingsActivity, enabled)
+            }
+            if (id == com.gremier.gkeys.ime.AiBarLayout.BUBBLE) {
+                updateVoiceBubbleSettingsUi()
+            }
+        }
+    }
+
+    private suspend fun rebuildAiBarOrderUiFromPrefs() {
+        rebuildAiBarOrderUi(
+            primaryOrder = GkeysSettings.aiBarPrimaryOrder(this@SettingsActivity).first(),
+            secondaryOrder = GkeysSettings.aiBarSecondaryOrder(this@SettingsActivity).first(),
+            wandEnabled = GkeysSettings.aiBarWandEnabled(this@SettingsActivity).first(),
+            polishEnabled = GkeysSettings.aiBarPolishButtonEnabled(this@SettingsActivity).first(),
+            clearAllEnabled = GkeysSettings.aiBarClearAllEnabled(this@SettingsActivity).first(),
+            clipboardEnabled = GkeysSettings.aiBarClipboardToolbarEnabled(this@SettingsActivity).first(),
+            numpadEnabled = GkeysSettings.aiBarNumpadEnabled(this@SettingsActivity).first(),
+            voiceBubbleToolbarEnabled = GkeysSettings.voiceBubbleEnabled(this@SettingsActivity).first(),
+        )
+    }
+
+    private fun refreshAiBarOrderVoiceRows() {
+        if (!settingsLoaded) return
+        lifecycleScope.launch { rebuildAiBarOrderUiFromPrefs() }
+    }
+
+    private fun voiceInputIncludesMic(): Boolean =
+        when (radioAiBarVoiceInput.checkedRadioButtonId) {
+            R.id.radio_voice_input_live -> false
+            else -> true
+        }
+
+    private fun voiceInputIncludesLive(): Boolean =
+        when (radioAiBarVoiceInput.checkedRadioButtonId) {
+            R.id.radio_voice_input_mic -> false
+            else -> true
+        }
 }

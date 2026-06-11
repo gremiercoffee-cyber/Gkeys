@@ -216,6 +216,7 @@ class VoiceBubbleController(
 
     /** Invalidates in-flight hide end-actions so they cannot remove a newer overlay. */
     private var hideOperationId = 0L
+    private var fastShowPending = false
 
 
 
@@ -225,8 +226,9 @@ class VoiceBubbleController(
 
 
 
-    fun show() {
+    fun show(fast: Boolean = false) {
         if (!canDrawOverlay()) return
+        fastShowPending = fast
         synchronized(overlayLock) {
             if (isAttached && rootView != null) {
                 cancelHideAnimation()
@@ -319,11 +321,13 @@ class VoiceBubbleController(
             view.alpha = 0f
             view.scaleX = 0.5f
             view.scaleY = 0.5f
+            val duration = if (fastShowPending) 80L else 220L
+            fastShowPending = false
             view.animate()
                 .alpha(BUBBLE_ALPHA_IDLE)
                 .scaleX(1f)
                 .scaleY(1f)
-                .setDuration(220)
+                .setDuration(duration)
                 .setInterpolator(AccelerateDecelerateInterpolator())
                 .start()
 
