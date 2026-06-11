@@ -31,6 +31,7 @@ object GkeysSettings {
     val TOUCH_OFFSET_Y = floatPreferencesKey("touch_offset_y")
     val TOUCH_OFFSET_SAMPLES = intPreferencesKey("touch_offset_samples")
     val ADAPTIVE_TOUCH_ENABLED = booleanPreferencesKey("adaptive_touch_enabled")
+    val EXPERIMENTAL_SWIPE_TYPING_ENABLED = booleanPreferencesKey("experimental_swipe_typing_enabled")
     val RIGHT_HANDED_MODE = booleanPreferencesKey("right_handed_mode")
     val VOICE_TRANSLATE_FROM = stringPreferencesKey("voice_translate_from")
     val VOICE_TRANSLATE_TO = stringPreferencesKey("voice_translate_to")
@@ -84,6 +85,7 @@ object GkeysSettings {
     const val DEFAULT_VIBRATION_STRENGTH = 20
     const val DEFAULT_AUTO_POLISH = true
     const val DEFAULT_ADAPTIVE_TOUCH = true
+    const val DEFAULT_EXPERIMENTAL_SWIPE_TYPING = false
 
     const val POLISH_FORMAL = "formal"
     const val POLISH_NATURAL = "natural"
@@ -274,6 +276,11 @@ object GkeysSettings {
     fun adaptiveTouchEnabled(context: Context): Flow<Boolean> =
         settingsStore(context).data.map { it[ADAPTIVE_TOUCH_ENABLED] ?: DEFAULT_ADAPTIVE_TOUCH }
 
+    fun experimentalSwipeTypingEnabled(context: Context): Flow<Boolean> =
+        settingsStore(context).data.map {
+            it[EXPERIMENTAL_SWIPE_TYPING_ENABLED] ?: DEFAULT_EXPERIMENTAL_SWIPE_TYPING
+        }
+
     fun speechProfile(context: Context): Flow<String> =
         settingsStore(context).data.map { it[SPEECH_PROFILE] ?: "" }
 
@@ -448,6 +455,10 @@ object GkeysSettings {
 
     suspend fun saveAdaptiveTouchEnabled(context: Context, enabled: Boolean) {
         settingsStore(context).edit { it[ADAPTIVE_TOUCH_ENABLED] = enabled }
+    }
+
+    suspend fun saveExperimentalSwipeTypingEnabled(context: Context, enabled: Boolean) {
+        settingsStore(context).edit { it[EXPERIMENTAL_SWIPE_TYPING_ENABLED] = enabled }
     }
 
     suspend fun saveVoiceTranslateFrom(context: Context, lang: String) {

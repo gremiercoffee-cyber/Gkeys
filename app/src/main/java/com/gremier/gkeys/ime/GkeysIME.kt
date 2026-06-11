@@ -230,7 +230,7 @@ class GkeysIME : InputMethodService() {
     private lateinit var touchPersonalization: TouchPersonalization
     private lateinit var adaptiveTouch: AdaptiveTouchIntelligence
     private lateinit var touchResolver: TouchInputResolver
-    private lateinit var aospGestureTyping: AospGestureTypingEngine
+    private var aospGestureTyping: AospGestureTypingEngine? = null
     private val touchKeyViews = mutableListOf<Triple<View, String, Int>>()
     private var lastTypedChar: Char? = null
     private var currentWordPrefix = ""
@@ -243,6 +243,7 @@ class GkeysIME : InputMethodService() {
     private var pendingSwipeCorrectionPathKey: String? = null
     private var pendingSwipeCorrectionWrongWord: String? = null
     private var adaptiveTouchEnabled = GkeysSettings.DEFAULT_ADAPTIVE_TOUCH
+    private var experimentalSwipeTypingEnabled = GkeysSettings.DEFAULT_EXPERIMENTAL_SWIPE_TYPING
 
     private var emojiPanelVisible = false
     private var emojiOpenedFromNumpad = false
@@ -264,7 +265,7 @@ class GkeysIME : InputMethodService() {
         private const val SHOW_SOFT_INPUT_REASON = 1
         private const val KEY_EMOJI_PANEL = "\uE000"
         private const val FIELD_TEXT_SCAN_LIMIT = 100_000
-        private const val ENABLE_AOSP_GESTURE_TYPING = false
+        private const val ALLOW_AOSP_GESTURE_TYPING = true
         private const val SWIPE_BACKSPACE_WINDOW_MS = 8000L
 
         private val letterLongPressAlts = mapOf(
@@ -623,17 +624,7 @@ class GkeysIME : InputMethodService() {
             handleKey(key)
             hapticKeyTap()
         }
-        if (ENABLE_AOSP_GESTURE_TYPING) {
-            aospGestureTyping = AospGestureTypingEngine(
-                applicationContext,
-                SwipeLearningStore(applicationContext),
-            )
-            keyboardRows.onSwipeGesture = { firstLabel, points ->
-                handleAospSwipeGesture(firstLabel, points)
-            }
-        } else {
-            keyboardRows.onSwipeGesture = null
-        }
+        configureAospGestureTyping()
         keyboardRows.onBackspaceDown = { startDeleteRepeat(skipInitial = true) }
         keyboardRows.onBackspaceUp = { stopDeleteRepeat() }
         keyboardRows.keyLongPressAlts = letterLongPressAlts + punctuationLongPressAlts
@@ -705,8 +696,8 @@ class GkeysIME : InputMethodService() {
             val lang = DictionaryManager.languageForKeyboard(isHebrew)
             DictionaryManager.ensureLoaded(applicationContext, lang)
             userWordsRepository.ensureCache(lang)
-            if (ENABLE_AOSP_GESTURE_TYPING && lang == DictionaryManager.Language.EN && ::aospGestureTyping.isInitialized) {
-                aospGestureTyping.ensureDictionary(userWordsRepository.words(lang))
+            if (isAospGestureTypingActive() && lang == DictionaryManager.Language.EN) {
+                aospGestureTyping?.ensureDictionary(userWordsRepository.words(lang))
             }
         }
         buildKeyboard()
@@ -1485,6 +1476,9 @@ class GkeysIME : InputMethodService() {
                 if (::adaptiveTouch.isInitialized) {
                     adaptiveTouch.setEnabled(adaptiveTouchEnabled)
                 }
+                experimentalSwipeTypingEnabled =
+                    GkeysSettings.experimentalSwipeTypingEnabled(this@GkeysIME).first()
+                configureAospGestureTyping()
                 layoutProfile = KeyboardLayoutMetrics.profile(keySizePreset, rightHandedMode)
                 keyboardHeightPx = 0
                 if (::touchResolver.isInitialized) {
@@ -2899,14 +2893,71 @@ class GkeysIME : InputMethodService() {
         refreshAospGestureGeometry(container)
     }
 
+    private fun isAospGestureTypingActive(): Boolean =
+        ALLOW_AOSP_GESTURE_TYPING && experimentalSwipeTypingEnabled && aospGestureTyping != null
+
+    private fun configureAospGestureTyping() {
+        if (!::keyboardRows.isInitialized) return
+        val shouldEnable = ALLOW_AOSP_GESTURE_TYPING && experimentalSwipeTypingEnabled
+        if (!shouldEnable) {
+            keyboardRows.onSwipeGesture = null
+            runCatching { aospGestureTyping?.close() }
+            aospGestureTyping = null
+            clearPendingSwipeDelete()
+            pendingSwipeCorrectionPathKey = null
+            pendingSwipeCorrectionWrongWord = null
+            return
+        }
+
+        if (aospGestureTyping == null) {
+            try {
+                aospGestureTyping = AospGestureTypingEngine(
+                    applicationContext,
+                    SwipeLearningStore(applicationContext),
+                )
+            } catch (e: Throwable) {
+                android.util.Log.e("GkeysIME", "Swipe engine startup failed", e)
+                com.gremier.gkeys.diag.CrashLogger.record(this, e)
+                keyboardRows.onSwipeGesture = null
+                experimentalSwipeTypingEnabled = false
+                return
+            }
+        }
+
+        keyboardRows.onSwipeGesture = { firstLabel, points ->
+            try {
+                handleAospSwipeGesture(firstLabel, points)
+            } catch (e: Throwable) {
+                android.util.Log.e("GkeysIME", "Swipe gesture failed", e)
+                com.gremier.gkeys.diag.CrashLogger.record(this, e)
+                keyboardRows.onSwipeGesture = null
+                runCatching { aospGestureTyping?.close() }
+                aospGestureTyping = null
+                experimentalSwipeTypingEnabled = false
+            }
+        }
+        preloadSuggestionLanguage()
+        if (::touchResolver.isInitialized) {
+            refreshAospGestureGeometry(keyboardRows)
+        }
+    }
+
     private fun refreshAospGestureGeometry(container: KeyboardTouchLayout) {
-        if (!ENABLE_AOSP_GESTURE_TYPING) return
-        if (!::aospGestureTyping.isInitialized || isHebrew || isSymbols || isNumpad || emojiPanelVisible) return
-        aospGestureTyping.updateGeometry(
-            keyboardWidth = container.width,
-            keyboardHeight = container.height,
-            targets = touchResolver.letterTargets(),
-        )
+        if (!isAospGestureTypingActive() || isHebrew || isSymbols || isNumpad || emojiPanelVisible) return
+        try {
+            aospGestureTyping?.updateGeometry(
+                keyboardWidth = container.width,
+                keyboardHeight = container.height,
+                targets = touchResolver.letterTargets(),
+            )
+        } catch (e: Throwable) {
+            android.util.Log.e("GkeysIME", "Swipe geometry refresh failed", e)
+            com.gremier.gkeys.diag.CrashLogger.record(this, e)
+            keyboardRows.onSwipeGesture = null
+            runCatching { aospGestureTyping?.close() }
+            aospGestureTyping = null
+            experimentalSwipeTypingEnabled = false
+        }
     }
 
     private fun dp(value: Int): Int =
@@ -3581,8 +3632,8 @@ class GkeysIME : InputMethodService() {
             val lang = activeSuggestionLanguage()
             DictionaryManager.ensureLoaded(applicationContext, lang)
             userWordsRepository.ensureCache(lang)
-            if (ENABLE_AOSP_GESTURE_TYPING && lang == DictionaryManager.Language.EN && ::aospGestureTyping.isInitialized) {
-                aospGestureTyping.ensureDictionary(userWordsRepository.words(lang))
+            if (isAospGestureTypingActive() && lang == DictionaryManager.Language.EN) {
+                aospGestureTyping?.ensureDictionary(userWordsRepository.words(lang))
             }
         }
     }
@@ -3590,9 +3641,10 @@ class GkeysIME : InputMethodService() {
     private fun handleAospSwipeGesture(firstLabel: String, points: List<SwipePoint>) {
         if (!suggestionsSupported() || isHebrew || isSymbols || isNumpad || emojiPanelVisible) return
         val ic = currentInputConnection ?: return
-        if (!::aospGestureTyping.isInitialized || points.size < 5) return
+        val gestureTyping = aospGestureTyping ?: return
+        if (!isAospGestureTypingActive() || points.size < 5) return
 
-        val decoded = aospGestureTyping.decode(
+        val decoded = gestureTyping.decode(
             points = points,
             userWords = userWordsForSuggestions(),
             previousWord = lastCompletedWord,
@@ -3620,7 +3672,7 @@ class GkeysIME : InputMethodService() {
         pendingSwipeWord = decodedWord
         pendingSwipeCorrectionPathKey = null
         pendingSwipeCorrectionWrongWord = null
-        aospGestureTyping.recordAccepted(decoded.pathKey, decodedWord)
+        gestureTyping.recordAccepted(decoded.pathKey, decodedWord)
 
         lastCompletedWord = normalizeCompletedWord(decodedWord)
         currentWordPrefix = ""
@@ -4106,7 +4158,7 @@ class GkeysIME : InputMethodService() {
         val wrongWord = pendingSwipeCorrectionWrongWord ?: return
         val correct = normalizeCompletedWord(correctWord.trim())
         if (correct.length >= 2 && correct != wrongWord) {
-            aospGestureTyping.recordCorrection(pathKey, wrongWord, correct)
+            aospGestureTyping?.recordCorrection(pathKey, wrongWord, correct)
         }
         pendingSwipeCorrectionPathKey = null
         pendingSwipeCorrectionWrongWord = null
@@ -4128,7 +4180,7 @@ class GkeysIME : InputMethodService() {
         val pathKey = pendingSwipePathKey
         val word = pendingSwipeWord
         if (!pathKey.isNullOrBlank() && !word.isNullOrBlank()) {
-            aospGestureTyping.recordRejected(pathKey, word)
+            aospGestureTyping?.recordRejected(pathKey, word)
             pendingSwipeCorrectionPathKey = pathKey
             pendingSwipeCorrectionWrongWord = word
         }
@@ -4333,9 +4385,8 @@ class GkeysIME : InputMethodService() {
         if (::micSessionGuard.isInitialized) {
             micSessionGuard.forceRelease()
         }
-        if (ENABLE_AOSP_GESTURE_TYPING && ::aospGestureTyping.isInitialized) {
-            aospGestureTyping.close()
-        }
+        runCatching { aospGestureTyping?.close() }
+        aospGestureTyping = null
         super.onDestroy()
         clipboardManager?.destroy()
         scope.cancel()

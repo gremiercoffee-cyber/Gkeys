@@ -64,6 +64,7 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var switchDefaultVoiceBubble: SwitchMaterial
     private lateinit var voiceBubbleDefaultRow: android.view.View
     private lateinit var switchAdaptiveTouch: SwitchMaterial
+    private lateinit var switchExperimentalSwipeTyping: SwitchMaterial
     private lateinit var tvAdaptiveTouchStats: TextView
     private lateinit var btnResetAdaptiveTouch: MaterialButton
     private lateinit var radioOneHanded: RadioGroup
@@ -296,6 +297,7 @@ class SettingsActivity : AppCompatActivity() {
         switchDefaultVoiceBubble = findViewById(R.id.switch_default_voice_bubble)
         voiceBubbleDefaultRow = findViewById(R.id.voice_bubble_default_row)
         switchAdaptiveTouch = findViewById(R.id.switch_adaptive_touch)
+        switchExperimentalSwipeTyping = findViewById(R.id.switch_experimental_swipe_typing)
         tvAdaptiveTouchStats = findViewById(R.id.tv_adaptive_touch_stats)
         btnResetAdaptiveTouch = findViewById(R.id.btn_reset_adaptive_touch)
         radioOneHanded = findViewById(R.id.radio_one_handed)
@@ -379,6 +381,8 @@ class SettingsActivity : AppCompatActivity() {
             updateVoiceBubbleSettingsUi()
             switchAdaptiveTouch.isChecked =
                 GkeysSettings.adaptiveTouchEnabled(this@SettingsActivity).first()
+            switchExperimentalSwipeTyping.isChecked =
+                GkeysSettings.experimentalSwipeTypingEnabled(this@SettingsActivity).first()
             refreshAdaptiveTouchStats()
             when (GkeysSettings.oneHandedMode(this@SettingsActivity).first()) {
                 GkeysSettings.ONE_HANDED_LEFT -> radioOneHanded.check(R.id.radio_one_hand_left)
@@ -517,6 +521,9 @@ class SettingsActivity : AppCompatActivity() {
 
         switchAdaptiveTouch.setOnCheckedChangeListener { _, checked ->
             autoSave { GkeysSettings.saveAdaptiveTouchEnabled(this@SettingsActivity, checked) }
+        }
+        switchExperimentalSwipeTyping.setOnCheckedChangeListener { _, checked ->
+            autoSave { GkeysSettings.saveExperimentalSwipeTypingEnabled(this@SettingsActivity, checked) }
         }
 
         btnMicPermission.setOnClickListener { requestMicPermissionIfNeeded() }
