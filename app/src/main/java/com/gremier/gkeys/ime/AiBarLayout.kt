@@ -46,7 +46,7 @@ object AiBarLayout {
 
     fun iconRes(id: String): Int = when (id) {
         PAGE -> com.gremier.gkeys.R.drawable.ic_chevron_forward
-        WAND -> com.gremier.gkeys.R.drawable.ic_ghostwriter
+        WAND -> com.gremier.gkeys.R.drawable.ic_ghostwriter_hand
         POLISH -> com.gremier.gkeys.R.drawable.ic_polish
         RAW_POLISH -> com.gremier.gkeys.R.drawable.ic_polish
         CLEAR_ALL -> com.gremier.gkeys.R.drawable.ic_clear_all

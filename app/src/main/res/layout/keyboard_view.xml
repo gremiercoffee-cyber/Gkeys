@@ -238,25 +238,34 @@
 
 
 
-            <ImageButton
-
+            <FrameLayout
                 android:id="@+id/btn_wand"
-
                 android:layout_width="30dp"
-
                 android:layout_height="30dp"
-
                 android:layout_marginStart="6dp"
-
-                android:src="@drawable/ic_ghostwriter"
-
                 android:background="@drawable/ai_bar_icon_btn_bg"
-
+                android:clickable="true"
+                android:focusable="true"
                 android:contentDescription="Ghostwriter — tap for AI writing"
+                android:foreground="?android:attr/selectableItemBackgroundBorderless">
 
-                android:scaleType="centerInside"
+                <ImageView
+                    android:id="@+id/wand_ai_sparkles"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:src="@drawable/mic_sparkle_pair_gold"
+                    android:alpha="0.95"
+                    android:importantForAccessibility="no" />
 
-                android:padding="5dp" />
+                <ImageView
+                    android:layout_width="18dp"
+                    android:layout_height="18dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_ghostwriter_hand"
+                    android:scaleType="centerInside"
+                    android:importantForAccessibility="no" />
+
+            </FrameLayout>
 
             <ImageButton
                 android:id="@+id/btn_delete_forward"

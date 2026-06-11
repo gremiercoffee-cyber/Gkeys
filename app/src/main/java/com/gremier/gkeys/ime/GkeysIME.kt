@@ -213,7 +213,7 @@ class GkeysIME : InputMethodService() {
     private lateinit var btnAiBarBack: ImageButton
     private lateinit var btnSettings: ImageButton
     private lateinit var btnVoiceBubble: ImageButton
-    private lateinit var btnWand: ImageButton
+    private lateinit var btnWand: FrameLayout
     private lateinit var btnLiveTranscribe: ImageButton
     private lateinit var btnPolishLevel: TextView
     private lateinit var btnRawPolish: ImageButton
@@ -419,9 +419,13 @@ class GkeysIME : InputMethodService() {
                 aiBarClipboardToolbarEnabled = layout[3] as Boolean
                 aiBarNumpadEnabled = layout[4] as Boolean
             }.collect {
-                applyAiBarLayout()
-                if (!voiceBubbleEnabled && voiceBubbleModeActive) {
-                    exitVoiceBubbleMode()
+                try {
+                    applyAiBarLayout()
+                    if (!voiceBubbleEnabled && voiceBubbleModeActive) {
+                        exitVoiceBubbleMode()
+                    }
+                } catch (e: Throwable) {
+                    android.util.Log.e("GkeysIME", "observeAiBarSettings failed", e)
                 }
             }
         }
@@ -684,6 +688,7 @@ class GkeysIME : InputMethodService() {
 
         setupAiStrip()
         applyAiBarLayout()
+        showPrimaryAiBar()
         applyKeyboardTheme()
         applyUniversalShellHeight()
         scope.launch(Dispatchers.IO) {
@@ -1314,6 +1319,10 @@ class GkeysIME : InputMethodService() {
             armBubbleShowRequestConsume()
             if (::keyboardView.isInitialized) {
                 keyboardView.visibility = View.GONE
+            }
+        } else {
+            if (::keyboardView.isInitialized) {
+                keyboardView.visibility = View.VISIBLE
             }
         }
         if (liveSttSessionActive && shouldUseInvisibleLiveSttSession() && ::keyboardView.isInitialized) {
@@ -2223,19 +2232,26 @@ class GkeysIME : InputMethodService() {
 
     private fun applyAiBarLayout() {
         if (!::aiStrip.isInitialized) return
-        reorderAiBarStrip(
-            strip = aiStrip,
-            order = aiBarPrimaryOrder,
-            viewForId = { primaryAiBarViewForId(it) },
-            trailingSpacer = false,
-        )
-        reorderAiBarStrip(
-            strip = aiStripSecondary,
-            order = aiBarSecondaryOrder,
-            viewForId = { secondaryAiBarViewForId(it) },
-            trailingSpacer = true,
-        )
-        applyAiBarVisibility()
+        try {
+            val assigned = mutableSetOf<View>()
+            reorderAiBarStrip(
+                strip = aiStrip,
+                order = aiBarPrimaryOrder,
+                viewForId = { primaryAiBarViewForId(it) },
+                trailingSpacer = false,
+                assigned = assigned,
+            )
+            reorderAiBarStrip(
+                strip = aiStripSecondary,
+                order = aiBarSecondaryOrder,
+                viewForId = { secondaryAiBarViewForId(it) },
+                trailingSpacer = true,
+                assigned = assigned,
+            )
+            applyAiBarVisibility()
+        } catch (e: Throwable) {
+            android.util.Log.e("GkeysIME", "applyAiBarLayout failed", e)
+        }
     }
 
     private fun primaryAiBarViewForId(id: String): View? = when (id) {
@@ -2254,8 +2270,6 @@ class GkeysIME : InputMethodService() {
 
     private fun secondaryAiBarViewForId(id: String): View? = when (id) {
         AiBarLayout.BACK -> if (::btnAiBarBack.isInitialized) btnAiBarBack else null
-        AiBarLayout.POLISH -> if (::btnPolishLevel.isInitialized) btnPolishLevel else null
-        AiBarLayout.RAW_POLISH -> if (::btnRawPolish.isInitialized) btnRawPolish else null
         AiBarLayout.SETTINGS -> if (::btnSettings.isInitialized) btnSettings else null
         AiBarLayout.UNDO -> if (::btnClipboardUndo.isInitialized) btnClipboardUndo else null
         AiBarLayout.SELECT_ALL -> if (::btnSelectAll.isInitialized) btnSelectAll else null
@@ -2268,25 +2282,49 @@ class GkeysIME : InputMethodService() {
         order: List<String>,
         viewForId: (String) -> View?,
         trailingSpacer: Boolean,
+        assigned: MutableSet<View>,
     ) {
-        val views = order.mapNotNull { viewForId(it) }
-        if (views.isEmpty()) return
-        val paramsByView = views.associateWith { it.layoutParams }
+        val views = order.mapNotNull { id ->
+            viewForId(id)?.takeIf { it !in assigned }?.also { assigned.add(it) }
+        }
         strip.removeAllViews()
+        if (views.isEmpty()) {
+            if (trailingSpacer) {
+                strip.addView(createAiBarTrailingSpacer())
+            }
+            return
+        }
         for (view in views) {
-            val params = paramsByView[view] ?: LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-            )
-            strip.addView(view, params)
+            strip.addView(view, aiBarItemLayoutParams(view))
         }
         if (trailingSpacer) {
-            strip.addView(
-                View(this).apply {
-                    tag = AiBarLayout.SPACER_TAG
-                    layoutParams = LinearLayout.LayoutParams(0, 0, 1f)
-                }
-            )
+            strip.addView(createAiBarTrailingSpacer())
+        }
+    }
+
+    private fun createAiBarTrailingSpacer(): View =
+        View(this).apply {
+            tag = AiBarLayout.SPACER_TAG
+            layoutParams = LinearLayout.LayoutParams(0, 0, 1f)
+        }
+
+    private fun aiBarItemLayoutParams(view: View): LinearLayout.LayoutParams {
+        val previous = view.layoutParams as? LinearLayout.LayoutParams
+        val width = when (view.id) {
+            R.id.clipboard_area -> dp(84)
+            R.id.mic_group -> LinearLayout.LayoutParams.WRAP_CONTENT
+            else -> LinearLayout.LayoutParams.WRAP_CONTENT
+        }
+        return LinearLayout.LayoutParams(width, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            marginStart = previous?.marginStart ?: when (view.id) {
+                R.id.btn_ai_bar_page, R.id.btn_ai_bar_back -> 0
+                else -> dp(5)
+            }
+            marginEnd = previous?.marginEnd ?: 0
+            topMargin = previous?.topMargin ?: 0
+            bottomMargin = previous?.bottomMargin ?: 0
+            weight = if (view.id == R.id.clipboard_area) 0f else previous?.weight ?: 0f
+            gravity = previous?.gravity ?: android.view.Gravity.CENTER_VERTICAL
         }
     }
 
