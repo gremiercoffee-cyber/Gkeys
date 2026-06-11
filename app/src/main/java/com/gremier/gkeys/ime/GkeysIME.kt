@@ -47,8 +47,6 @@ import com.gremier.gkeys.ime.suggestions.SuggestionStripController
 import com.gremier.gkeys.ime.suggestions.SuggestionVisibilityController
 import com.gremier.gkeys.ime.suggestions.UserWordsRepository
 import com.gremier.gkeys.ime.touch.AdaptiveTouchIntelligence
-import com.gremier.gkeys.ime.touch.SwipePoint
-import com.gremier.gkeys.ime.touch.SwipeTypingDecoder
 import com.gremier.gkeys.ime.touch.TouchInputResolver
 import com.gremier.gkeys.ime.touch.TouchPersonalization
 import com.gremier.gkeys.settings.AppVersionTracker
@@ -234,8 +232,6 @@ class GkeysIME : InputMethodService() {
     private var currentWordPrefix = ""
     private var lastCompletedWord = ""
     private var awaitingTouchCorrection = false
-    private var pendingSwipeDeleteText: String? = null
-    private var pendingSwipeDeleteTimeMs = 0L
     private var adaptiveTouchEnabled = GkeysSettings.DEFAULT_ADAPTIVE_TOUCH
 
     private var emojiPanelVisible = false
@@ -258,7 +254,6 @@ class GkeysIME : InputMethodService() {
         private const val SHOW_SOFT_INPUT_REASON = 1
         private const val KEY_EMOJI_PANEL = "\uE000"
         private const val FIELD_TEXT_SCAN_LIMIT = 100_000
-        private const val SWIPE_BACKSPACE_WINDOW_MS = 8000L
 
         private val letterLongPressAlts = mapOf(
             "q" to "1", "w" to "2", "e" to "3", "r" to "4", "t" to "5",
@@ -615,9 +610,6 @@ class GkeysIME : InputMethodService() {
         keyboardRows.onKeyTap = { key ->
             handleKey(key)
             hapticKeyTap()
-        }
-        keyboardRows.onSwipeGesture = { points ->
-            handleSwipeGesture(points)
         }
         keyboardRows.onBackspaceDown = { startDeleteRepeat(skipInitial = true) }
         keyboardRows.onBackspaceUp = { stopDeleteRepeat() }
@@ -3481,56 +3473,6 @@ class GkeysIME : InputMethodService() {
         }
     }
 
-    private fun handleSwipeGesture(points: List<SwipePoint>) {
-        if (!suggestionsSupported() || isHebrew || isSymbols || isNumpad || emojiPanelVisible) return
-        val ic = currentInputConnection ?: return
-        if (!::touchResolver.isInitialized) return
-
-        val decoded = SwipeTypingDecoder.decode(
-            context = this,
-            language = activeSuggestionLanguage(),
-            points = points,
-            letterTargets = touchResolver.letterTargets(),
-            userWords = userWordsForSuggestions(),
-            previousWord = lastCompletedWord,
-        ) ?: return
-
-        syncWordPrefixFromField(ic)
-        val replaceLen = currentWordPrefix.length
-        if (replaceLen > 0) {
-            ic.deleteSurroundingText(replaceLen, 0)
-        }
-
-        val output = if (isShifted && decoded.isNotEmpty()) {
-            decoded.replaceFirstChar { it.uppercaseChar() }
-        } else {
-            decoded
-        }
-        val inserted = "$output "
-        ic.commitText(inserted, 1)
-        fieldUndo.recordInsert(inserted)
-        pendingSwipeDeleteText = inserted
-        pendingSwipeDeleteTimeMs = SystemClock.uptimeMillis()
-
-        lastCompletedWord = normalizeCompletedWord(decoded)
-        currentWordPrefix = ""
-        learnCompletedWord(decoded)
-        if (::adaptiveTouch.isInitialized) {
-            adaptiveTouch.setWordPrefix("")
-            adaptiveTouch.recordWordCompleted(normalizeCompletedWord(decoded))
-        }
-        if (isShifted && !capsLock) {
-            isShifted = false
-            handler.post { refreshLetterCaseOnKeys() }
-        }
-        awaitingTouchCorrection = false
-        updateTouchContext(" ")
-        updateUndoButtonState()
-        suggestionVisibilityController?.extendVisible()
-        refreshSuggestions()
-        hapticKeyTap()
-    }
-
     private fun refreshSuggestions() {
         val controller = suggestionStripController ?: return
         val undo = postAutocorrectUndo
@@ -3732,11 +3674,11 @@ class GkeysIME : InputMethodService() {
         val ic = currentInputConnection ?: return
         when (key) {
             "⌫" -> {
-                val deletedSwipeWord = deletePendingSwipeWord(ic)
-                if (!deletedSwipeWord && ::touchResolver.isInitialized && touchResolver.enabled) {
+                deleteOneCharWithUndo(ic)
+                if (::touchResolver.isInitialized && touchResolver.enabled) {
                     touchResolver.recordBackspaceOnRecentTap()
                 }
-                awaitingTouchCorrection = !deletedSwipeWord
+                awaitingTouchCorrection = true
                 syncWordPrefixAndRefreshSuggestions(ic)
                 updateUndoButtonState()
             }
@@ -3770,11 +3712,9 @@ class GkeysIME : InputMethodService() {
             }
             else -> {
                 if (key == "SPACE") {
-                    clearPendingSwipeDelete()
                     handleSpaceKey(ic)
                     return
                 }
-                clearPendingSwipeDelete()
                 val toInsert = if (isShifted && !isHebrew && key.length == 1 && key[0].isLetter()) key.uppercase()
                 else key
 
@@ -4048,50 +3988,20 @@ class GkeysIME : InputMethodService() {
     private fun deleteOneCharWithUndo(ic: InputConnection) {
         val selected = ic.getSelectedText(0)
         if (!selected.isNullOrEmpty()) {
-            clearPendingSwipeDelete()
             fieldUndo.recordDelete(selected.toString())
             ic.commitText("", 1)
         } else {
             val deleted = ic.getTextBeforeCursor(1, 0)?.toString().orEmpty()
             if (deleted.isNotEmpty()) {
-                clearPendingSwipeDelete()
                 fieldUndo.recordDelete(deleted)
             }
             ic.deleteSurroundingText(1, 0)
         }
     }
 
-    private fun deletePendingSwipeWord(ic: InputConnection): Boolean {
-        val inserted = pendingSwipeDeleteText ?: return false
-        val isFresh = SystemClock.uptimeMillis() - pendingSwipeDeleteTimeMs <= SWIPE_BACKSPACE_WINDOW_MS
-        val hasSelection = !ic.getSelectedText(0).isNullOrEmpty()
-        val beforeCursor = ic.getTextBeforeCursor(inserted.length, 0)?.toString().orEmpty()
-        if (!isFresh || hasSelection || beforeCursor != inserted) {
-            clearPendingSwipeDelete()
-            deleteOneCharWithUndo(ic)
-            return false
-        }
-
-        ic.deleteSurroundingText(inserted.length, 0)
-        fieldUndo.recordDelete(inserted)
-        clearPendingSwipeDelete()
-        postAutocorrectUndo = null
-        currentWordPrefix = ""
-        if (::adaptiveTouch.isInitialized) {
-            adaptiveTouch.setWordPrefix("")
-        }
-        return true
-    }
-
-    private fun clearPendingSwipeDelete() {
-        pendingSwipeDeleteText = null
-        pendingSwipeDeleteTimeMs = 0L
-    }
-
     private fun deleteForward() {
         val ic = currentInputConnection ?: return
         hapticKeyTap()
-        clearPendingSwipeDelete()
         ic.deleteSurroundingText(0, 1)
     }
 

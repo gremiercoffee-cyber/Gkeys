@@ -34,9 +34,6 @@ class TouchInputResolver(
     fun targetForLabel(label: String): KeyHitTarget? =
         targets.firstOrNull { it.label == label }
 
-    fun letterTargets(): List<KeyHitTarget> =
-        targets.filter { it.char != null }
-
     fun registerTarget(label: String, row: Int, centerX: Float, centerY: Float, width: Float, height: Float) {
         val char = label.singleOrNull()?.lowercaseChar()?.takeIf { it.isLetter() }
         val rowShift = TouchPositionCorrection.yShiftForRow(row, height, rightHandedMode)
