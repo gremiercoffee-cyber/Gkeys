@@ -264,6 +264,7 @@ class GkeysIME : InputMethodService() {
         private const val SHOW_SOFT_INPUT_REASON = 1
         private const val KEY_EMOJI_PANEL = "\uE000"
         private const val FIELD_TEXT_SCAN_LIMIT = 100_000
+        private const val ENABLE_AOSP_GESTURE_TYPING = false
         private const val SWIPE_BACKSPACE_WINDOW_MS = 8000L
 
         private val letterLongPressAlts = mapOf(
@@ -617,17 +618,21 @@ class GkeysIME : InputMethodService() {
         adaptiveTouch.load()
         adaptiveTouch.setEnabled(adaptiveTouchEnabled)
         touchResolver = TouchInputResolver(touchPersonalization, adaptiveTouch)
-        aospGestureTyping = AospGestureTypingEngine(
-            applicationContext,
-            SwipeLearningStore(applicationContext),
-        )
         keyboardRows.touchResolver = touchResolver
         keyboardRows.onKeyTap = { key ->
             handleKey(key)
             hapticKeyTap()
         }
-        keyboardRows.onSwipeGesture = { firstLabel, points ->
-            handleAospSwipeGesture(firstLabel, points)
+        if (ENABLE_AOSP_GESTURE_TYPING) {
+            aospGestureTyping = AospGestureTypingEngine(
+                applicationContext,
+                SwipeLearningStore(applicationContext),
+            )
+            keyboardRows.onSwipeGesture = { firstLabel, points ->
+                handleAospSwipeGesture(firstLabel, points)
+            }
+        } else {
+            keyboardRows.onSwipeGesture = null
         }
         keyboardRows.onBackspaceDown = { startDeleteRepeat(skipInitial = true) }
         keyboardRows.onBackspaceUp = { stopDeleteRepeat() }
@@ -700,7 +705,7 @@ class GkeysIME : InputMethodService() {
             val lang = DictionaryManager.languageForKeyboard(isHebrew)
             DictionaryManager.ensureLoaded(applicationContext, lang)
             userWordsRepository.ensureCache(lang)
-            if (lang == DictionaryManager.Language.EN && ::aospGestureTyping.isInitialized) {
+            if (ENABLE_AOSP_GESTURE_TYPING && lang == DictionaryManager.Language.EN && ::aospGestureTyping.isInitialized) {
                 aospGestureTyping.ensureDictionary(userWordsRepository.words(lang))
             }
         }
@@ -2895,6 +2900,7 @@ class GkeysIME : InputMethodService() {
     }
 
     private fun refreshAospGestureGeometry(container: KeyboardTouchLayout) {
+        if (!ENABLE_AOSP_GESTURE_TYPING) return
         if (!::aospGestureTyping.isInitialized || isHebrew || isSymbols || isNumpad || emojiPanelVisible) return
         aospGestureTyping.updateGeometry(
             keyboardWidth = container.width,
@@ -3575,7 +3581,7 @@ class GkeysIME : InputMethodService() {
             val lang = activeSuggestionLanguage()
             DictionaryManager.ensureLoaded(applicationContext, lang)
             userWordsRepository.ensureCache(lang)
-            if (lang == DictionaryManager.Language.EN && ::aospGestureTyping.isInitialized) {
+            if (ENABLE_AOSP_GESTURE_TYPING && lang == DictionaryManager.Language.EN && ::aospGestureTyping.isInitialized) {
                 aospGestureTyping.ensureDictionary(userWordsRepository.words(lang))
             }
         }
@@ -4327,7 +4333,7 @@ class GkeysIME : InputMethodService() {
         if (::micSessionGuard.isInitialized) {
             micSessionGuard.forceRelease()
         }
-        if (::aospGestureTyping.isInitialized) {
+        if (ENABLE_AOSP_GESTURE_TYPING && ::aospGestureTyping.isInitialized) {
             aospGestureTyping.close()
         }
         super.onDestroy()
