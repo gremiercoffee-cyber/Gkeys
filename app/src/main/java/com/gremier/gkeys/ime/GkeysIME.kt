@@ -391,10 +391,10 @@ class GkeysIME : InputMethodService() {
                     GkeysSettings.aiBarMicToolbarEnabled(this@GkeysIME),
                     GkeysSettings.aiBarVoiceInputIncludesMic(this@GkeysIME),
                     GkeysSettings.aiBarLiveTranscribeEnabled(this@GkeysIME),
-                    GkeysSettings.voiceBubbleEnabled(this@GkeysIME),
-                ) { wand, polish, micToolbar, micMode, live, bubble ->
-                    arrayOf(wand, polish, micToolbar, micMode, live, bubble)
+                ) { wand, polish, micToolbar, micMode, live ->
+                    arrayOf(wand, polish, micToolbar, micMode, live)
                 },
+                GkeysSettings.voiceBubbleEnabled(this@GkeysIME),
                 combine(
                     GkeysSettings.aiBarPrimaryOrder(this@GkeysIME),
                     GkeysSettings.aiBarSecondaryOrder(this@GkeysIME),
@@ -404,13 +404,13 @@ class GkeysIME : InputMethodService() {
                 ) { primary, secondary, clearAll, clipboard, numpad ->
                     arrayOf(primary, secondary, clearAll, clipboard, numpad)
                 },
-            ) { toggles, layout ->
-                aiBarWandEnabled = toggles[0] as Boolean
-                aiBarPolishButtonEnabled = toggles[1] as Boolean
-                aiBarMicToolbarEnabled = toggles[2] as Boolean
-                aiBarVoiceInputIncludesMic = toggles[3] as Boolean
-                aiBarLiveTranscribeEnabled = toggles[4] as Boolean
-                voiceBubbleEnabled = toggles[5] as Boolean
+            ) { toggles, bubble, layout ->
+                aiBarWandEnabled = toggles[0]
+                aiBarPolishButtonEnabled = toggles[1]
+                aiBarMicToolbarEnabled = toggles[2]
+                aiBarVoiceInputIncludesMic = toggles[3]
+                aiBarLiveTranscribeEnabled = toggles[4]
+                voiceBubbleEnabled = bubble
                 @Suppress("UNCHECKED_CAST")
                 aiBarPrimaryOrder = layout[0] as List<String>
                 @Suppress("UNCHECKED_CAST")
