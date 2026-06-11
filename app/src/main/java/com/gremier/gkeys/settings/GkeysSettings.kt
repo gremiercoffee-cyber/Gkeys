@@ -217,18 +217,18 @@ object GkeysSettings {
 
     fun aiBarPrimaryOrder(context: Context): Flow<List<String>> =
         settingsStore(context).data.map { prefs ->
-            com.gremier.gkeys.ime.AiBarLayout.parseOrder(
-                prefs[AI_BAR_PRIMARY_ORDER],
-                com.gremier.gkeys.ime.AiBarLayout.DEFAULT_PRIMARY_ORDER
-            )
+            com.gremier.gkeys.ime.AiBarLayout.migrateBarOrders(
+                com.gremier.gkeys.ime.AiBarLayout.splitOrderRaw(prefs[AI_BAR_PRIMARY_ORDER]),
+                com.gremier.gkeys.ime.AiBarLayout.splitOrderRaw(prefs[AI_BAR_SECONDARY_ORDER]),
+            ).first
         }
 
     fun aiBarSecondaryOrder(context: Context): Flow<List<String>> =
         settingsStore(context).data.map { prefs ->
-            com.gremier.gkeys.ime.AiBarLayout.parseOrder(
-                prefs[AI_BAR_SECONDARY_ORDER],
-                com.gremier.gkeys.ime.AiBarLayout.DEFAULT_SECONDARY_ORDER
-            )
+            com.gremier.gkeys.ime.AiBarLayout.migrateBarOrders(
+                com.gremier.gkeys.ime.AiBarLayout.splitOrderRaw(prefs[AI_BAR_PRIMARY_ORDER]),
+                com.gremier.gkeys.ime.AiBarLayout.splitOrderRaw(prefs[AI_BAR_SECONDARY_ORDER]),
+            ).second
         }
 
     fun aiBarClearAllEnabled(context: Context): Flow<Boolean> =

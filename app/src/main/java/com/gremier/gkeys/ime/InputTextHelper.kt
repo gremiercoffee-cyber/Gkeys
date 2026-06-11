@@ -39,6 +39,36 @@ object InputTextHelper {
         )
     }
 
+    /** Selection if present; otherwise the entire field (for manual polish). */
+    fun extractForPolishManual(ic: InputConnection, scanLimit: Int = 100_000): PolishTarget? {
+        val selected = ic.getSelectedText(0)
+        if (!selected.isNullOrBlank()) {
+            return PolishTarget(
+                text = selected.toString().trim(),
+                deleteBefore = 0,
+                deleteAfter = 0,
+                hadSelection = true
+            )
+        }
+        return extractAllFieldText(ic, scanLimit)
+    }
+
+    fun extractAllFieldText(ic: InputConnection, scanLimit: Int): PolishTarget? {
+        val beforeLen = ic.getTextBeforeCursor(scanLimit, 0)?.length ?: 0
+        val afterLen = ic.getTextAfterCursor(scanLimit, 0)?.length ?: 0
+        if (beforeLen == 0 && afterLen == 0) return null
+        val before = ic.getTextBeforeCursor(beforeLen, 0)?.toString().orEmpty()
+        val after = ic.getTextAfterCursor(afterLen, 0)?.toString().orEmpty()
+        val full = (before + after).trim()
+        if (full.isBlank()) return null
+        return PolishTarget(
+            text = full,
+            deleteBefore = beforeLen,
+            deleteAfter = afterLen,
+            hadSelection = false
+        )
+    }
+
     fun replaceText(ic: InputConnection, target: PolishTarget, newText: String) {
         if (target.hadSelection) {
             ic.commitText(newText, 1)

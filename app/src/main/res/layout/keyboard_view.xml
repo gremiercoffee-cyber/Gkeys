@@ -3,6 +3,7 @@
 <FrameLayout
 
     xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
 
     android:layout_width="match_parent"
 
@@ -28,7 +29,9 @@
 
         android:layoutDirection="ltr"
 
-        android:paddingBottom="6dp">
+        android:paddingBottom="6dp"
+        android:clipToPadding="false"
+        android:clipChildren="false">
 
 
 
@@ -44,13 +47,13 @@
 
             android:layoutDirection="ltr"
 
-            android:paddingStart="8dp"
+            android:paddingStart="2dp"
 
-            android:paddingEnd="8dp"
+            android:paddingEnd="2dp"
 
-            android:paddingTop="3dp"
+            android:paddingTop="2dp"
 
-            android:paddingBottom="3dp">
+            android:paddingBottom="2dp">
 
 
 
@@ -81,8 +84,8 @@
             android:layout_height="match_parent"
             android:orientation="horizontal"
             android:background="@android:color/transparent"
-            android:paddingStart="6dp"
-            android:paddingEnd="6dp"
+            android:paddingStart="3dp"
+            android:paddingEnd="3dp"
             android:gravity="center_vertical"
             android:layoutDirection="ltr">
 
@@ -95,6 +98,35 @@
                 android:contentDescription="Back to main toolbar"
                 android:scaleType="centerInside"
                 android:padding="5dp" />
+
+            <TextView
+                android:id="@+id/btn_polish_level"
+                android:layout_width="30dp"
+                android:layout_height="30dp"
+                android:layout_marginStart="5dp"
+                android:gravity="center"
+                android:text="N"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:background="@drawable/polish_toggle_bg"
+                android:clickable="true"
+                android:focusable="true"
+                android:foreground="?android:attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Natural dictation — tap to change polish mode" />
+
+            <ImageButton
+                android:id="@+id/btn_raw_polish"
+                android:layout_width="30dp"
+                android:layout_height="30dp"
+                android:layout_marginStart="5dp"
+                android:src="@drawable/ic_polish"
+                android:background="@drawable/ai_bar_icon_btn_bg"
+                android:contentDescription="Polish text now"
+                android:scaleType="centerInside"
+                android:padding="5dp"
+                android:visibility="gone"
+                app:tint="@color/gkeys_accent" />
 
             <ImageButton
                 android:id="@+id/btn_settings"
@@ -115,17 +147,6 @@
                 android:src="@drawable/ic_undo"
                 android:background="@drawable/ai_bar_icon_btn_bg"
                 android:contentDescription="Undo"
-                android:scaleType="centerInside"
-                android:padding="5dp" />
-
-            <ImageButton
-                android:id="@+id/btn_delete_forward"
-                android:layout_width="30dp"
-                android:layout_height="30dp"
-                android:layout_marginStart="5dp"
-                android:src="@drawable/ic_delete_forward"
-                android:background="@drawable/ai_bar_icon_btn_bg"
-                android:contentDescription="Delete forward"
                 android:scaleType="centerInside"
                 android:padding="5dp" />
 
@@ -195,9 +216,9 @@
 
             android:background="@android:color/transparent"
 
-            android:paddingStart="6dp"
+            android:paddingStart="3dp"
 
-            android:paddingEnd="6dp"
+            android:paddingEnd="3dp"
 
             android:gravity="center_vertical"
 
@@ -207,13 +228,13 @@
 
             <ImageButton
                 android:id="@+id/btn_ai_bar_page"
-                android:layout_width="30dp"
-                android:layout_height="30dp"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
                 android:src="@drawable/ic_chevron_forward"
                 android:background="@drawable/ai_bar_icon_btn_bg"
                 android:contentDescription="More toolbar options"
                 android:scaleType="centerInside"
-                android:padding="5dp" />
+                android:padding="4dp" />
 
 
 
@@ -225,60 +246,28 @@
 
                 android:layout_height="30dp"
 
-                android:src="@drawable/ic_polish"
+                android:layout_marginStart="6dp"
+
+                android:src="@drawable/ic_ghostwriter"
 
                 android:background="@drawable/ai_bar_icon_btn_bg"
 
-                android:contentDescription="Wand — tap for AI ghostwriter"
+                android:contentDescription="Ghostwriter — tap for AI writing"
 
                 android:scaleType="centerInside"
 
                 android:padding="5dp" />
 
-
-
-            <TextView
-
-                android:id="@+id/btn_polish_level"
-
-                android:layout_width="30dp"
-
-                android:layout_height="30dp"
-
-                android:layout_marginStart="5dp"
-
-                android:gravity="center"
-
-                android:text="N"
-
-                android:textColor="#FFFFFF"
-
-                android:textSize="12sp"
-
-                android:textStyle="bold"
-
-                android:background="@drawable/polish_toggle_bg"
-
-                android:clickable="true"
-
-                android:focusable="true"
-
-                android:foreground="?android:attr/selectableItemBackgroundBorderless"
-
-                android:contentDescription="Natural dictation — tap to change polish mode" />
-
             <ImageButton
-                android:id="@+id/btn_raw_polish"
+                android:id="@+id/btn_delete_forward"
                 android:layout_width="30dp"
                 android:layout_height="30dp"
                 android:layout_marginStart="5dp"
-                android:src="@drawable/ic_polish"
+                android:src="@drawable/ic_delete_forward"
                 android:background="@drawable/ai_bar_icon_btn_bg"
-                android:contentDescription="Polish text now"
+                android:contentDescription="Delete forward"
                 android:scaleType="centerInside"
-                android:padding="5dp"
-                android:visibility="gone"
-                android:tint="@color/gkeys_accent" />
+                android:padding="5dp" />
 
 
 
@@ -721,7 +710,11 @@
 
             android:layoutDirection="ltr"
 
-            android:background="@color/gkeys_bg">
+            android:background="@color/gkeys_bg"
+
+            android:clipToPadding="false"
+
+            android:clipChildren="false">
 
 
 

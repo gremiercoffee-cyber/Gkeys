@@ -22,11 +22,10 @@ import com.gremier.gkeys.R
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.slider.Slider
 import com.google.android.material.switchmaterial.SwitchMaterial
+import com.google.android.material.tabs.TabLayout
 import com.google.android.material.textfield.TextInputEditText
-import com.gremier.gkeys.ui.GkeysTheme
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 
 class SettingsActivity : AppCompatActivity() {
 
@@ -105,13 +104,11 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        runBlocking {
-            GkeysTheme.applyAppCompatNightMode(GkeysSettings.isDarkTheme(this@SettingsActivity))
-        }
         super.onCreate(savedInstanceState)
 
         try {
             setContentView(R.layout.activity_settings)
+            setupSettingsTabs()
             bindViews()
             loadSettings()
             setupListeners()
@@ -236,6 +233,33 @@ class SettingsActivity : AppCompatActivity() {
         } catch (e: Throwable) {
             android.util.Log.e("SettingsActivity", "onResume failed", e)
         }
+    }
+
+    private fun setupSettingsTabs() {
+        val tabs = findViewById<TabLayout>(R.id.settings_tabs)
+        val panels = listOf(
+            findViewById<android.view.View>(R.id.panel_setup),
+            findViewById(R.id.panel_ai),
+            findViewById(R.id.panel_keyboard),
+            findViewById(R.id.panel_toolbar)
+        )
+        listOf("Setup", "AI", "Keyboard", "Toolbar").forEach { label ->
+            tabs.addTab(tabs.newTab().setText(label))
+        }
+        tabs.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
+            override fun onTabSelected(tab: TabLayout.Tab) {
+                panels.forEachIndexed { index, panel ->
+                    panel.visibility = if (index == tab.position) {
+                        android.view.View.VISIBLE
+                    } else {
+                        android.view.View.GONE
+                    }
+                }
+            }
+
+            override fun onTabUnselected(tab: TabLayout.Tab) = Unit
+            override fun onTabReselected(tab: TabLayout.Tab) = Unit
+        })
     }
 
     private fun bindViews() {
@@ -474,7 +498,6 @@ class SettingsActivity : AppCompatActivity() {
                     else -> GkeysSettings.THEME_DARK
                 }
                 GkeysSettings.saveThemeMode(this@SettingsActivity, mode)
-                GkeysTheme.applyAppCompatNightMode(GkeysSettings.isDarkThemeMode(mode))
                 recreate()
             }
         }

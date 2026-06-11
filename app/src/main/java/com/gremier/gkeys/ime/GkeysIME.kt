@@ -1622,7 +1622,7 @@ class GkeysIME : InputMethodService() {
             return
         }
         val ic = currentInputConnection ?: return
-        val target = InputTextHelper.extractForPolish(ic)
+        val target = InputTextHelper.extractForPolishManual(ic, FIELD_TEXT_SCAN_LIMIT)
         if (target == null || target.text.isBlank()) {
             showErrorToast("No text to polish")
             return
@@ -2237,8 +2237,7 @@ class GkeysIME : InputMethodService() {
     private fun primaryAiBarViewForId(id: String): View? = when (id) {
         AiBarLayout.PAGE -> if (::btnAiBarPage.isInitialized) btnAiBarPage else null
         AiBarLayout.WAND -> if (::btnWand.isInitialized) btnWand else null
-        AiBarLayout.POLISH -> if (::btnPolishLevel.isInitialized) btnPolishLevel else null
-        AiBarLayout.RAW_POLISH -> if (::btnRawPolish.isInitialized) btnRawPolish else null
+        AiBarLayout.DELETE_FORWARD -> if (::btnDeleteForward.isInitialized) btnDeleteForward else null
         AiBarLayout.CLEAR_ALL -> if (::btnClipboardClearAll.isInitialized) btnClipboardClearAll else null
         AiBarLayout.CLIPBOARD -> if (::clipboardArea.isInitialized) clipboardArea else null
         AiBarLayout.LIVE -> if (::btnLiveTranscribe.isInitialized) btnLiveTranscribe else null
@@ -2249,9 +2248,10 @@ class GkeysIME : InputMethodService() {
 
     private fun secondaryAiBarViewForId(id: String): View? = when (id) {
         AiBarLayout.BACK -> if (::btnAiBarBack.isInitialized) btnAiBarBack else null
+        AiBarLayout.POLISH -> if (::btnPolishLevel.isInitialized) btnPolishLevel else null
+        AiBarLayout.RAW_POLISH -> if (::btnRawPolish.isInitialized) btnRawPolish else null
         AiBarLayout.SETTINGS -> if (::btnSettings.isInitialized) btnSettings else null
         AiBarLayout.UNDO -> if (::btnClipboardUndo.isInitialized) btnClipboardUndo else null
-        AiBarLayout.DELETE_FORWARD -> if (::btnDeleteForward.isInitialized) btnDeleteForward else null
         AiBarLayout.SELECT_ALL -> if (::btnSelectAll.isInitialized) btnSelectAll else null
         AiBarLayout.BUBBLE -> if (::btnVoiceBubble.isInitialized) btnVoiceBubble else null
         else -> null
@@ -2541,10 +2541,24 @@ class GkeysIME : InputMethodService() {
     }
 
     /** Locks toolbar + key area to one fixed height for every mode and overlay. */
-    private fun applyUniversalShellHeight() {
+    private fun applyUniversalShellHeight(retryAfterLayout: Boolean = true) {
         if (!::keyboardPanel.isInitialized) return
         val keysPx = dp(effectiveKeyboardHeightDp())
-        val shellPx = dp(KeyboardLayoutMetrics.shellHeightDp(effectiveKeyboardHeightDp()))
+        val dividerPx = dp(KeyboardLayoutMetrics.SHELL_DIVIDER_DP)
+        val bottomPadPx = dp(KeyboardLayoutMetrics.SHELL_BOTTOM_PADDING_DP)
+
+        val toolbarSlot = keyboardView.findViewById<View>(R.id.toolbar_slot)
+        var toolbarPx = toolbarSlot?.let { slot ->
+            when {
+                slot.height > 0 -> slot.height
+                slot.measuredHeight > 0 -> slot.measuredHeight
+                else -> 0
+            }
+        } ?: 0
+        if (toolbarPx <= 0) {
+            toolbarPx = dp(KeyboardLayoutMetrics.AI_STRIP_HEIGHT_DP)
+        }
+        val shellPx = toolbarPx + dividerPx + keysPx + bottomPadPx
 
         keyboardPanel.layoutParams = keyboardPanel.layoutParams.apply { height = keysPx }
         keyboardKeysHost.layoutParams = keyboardKeysHost.layoutParams.apply { height = keysPx }
@@ -2559,6 +2573,10 @@ class GkeysIME : InputMethodService() {
         overlayContainer?.layoutParams = overlayContainer.layoutParams.apply { height = keysPx }
         voiceOverlay.layoutParams = voiceOverlay.layoutParams.apply { height = keysPx }
         ghostwriterOverlay.layoutParams = ghostwriterOverlay.layoutParams.apply { height = keysPx }
+
+        if (retryAfterLayout && toolbarSlot != null && toolbarSlot.height == 0) {
+            toolbarSlot.post { applyUniversalShellHeight(retryAfterLayout = false) }
+        }
     }
 
     private fun cancelAiBarRecording() {

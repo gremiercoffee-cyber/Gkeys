@@ -41,7 +41,8 @@ object KeyboardLayoutMetrics {
 
 
 
-    const val AI_STRIP_HEIGHT_DP = 46
+    /** Matches [toolbar_slot] height in keyboard_view.xml (was 46dp before the modern AI bar shell). */
+    const val AI_STRIP_HEIGHT_DP = 52
 
     const val SUGGESTION_STRIP_HEIGHT_DP = 40
 

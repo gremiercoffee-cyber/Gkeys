@@ -29,4 +29,13 @@
     <color name="text_primary">#1C1C1E</color>
     <color name="text_muted">#8E8E93</color>
     <color name="accent_blue">#4A9EFF</color>
+
+    <!-- Settings screen — always light shell, dark cards -->
+    <color name="settings_screen_bg">#F2F2F7</color>
+    <color name="settings_screen_text">#1C1C1E</color>
+    <color name="settings_screen_muted">#636366</color>
+    <color name="settings_card_bg">#1C1C1E</color>
+    <color name="settings_card_text">#FFFFFF</color>
+    <color name="settings_card_muted">#9CA3AF</color>
+    <color name="settings_card_input_bg">#2C2C2E</color>
 </resources>
