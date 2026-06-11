@@ -827,12 +827,14 @@ class SettingsActivity : AppCompatActivity() {
         val alwaysOnSecondary = !isPrimary && (
             id == com.gremier.gkeys.ime.AiBarLayout.SETTINGS ||
                 id == com.gremier.gkeys.ime.AiBarLayout.UNDO ||
+                id == com.gremier.gkeys.ime.AiBarLayout.DELETE_FORWARD ||
                 id == com.gremier.gkeys.ime.AiBarLayout.SELECT_ALL
             )
+        val runtimePrimary = isPrimary && id == com.gremier.gkeys.ime.AiBarLayout.RAW_POLISH
         val voiceControlled = id == com.gremier.gkeys.ime.AiBarLayout.MIC ||
             id == com.gremier.gkeys.ime.AiBarLayout.LIVE
         when {
-            fixedAnchor || alwaysOnSecondary -> {
+            fixedAnchor || alwaysOnSecondary || runtimePrimary -> {
                 switch.visibility = android.view.View.GONE
             }
             voiceControlled -> {

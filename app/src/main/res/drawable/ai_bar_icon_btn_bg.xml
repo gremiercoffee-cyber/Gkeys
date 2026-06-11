@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ripple xmlns:android="http://schemas.android.com/apk/res/android"
+    android:color="@color/gkeys_ripple">
+    <item>
+        <shape android:shape="rectangle">
+            <corners android:radius="11dp" />
+            <solid android:color="@color/gkeys_ai_bar_btn" />
+            <stroke
+                android:width="0.5dp"
+                android:color="@color/gkeys_ai_bar_stroke" />
+        </shape>
+    </item>
+</ripple>

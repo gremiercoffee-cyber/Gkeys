@@ -182,6 +182,10 @@ class GkeysIME : InputMethodService() {
     private lateinit var userWordsRepository: UserWordsRepository
     private lateinit var aiStrip: LinearLayout
     private lateinit var aiStripSecondary: LinearLayout
+    private lateinit var aiBarShellPrimary: FrameLayout
+    private lateinit var aiBarShellSecondary: FrameLayout
+    private lateinit var aiBarShimmerPrimary: View
+    private lateinit var aiBarShimmerSecondary: View
     private var aiBarSecondaryVisible = false
     private lateinit var keyboardPanel: FrameLayout
     private lateinit var keyboardKeysHost: FrameLayout
@@ -193,6 +197,7 @@ class GkeysIME : InputMethodService() {
     private lateinit var clipboardArea: View
     private lateinit var clipboardPreviewStrip: View
     private lateinit var btnClipboardUndo: ImageButton
+    private lateinit var btnDeleteForward: ImageButton
     private lateinit var btnSelectAll: ImageButton
     private lateinit var btnClipboardClearAll: ImageButton
     private lateinit var btnMic: ImageView
@@ -210,6 +215,7 @@ class GkeysIME : InputMethodService() {
     private lateinit var btnWand: ImageButton
     private lateinit var btnLiveTranscribe: ImageButton
     private lateinit var btnPolishLevel: TextView
+    private lateinit var btnRawPolish: ImageButton
     private lateinit var voiceOverlay: View
     private lateinit var voiceStatus: TextView
     private lateinit var voiceTranslateHint: TextView
@@ -485,8 +491,14 @@ class GkeysIME : InputMethodService() {
         if (::keyboardContent.isInitialized) keyboardContent.setBackgroundColor(bg)
         if (::keyboardPanel.isInitialized) keyboardPanel.setBackgroundColor(bg)
         if (::keyboardKeysHost.isInitialized) keyboardKeysHost.setBackgroundColor(bg)
-        if (::aiStrip.isInitialized) aiStrip.setBackgroundColor(themeColor(R.color.gkeys_toolbar))
-        if (::aiStripSecondary.isInitialized) aiStripSecondary.setBackgroundColor(themeColor(R.color.gkeys_toolbar))
+        if (::aiBarShellPrimary.isInitialized) {
+            aiBarShellPrimary.findViewById<View>(R.id.ai_bar_bg_primary)?.background =
+                themeDrawable(R.drawable.ai_bar_shell_bg)
+        }
+        if (::aiBarShellSecondary.isInitialized) {
+            aiBarShellSecondary.findViewById<View>(R.id.ai_bar_bg_secondary)?.background =
+                themeDrawable(R.drawable.ai_bar_shell_bg)
+        }
         if (::suggestionStrip.isInitialized) {
             suggestionStrip.setBackgroundColor(themeColor(R.color.gkeys_suggestion_bar))
         }
@@ -536,6 +548,10 @@ class GkeysIME : InputMethodService() {
         userWordsRepository = UserWordsRepository(applicationContext)
         aiStrip = keyboardView.findViewById(R.id.ai_strip)
         aiStripSecondary = keyboardView.findViewById(R.id.ai_strip_secondary)
+        aiBarShellPrimary = keyboardView.findViewById(R.id.ai_bar_shell_primary)
+        aiBarShellSecondary = keyboardView.findViewById(R.id.ai_bar_shell_secondary)
+        aiBarShimmerPrimary = keyboardView.findViewById(R.id.ai_bar_shimmer_primary)
+        aiBarShimmerSecondary = keyboardView.findViewById(R.id.ai_bar_shimmer_secondary)
         keyboardPanel = keyboardView.findViewById(R.id.keyboard_panel)
         keyboardKeysHost = keyboardView.findViewById(R.id.keyboard_keys_host)
         keyboardRows = keyboardView.findViewById(R.id.keyboard_rows)
@@ -546,6 +562,7 @@ class GkeysIME : InputMethodService() {
         clipboardArea = keyboardView.findViewById(R.id.clipboard_area)
         clipboardPreviewStrip = keyboardView.findViewById(R.id.clipboard_preview_strip)
         btnClipboardUndo = keyboardView.findViewById(R.id.btn_clipboard_undo)
+        btnDeleteForward = keyboardView.findViewById(R.id.btn_delete_forward)
         btnSelectAll = keyboardView.findViewById(R.id.btn_select_all)
         btnClipboardClearAll = keyboardView.findViewById(R.id.btn_clipboard_clear_all)
         btnMic = keyboardView.findViewById(R.id.btn_mic)
@@ -563,6 +580,7 @@ class GkeysIME : InputMethodService() {
         btnWand = keyboardView.findViewById(R.id.btn_wand)
         btnLiveTranscribe = keyboardView.findViewById(R.id.btn_live_transcribe)
         btnPolishLevel = keyboardView.findViewById(R.id.btn_polish_level)
+        btnRawPolish = keyboardView.findViewById(R.id.btn_raw_polish)
         voiceOverlay = keyboardView.findViewById(R.id.voice_overlay)
         voiceStatus = keyboardView.findViewById(R.id.voice_status)
         voiceTranslateHint = keyboardView.findViewById(R.id.voice_translate_hint)
@@ -627,8 +645,7 @@ class GkeysIME : InputMethodService() {
             onPanelClose = { keyboardKeysHost.visibility = View.VISIBLE },
             onTextPromptOpen = {
                 overlayContainer.visibility = View.GONE
-                aiStrip.visibility = View.GONE
-                aiStripSecondary.visibility = View.GONE
+                hideAiBarsForOverlay()
                 suggestionStrip.visibility = View.GONE
                 keyboardKeysHost.visibility = View.VISIBLE
             },
@@ -648,6 +665,9 @@ class GkeysIME : InputMethodService() {
         clipboardManager?.setupPreviewInteractions()
         btnClipboardUndo.setOnClickListener {
             undoFieldEdit()
+        }
+        btnDeleteForward.setOnClickListener {
+            deleteForward()
         }
         btnSelectAll.setOnClickListener {
             selectAllFieldText()
@@ -1553,9 +1573,12 @@ class GkeysIME : InputMethodService() {
         updateLiveTranscribeButton()
 
         btnPolishLevel.setOnClickListener { cyclePolishLevel() }
+        btnRawPolish.setOnClickListener { polishFieldTextManual() }
         updatePolishLevelButton()
         updateNumpadButton()
         updateVoiceBubbleButtonVisibility()
+        AiBarShimmer.attach(aiBarShimmerPrimary)
+        AiBarShimmer.attach(aiBarShimmerSecondary)
         startMicIdleSparkleAnimation()
     }
 
@@ -1584,6 +1607,46 @@ class GkeysIME : InputMethodService() {
         btnPolishLevel.text = GkeysSettings.polishLevelLetter(polishLevel)
         btnPolishLevel.contentDescription =
             "${GkeysSettings.polishLevelLabel(polishLevel)} dictation — tap to change polish mode"
+        if (::btnRawPolish.isInitialized) {
+            val showRawPolish = polishLevel == GkeysSettings.POLISH_RAW && aiBarPolishButtonEnabled
+            btnRawPolish.visibility = if (showRawPolish) View.VISIBLE else View.GONE
+        }
+    }
+
+    private fun polishFieldTextManual() {
+        if (isPolishing) return
+        refreshApiKeys()
+        if (openAiKey.isBlank()) {
+            showErrorToast("Add OpenAI API key in Gkeys settings")
+            openAppSettings()
+            return
+        }
+        val ic = currentInputConnection ?: return
+        val target = InputTextHelper.extractForPolish(ic)
+        if (target == null || target.text.isBlank()) {
+            showErrorToast("No text to polish")
+            return
+        }
+        val polishAs = if (polishLevel == GkeysSettings.POLISH_RAW) {
+            GkeysSettings.POLISH_NATURAL
+        } else {
+            polishLevel
+        }
+        isPolishing = true
+        toastStatus("Polishing…")
+        scope.launch {
+            val result = aiManager.polishText(target.text, openAiKey, polishAs)
+            toastStatus("")
+            isPolishing = false
+            if (result.isSuccess) {
+                val polished = result.getOrThrow()
+                val finalized = aiManager.finalizeWithUserInstructions(polished, openAiKey).getOrElse { polished }
+                InputTextHelper.replaceText(ic, target, finalized)
+                vibrate()
+            } else {
+                showErrorToast("Polish failed — text unchanged")
+            }
+        }
     }
 
     /** Tap wand: open ghostwriter, record, tap again to write into the field. */
@@ -2134,14 +2197,14 @@ class GkeysIME : InputMethodService() {
 
     private fun showPrimaryAiBar() {
         aiBarSecondaryVisible = false
-        if (::aiStrip.isInitialized) aiStrip.visibility = View.VISIBLE
-        if (::aiStripSecondary.isInitialized) aiStripSecondary.visibility = View.GONE
+        if (::aiBarShellPrimary.isInitialized) aiBarShellPrimary.visibility = View.VISIBLE
+        if (::aiBarShellSecondary.isInitialized) aiBarShellSecondary.visibility = View.GONE
     }
 
     private fun showSecondaryAiBar() {
         aiBarSecondaryVisible = true
-        if (::aiStrip.isInitialized) aiStrip.visibility = View.GONE
-        if (::aiStripSecondary.isInitialized) aiStripSecondary.visibility = View.VISIBLE
+        if (::aiBarShellPrimary.isInitialized) aiBarShellPrimary.visibility = View.GONE
+        if (::aiBarShellSecondary.isInitialized) aiBarShellSecondary.visibility = View.VISIBLE
         updateUndoButtonState()
     }
 
@@ -2150,8 +2213,8 @@ class GkeysIME : InputMethodService() {
     }
 
     private fun hideAiBarsForOverlay() {
-        if (::aiStrip.isInitialized) aiStrip.visibility = View.GONE
-        if (::aiStripSecondary.isInitialized) aiStripSecondary.visibility = View.GONE
+        if (::aiBarShellPrimary.isInitialized) aiBarShellPrimary.visibility = View.GONE
+        if (::aiBarShellSecondary.isInitialized) aiBarShellSecondary.visibility = View.GONE
     }
 
     private fun applyAiBarLayout() {
@@ -2175,6 +2238,7 @@ class GkeysIME : InputMethodService() {
         AiBarLayout.PAGE -> if (::btnAiBarPage.isInitialized) btnAiBarPage else null
         AiBarLayout.WAND -> if (::btnWand.isInitialized) btnWand else null
         AiBarLayout.POLISH -> if (::btnPolishLevel.isInitialized) btnPolishLevel else null
+        AiBarLayout.RAW_POLISH -> if (::btnRawPolish.isInitialized) btnRawPolish else null
         AiBarLayout.CLEAR_ALL -> if (::btnClipboardClearAll.isInitialized) btnClipboardClearAll else null
         AiBarLayout.CLIPBOARD -> if (::clipboardArea.isInitialized) clipboardArea else null
         AiBarLayout.LIVE -> if (::btnLiveTranscribe.isInitialized) btnLiveTranscribe else null
@@ -2187,6 +2251,7 @@ class GkeysIME : InputMethodService() {
         AiBarLayout.BACK -> if (::btnAiBarBack.isInitialized) btnAiBarBack else null
         AiBarLayout.SETTINGS -> if (::btnSettings.isInitialized) btnSettings else null
         AiBarLayout.UNDO -> if (::btnClipboardUndo.isInitialized) btnClipboardUndo else null
+        AiBarLayout.DELETE_FORWARD -> if (::btnDeleteForward.isInitialized) btnDeleteForward else null
         AiBarLayout.SELECT_ALL -> if (::btnSelectAll.isInitialized) btnSelectAll else null
         AiBarLayout.BUBBLE -> if (::btnVoiceBubble.isInitialized) btnVoiceBubble else null
         else -> null
@@ -2223,6 +2288,11 @@ class GkeysIME : InputMethodService() {
         if (!::btnWand.isInitialized) return
         btnWand.visibility = if (aiBarWandEnabled) View.VISIBLE else View.GONE
         btnPolishLevel.visibility = if (aiBarPolishButtonEnabled) View.VISIBLE else View.GONE
+        if (::btnRawPolish.isInitialized) {
+            btnRawPolish.visibility =
+                if (aiBarPolishButtonEnabled && polishLevel == GkeysSettings.POLISH_RAW) View.VISIBLE
+                else View.GONE
+        }
         if (::btnClipboardClearAll.isInitialized) {
             btnClipboardClearAll.visibility = if (aiBarClearAllEnabled) View.VISIBLE else View.GONE
         }
@@ -2500,7 +2570,8 @@ class GkeysIME : InputMethodService() {
 
     private fun updateMicCancelVisibility() {
         if (!::btnMicCancel.isInitialized) return
-        val toolbarVisible = ::aiStrip.isInitialized && aiStrip.visibility == View.VISIBLE
+        val toolbarVisible = ::aiBarShellPrimary.isInitialized &&
+            aiBarShellPrimary.visibility == View.VISIBLE
         val show = isRecording && !recordingForGhostwriter && toolbarVisible
         btnMicCancel.visibility = if (show) View.VISIBLE else View.GONE
     }
@@ -3812,10 +3883,28 @@ class GkeysIME : InputMethodService() {
                 return@launch
             }
 
-            showDictationStatus("Polishing…")
             val activePolishLevel = GkeysSettings.polishLevel(this@GkeysIME).first()
             polishLevel = activePolishLevel
             if (::btnPolishLevel.isInitialized) updatePolishLevelButton()
+
+            if (effectiveAction == VoiceAction.DEFAULT &&
+                activePolishLevel == GkeysSettings.POLISH_RAW
+            ) {
+                showDictationStatus("Inserting…")
+                val rawText = transcript.trim()
+                commitTranscriptionResult(rawText) { success ->
+                    stopMicProcessingAnimation()
+                    if (success) {
+                        vibrate()
+                        clearDictationStatus()
+                    } else {
+                        showDictationStatus("Couldn't insert text — tap the field first", autoClearMs = 5000L)
+                    }
+                }
+                return@launch
+            }
+
+            showDictationStatus("Polishing…")
 
             val finalText = when (effectiveAction) {
                 VoiceAction.TRANSLATE ->
@@ -3855,37 +3944,7 @@ class GkeysIME : InputMethodService() {
         }
     }
 
-    private fun polishFieldText() {
-        if (isPolishing) return
-        refreshApiKeys()
-        if (openAiKey.isBlank()) {
-            showErrorToast("Add OpenAI API key in Gkeys settings")
-            openAppSettings()
-            return
-        }
-        val ic = currentInputConnection ?: return
-        val target = InputTextHelper.extractForPolish(ic)
-        if (target == null || target.text.isBlank()) {
-            showErrorToast("No text to polish")
-            return
-        }
-
-        isPolishing = true
-        toastStatus("Polishing…")
-        scope.launch {
-            val result = aiManager.polishText(target.text, openAiKey, polishLevel)
-            toastStatus("")
-            isPolishing = false
-            if (result.isSuccess) {
-                val polished = result.getOrThrow()
-                val finalized = aiManager.finalizeWithUserInstructions(polished, openAiKey).getOrElse { polished }
-                InputTextHelper.replaceText(ic, target, finalized)
-                vibrate()
-            } else {
-                showErrorToast("Polish failed — text unchanged")
-            }
-        }
-    }
+    private fun polishFieldText() = polishFieldTextManual()
 
     private fun pasteClipboardItem(item: ClipboardItem) {
         val ic = currentInputConnection ?: return
@@ -3927,6 +3986,12 @@ class GkeysIME : InputMethodService() {
             }
             ic.deleteSurroundingText(1, 0)
         }
+    }
+
+    private fun deleteForward() {
+        val ic = currentInputConnection ?: return
+        hapticKeyTap()
+        ic.deleteSurroundingText(0, 1)
     }
 
     private fun undoFieldEdit() {

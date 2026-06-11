@@ -40,24 +40,50 @@
 
             android:layout_width="match_parent"
 
-            android:layout_height="46dp"
+            android:layout_height="52dp"
 
-            android:layoutDirection="ltr">
+            android:layoutDirection="ltr"
+
+            android:paddingStart="8dp"
+
+            android:paddingEnd="8dp"
+
+            android:paddingTop="3dp"
+
+            android:paddingBottom="3dp">
 
 
 
         <!-- Secondary AI bar (page 2 — settings, undo, bubble, …) -->
 
+        <FrameLayout
+            android:id="@+id/ai_bar_shell_secondary"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:visibility="gone">
+
+            <View
+                android:id="@+id/ai_bar_bg_secondary"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:background="@drawable/ai_bar_shell_bg" />
+
+            <View
+                android:id="@+id/ai_bar_shimmer_secondary"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:background="@drawable/ai_bar_shimmer_sweep"
+                android:visibility="gone" />
+
         <LinearLayout
             android:id="@+id/ai_strip_secondary"
             android:layout_width="match_parent"
-            android:layout_height="46dp"
+            android:layout_height="match_parent"
             android:orientation="horizontal"
-            android:background="@color/gkeys_toolbar"
-            android:paddingStart="8dp"
-            android:paddingEnd="8dp"
+            android:background="@android:color/transparent"
+            android:paddingStart="6dp"
+            android:paddingEnd="6dp"
             android:gravity="center_vertical"
-            android:visibility="gone"
             android:layoutDirection="ltr">
 
             <ImageButton
@@ -65,7 +91,7 @@
                 android:layout_width="30dp"
                 android:layout_height="30dp"
                 android:src="@drawable/ic_back_arrow"
-                android:background="@drawable/btn_circle_bg"
+                android:background="@drawable/ai_bar_icon_btn_bg"
                 android:contentDescription="Back to main toolbar"
                 android:scaleType="centerInside"
                 android:padding="5dp" />
@@ -76,7 +102,7 @@
                 android:layout_height="30dp"
                 android:layout_marginStart="5dp"
                 android:src="@drawable/ic_settings"
-                android:background="@drawable/btn_circle_bg"
+                android:background="@drawable/ai_bar_icon_btn_bg"
                 android:contentDescription="Gkeys settings"
                 android:scaleType="centerInside"
                 android:padding="5dp" />
@@ -87,8 +113,19 @@
                 android:layout_height="30dp"
                 android:layout_marginStart="5dp"
                 android:src="@drawable/ic_undo"
-                android:background="@drawable/btn_circle_bg"
+                android:background="@drawable/ai_bar_icon_btn_bg"
                 android:contentDescription="Undo"
+                android:scaleType="centerInside"
+                android:padding="5dp" />
+
+            <ImageButton
+                android:id="@+id/btn_delete_forward"
+                android:layout_width="30dp"
+                android:layout_height="30dp"
+                android:layout_marginStart="5dp"
+                android:src="@drawable/ic_delete_forward"
+                android:background="@drawable/ai_bar_icon_btn_bg"
+                android:contentDescription="Delete forward"
                 android:scaleType="centerInside"
                 android:padding="5dp" />
 
@@ -98,7 +135,7 @@
                 android:layout_height="30dp"
                 android:layout_marginStart="5dp"
                 android:src="@drawable/ic_select_all"
-                android:background="@drawable/btn_circle_bg"
+                android:background="@drawable/ai_bar_icon_btn_bg"
                 android:contentDescription="Select all"
                 android:scaleType="centerInside"
                 android:padding="5dp" />
@@ -109,7 +146,7 @@
                 android:layout_height="32dp"
                 android:layout_marginStart="5dp"
                 android:src="@drawable/ic_gkeys_mark_zoomed"
-                android:background="@drawable/btn_circle_bg"
+                android:background="@drawable/ai_bar_icon_btn_bg"
                 android:contentDescription="Voice Bubble Mode — hide keyboard, dictate with floating bubble"
                 android:scaleType="centerCrop"
                 android:padding="2dp" />
@@ -122,9 +159,29 @@
 
         </LinearLayout>
 
+        </FrameLayout>
+
 
 
         <!-- Primary AI bar (page 1 — dictation, clipboard, mic, …) -->
+
+        <FrameLayout
+            android:id="@+id/ai_bar_shell_primary"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent">
+
+            <View
+                android:id="@+id/ai_bar_bg_primary"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:background="@drawable/ai_bar_shell_bg" />
+
+            <View
+                android:id="@+id/ai_bar_shimmer_primary"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:background="@drawable/ai_bar_shimmer_sweep"
+                android:visibility="gone" />
 
         <LinearLayout
 
@@ -132,15 +189,15 @@
 
             android:layout_width="match_parent"
 
-            android:layout_height="46dp"
+            android:layout_height="match_parent"
 
             android:orientation="horizontal"
 
-            android:background="@color/gkeys_toolbar"
+            android:background="@android:color/transparent"
 
-            android:paddingStart="8dp"
+            android:paddingStart="6dp"
 
-            android:paddingEnd="8dp"
+            android:paddingEnd="6dp"
 
             android:gravity="center_vertical"
 
@@ -153,7 +210,7 @@
                 android:layout_width="30dp"
                 android:layout_height="30dp"
                 android:src="@drawable/ic_chevron_forward"
-                android:background="@drawable/btn_circle_bg"
+                android:background="@drawable/ai_bar_icon_btn_bg"
                 android:contentDescription="More toolbar options"
                 android:scaleType="centerInside"
                 android:padding="5dp" />
@@ -170,7 +227,7 @@
 
                 android:src="@drawable/ic_polish"
 
-                android:background="@drawable/btn_circle_bg"
+                android:background="@drawable/ai_bar_icon_btn_bg"
 
                 android:contentDescription="Wand — tap for AI ghostwriter"
 
@@ -210,6 +267,19 @@
 
                 android:contentDescription="Natural dictation — tap to change polish mode" />
 
+            <ImageButton
+                android:id="@+id/btn_raw_polish"
+                android:layout_width="30dp"
+                android:layout_height="30dp"
+                android:layout_marginStart="5dp"
+                android:src="@drawable/ic_polish"
+                android:background="@drawable/ai_bar_icon_btn_bg"
+                android:contentDescription="Polish text now"
+                android:scaleType="centerInside"
+                android:padding="5dp"
+                android:visibility="gone"
+                android:tint="@color/gkeys_accent" />
+
 
 
             <ImageButton
@@ -218,7 +288,7 @@
                 android:layout_height="28dp"
                 android:layout_marginStart="5dp"
                 android:src="@drawable/ic_clear_all"
-                android:background="@drawable/btn_circle_bg"
+                android:background="@drawable/ai_bar_icon_btn_bg"
                 android:contentDescription="Clear all text"
                 android:scaleType="centerInside"
                 android:padding="5dp" />
@@ -304,7 +374,7 @@
                 android:layout_height="30dp"
                 android:layout_marginStart="4dp"
                 android:src="@drawable/ic_live_speech"
-                android:background="@drawable/btn_circle_bg"
+                android:background="@drawable/ai_bar_icon_btn_bg"
                 android:contentDescription="Live transcribe — tap to start and stop"
                 android:scaleType="centerInside"
                 android:padding="5dp"
@@ -327,7 +397,7 @@
                     android:layout_height="28dp"
                     android:layout_marginEnd="4dp"
                     android:src="@drawable/ic_cancel_recording"
-                    android:background="@drawable/btn_circle_bg"
+                    android:background="@drawable/ai_bar_icon_btn_bg"
                     android:contentDescription="Cancel dictation"
                     android:scaleType="centerInside"
                     android:padding="5dp"
@@ -441,7 +511,7 @@
 
                 android:src="@drawable/ic_dialpad"
 
-                android:background="@drawable/btn_circle_bg"
+                android:background="@drawable/ai_bar_icon_btn_bg"
 
                 android:contentDescription="Number pad"
 
@@ -452,6 +522,8 @@
 
 
         </LinearLayout>
+
+        </FrameLayout>
 
 
 

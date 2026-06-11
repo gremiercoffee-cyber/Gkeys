@@ -17,6 +17,11 @@
     <color name="gkeys_accent">#4A9EFF</color>
     <color name="gkeys_suggestion_bar">#E8E8ED</color>
     <color name="gkeys_ripple">#334A9EFF</color>
+    <color name="gkeys_ai_bar_top">#FFFFFF</color>
+    <color name="gkeys_ai_bar_bottom">#ECECF0</color>
+    <color name="gkeys_ai_bar_stroke">#33000000</color>
+    <color name="gkeys_ai_bar_btn">#1A000000</color>
+    <color name="gkeys_ai_bar_shimmer">#55FFFFFF</color>
     <color name="gkeys_clipboard_card">#FFFFFF</color>
     <color name="gkeys_clipboard_tab">#D1D1D6</color>
     <color name="ic_launcher_background">#E5E5EA</color>
