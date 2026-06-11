@@ -200,18 +200,86 @@ object SuggestionEngine {
     ): Boolean =
         DictionaryManager.isKnown(language, word) || userWords.containsKey(word)
 
+
+    // ---------------------------------------------------------------------
+    // Gboard-style keyboard slip candidate generation
+    // ---------------------------------------------------------------------
+
+    private fun keyboardSlipCandidates(
+        language: DictionaryManager.Language,
+        typed: String,
+    ): Sequence<String> {
+        if (language != DictionaryManager.Language.EN || typed.length < 2) {
+            return emptySequence()
+        }
+
+        val results = HashSet<String>()
+
+        fun addVariant(chars: CharArray) {
+            val word = String(chars)
+            if (word != typed && DictionaryManager.isKnown(language, word)) {
+                results.add(word)
+            }
+        }
+
+        val chars = typed.toCharArray()
+
+        // Replace each typed key with nearby keys.
+        for (i in chars.indices) {
+            val original = chars[i]
+            for (neighbor in KeyboardProximity.neighborKeys(original)) {
+                val copy = chars.copyOf()
+                copy[i] = neighbor
+                addVariant(copy)
+            }
+        }
+
+        // Also allow one missing / extra nearby-key mistake.
+        for (i in 0..chars.size) {
+            for (key in "abcdefghijklmnopqrstuvwxyz") {
+                val copy = chars.toMutableList()
+                copy.add(i, key)
+                addVariant(copy.toCharArray())
+            }
+        }
+
+        return results.asSequence()
+    }
+
+    private fun keyboardMistakeScore(
+        typed: String,
+        candidate: String
+    ): Double {
+        var score = 0.0
+        val len = minOf(typed.length, candidate.length)
+
+        for (i in 0 until len) {
+            if (typed[i] != candidate[i] &&
+                candidate[i] in KeyboardProximity.neighborKeys(typed[i])
+            ) {
+                score += 25
+            }
+        }
+
+        return score
+    }
+
     private fun rankCorrection(
         language: DictionaryManager.Language,
         typed: String,
         userWords: Map<String, Int>,
     ): Scored? {
-        return DictionaryManager.correctionCandidates(language, typed)
-            .asSequence()
+        return (
+            DictionaryManager.correctionCandidates(language, typed)
+                .asSequence()
+                .plus(keyboardSlipCandidates(language, typed))
+        )
             .filter { it != typed }
             .mapNotNull { candidate ->
                 val dist = weightedDistance(typed, candidate, language)
                 if (dist > MAX_EDIT_DISTANCE) return@mapNotNull null
-                val score = scoreCorrection(language, typed, candidate, userWords, dist)
+                val score = scoreCorrection(language, typed, candidate, userWords, dist) +
+                    keyboardMistakeScore(typed, candidate)
                 if (score < MIN_CORRECTION_SCORE) null else Scored(candidate, score)
             }
             .maxByOrNull { it.score }
