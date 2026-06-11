@@ -22,6 +22,7 @@ object SuggestionEngine {
         language: DictionaryManager.Language,
         prefix: String,
         userWords: Map<String, Int>,
+        previousWords: List<String> = emptyList(),
     ): SuggestionStripModel {
         DictionaryManager.ensureLoaded(context, language)
         val normalizedPrefix = normalize(prefix, language)
@@ -40,7 +41,7 @@ object SuggestionEngine {
                     return correctionModel(normalizedPrefix, it)
                 }
             }
-            val correction = rankCorrection(language, normalizedPrefix, userWords)
+            val correction = rankCorrection(language, normalizedPrefix, userWords, previousWords)
             if (correction != null && correction.word != normalizedPrefix) {
                 return correctionModel(normalizedPrefix, correction.word)
             }
@@ -72,6 +73,7 @@ object SuggestionEngine {
         language: DictionaryManager.Language,
         prefix: String,
         userWords: Map<String, Int>,
+        previousWords: List<String> = emptyList(),
     ): String? {
         DictionaryManager.ensureLoaded(context, language)
         val normalized = normalize(prefix, language)
@@ -85,7 +87,7 @@ object SuggestionEngine {
             contractionFor(normalized)?.let { return it }
             repeatedCharFix(language, normalized, userWords)?.let { return it }
         }
-        val correction = rankCorrection(language, normalized, userWords)
+        val correction = rankCorrection(language, normalized, userWords, previousWords)
         if (correction != null && correction.word != normalized && shouldAutocorrect(normalized, correction)) {
             return correction.word
         }
@@ -268,6 +270,7 @@ object SuggestionEngine {
         language: DictionaryManager.Language,
         typed: String,
         userWords: Map<String, Int>,
+        previousWords: List<String> = emptyList(),
     ): Scored? {
         return (
             DictionaryManager.correctionCandidates(language, typed)
@@ -279,7 +282,8 @@ object SuggestionEngine {
                 val dist = weightedDistance(typed, candidate, language)
                 if (dist > MAX_EDIT_DISTANCE) return@mapNotNull null
                 val score = scoreCorrection(language, typed, candidate, userWords, dist) +
-                    keyboardMistakeScore(typed, candidate)
+                    keyboardMistakeScore(typed, candidate) +
+                    contextScore(previousWords, candidate)
                 if (score < MIN_CORRECTION_SCORE) null else Scored(candidate, score)
             }
             .maxByOrNull { it.score }
@@ -315,6 +319,25 @@ object SuggestionEngine {
             .toList()
 
         return (userMatches + dictMatches).take(8)
+    }
+
+
+    /** Uses recent typed words to bias corrections/predictions. This learns from context without AI. */
+    private fun contextScore(
+        previousWords: List<String>,
+        candidate: String,
+    ): Double {
+        if (previousWords.isEmpty()) return 0.0
+
+        val previous = previousWords.last().lowercase()
+        return when {
+            previous == "thank" && candidate == "you" -> 500.0
+            previous == "want" && candidate == "to" -> 400.0
+            previous == "going" && candidate == "to" -> 400.0
+            previous == "see" && candidate == "you" -> 350.0
+            previous == "good" && candidate == "morning" -> 350.0
+            else -> 0.0
+        }
     }
 
     private fun scoreCorrection(
