@@ -237,7 +237,7 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="Off by default while we tune stability"
+                            android:text="Temporarily disabled while we stabilize typing"
                             android:textColor="@color/settings_card_muted"
                             android:textSize="12sp" />
                     </LinearLayout>
@@ -245,6 +245,7 @@
                         android:id="@+id/switch_experimental_swipe_typing"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
+                        android:enabled="false"
                         android:checked="false" />
                 </LinearLayout>
 <LinearLayout

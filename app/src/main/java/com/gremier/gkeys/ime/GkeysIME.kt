@@ -265,7 +265,7 @@ class GkeysIME : InputMethodService() {
         private const val SHOW_SOFT_INPUT_REASON = 1
         private const val KEY_EMOJI_PANEL = "\uE000"
         private const val FIELD_TEXT_SCAN_LIMIT = 100_000
-        private const val ALLOW_AOSP_GESTURE_TYPING = true
+        private const val ALLOW_AOSP_GESTURE_TYPING = false
         private const val SWIPE_BACKSPACE_WINDOW_MS = 8000L
 
         private val letterLongPressAlts = mapOf(
@@ -3824,8 +3824,11 @@ class GkeysIME : InputMethodService() {
         when (key) {
             "⌫" -> {
                 val deletedSwipeWord = deletePendingSwipeWord(ic)
-                if (!deletedSwipeWord && ::touchResolver.isInitialized && touchResolver.enabled) {
-                    touchResolver.recordBackspaceOnRecentTap()
+                if (!deletedSwipeWord) {
+                    deleteOneCharWithUndo(ic)
+                    if (::touchResolver.isInitialized && touchResolver.enabled) {
+                        touchResolver.recordBackspaceOnRecentTap()
+                    }
                 }
                 awaitingTouchCorrection = !deletedSwipeWord
                 syncWordPrefixAndRefreshSuggestions(ic)
