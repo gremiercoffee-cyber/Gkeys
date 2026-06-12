@@ -56,7 +56,7 @@ class AospGestureTypingEngine(
     ): GestureDecode? {
         if (points.size < MIN_POINTS) return null
         val pathKey = pathKey(points)
-        return fallbackDecode(points, userWords, pathKey)
+        return fallbackDecode(points, userWords, pathKey, previousWord)
     }
 
     fun recordAccepted(pathKey: String, word: String) {
@@ -100,6 +100,7 @@ class AospGestureTypingEngine(
         points: List<SwipePoint>,
         userWords: Map<String, Int>,
         pathKey: String,
+        previousWord: String,
     ): GestureDecode? {
         if (letters.isEmpty()) return null
         val targetsByChar = letters.mapNotNull { target ->
@@ -140,13 +141,19 @@ class AospGestureTypingEngine(
                 val learned = learningStore.score(pathKey, word)
                 val lengthPenalty = abs(observedPath.length - wordPath.length).toDouble() /
                     maxOf(observedPath.length, wordPath.length, 1)
+                val extraLetterPenalty = extraLetterPenalty(observedPath, wordPath)
+                val contextBoost = swipeContextBoost(previousWord, word)
+                val shortWordBoost = shortWordBoost(observedPath, word)
                 val cost =
                     distance * 1.25 +
                     sequenceDistance * 0.85 +
                     startDistance * 0.42 +
                     endDistance * 0.52 +
-                    lengthPenalty * 0.22 -
+                    lengthPenalty * 0.35 +
+                    extraLetterPenalty -
                     frequency * 0.018 -
+                    contextBoost -
+                    shortWordBoost -
                     personal * 0.08 -
                     learned / 1400.0
                 val score = -cost
@@ -232,6 +239,50 @@ class AospGestureTypingEngine(
             }
         }
         return out.toString()
+    }
+
+    private fun extraLetterPenalty(observedPath: String, wordPath: String): Double {
+        val extra = (wordPath.length - observedPath.length).coerceAtLeast(0)
+        if (extra == 0) return 0.0
+        return when {
+            observedPath.length <= 2 -> extra * 0.75
+            observedPath.length <= 4 -> extra * 0.45
+            else -> extra * 0.18
+        }
+    }
+
+    private fun shortWordBoost(observedPath: String, word: String): Double {
+        if (observedPath.length > 3 || word.length > 3) return 0.0
+        val wordPath = pathKeyForWord(word)
+        return if (observedPath == wordPath) 0.65 else 0.0
+    }
+
+    private fun swipeContextBoost(previousWord: String, candidate: String): Double {
+        val previous = previousWord.lowercase().trim()
+        if (previous.isBlank()) return 0.0
+        return when {
+            previous == "it" && candidate == "is" -> 1.4
+            previous == "this" && candidate == "is" -> 1.25
+            previous == "that" && candidate == "is" -> 1.25
+            previous == "he" && candidate == "is" -> 1.1
+            previous == "she" && candidate == "is" -> 1.1
+            previous == "what" && candidate == "is" -> 1.0
+            previous == "where" && candidate == "is" -> 1.0
+            previous == "for" && candidate == "us" -> 1.25
+            previous == "with" && candidate == "us" -> 1.15
+            previous == "let" && candidate == "us" -> 1.1
+            previous == "thank" && candidate == "you" -> 1.6
+            previous == "see" && candidate == "you" -> 1.2
+            previous == "going" && candidate == "to" -> 1.35
+            previous == "want" && candidate == "to" -> 1.25
+            previous == "have" && candidate == "to" -> 1.1
+            previous == "in" && candidate == "the" -> 1.25
+            previous == "on" && candidate == "the" -> 1.15
+            previous == "at" && candidate == "the" -> 1.15
+            previous == "for" && candidate == "the" -> 1.05
+            previous == "and" && candidate == "then" -> 0.95
+            else -> 0.0
+        }
     }
 
     private fun gestureDistance(

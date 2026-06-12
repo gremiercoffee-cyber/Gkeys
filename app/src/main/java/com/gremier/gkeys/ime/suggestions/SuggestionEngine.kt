@@ -356,9 +356,24 @@ object SuggestionEngine {
 
         val previous = previousWords.last().lowercase()
         return when {
+            previous == "it" && candidate == "is" -> 520.0
+            previous == "this" && candidate == "is" -> 480.0
+            previous == "that" && candidate == "is" -> 480.0
+            previous == "he" && candidate == "is" -> 430.0
+            previous == "she" && candidate == "is" -> 430.0
+            previous == "what" && candidate == "is" -> 380.0
+            previous == "where" && candidate == "is" -> 360.0
+            previous == "for" && candidate == "us" -> 460.0
+            previous == "with" && candidate == "us" -> 420.0
+            previous == "let" && candidate == "us" -> 380.0
             previous == "thank" && candidate == "you" -> 500.0
             previous == "want" && candidate == "to" -> 400.0
             previous == "going" && candidate == "to" -> 400.0
+            previous == "have" && candidate == "to" -> 360.0
+            previous == "in" && candidate == "the" -> 380.0
+            previous == "on" && candidate == "the" -> 360.0
+            previous == "at" && candidate == "the" -> 350.0
+            previous == "for" && candidate == "the" -> 320.0
             previous == "see" && candidate == "you" -> 350.0
             previous == "good" && candidate == "morning" -> 350.0
             else -> 0.0
