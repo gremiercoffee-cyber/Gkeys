@@ -109,28 +109,42 @@ class AospGestureTypingEngine(
 
         val sampledPoints = simplifyPoints(points)
         if (sampledPoints.size < MIN_POINTS) return null
-        val firstChar = nearestChar(sampledPoints.first(), targetsByChar) ?: return null
-        val lastChar = nearestChar(sampledPoints.last(), targetsByChar) ?: return null
+        val observedPath = pathKey(sampledPoints)
+        if (observedPath.length < 2) return null
         val candidates = LinkedHashSet<String>()
         userWords.keys.asSequence()
             .map { it.lowercase() }
-            .filterTo(candidates) { isFallbackCandidate(it, firstChar, lastChar, targetsByChar) }
+            .filterTo(candidates) { isFallbackCandidate(it, sampledPoints, observedPath, targetsByChar) }
         DictionaryManager.topWords(DictionaryManager.Language.EN, FALLBACK_WORD_LIMIT)
             .asSequence()
-            .filterTo(candidates) { isFallbackCandidate(it, firstChar, lastChar, targetsByChar) }
+            .filterTo(candidates) { isFallbackCandidate(it, sampledPoints, observedPath, targetsByChar) }
 
         val ranked = candidates.asSequence()
             .mapNotNull { word ->
                 val distance = gestureDistance(sampledPoints, word, targetsByChar)
                     ?: return@mapNotNull null
+                val wordPath = pathKeyForWord(word)
+                val sequenceDistance = editDistance(observedPath, wordPath).toDouble() /
+                    maxOf(observedPath.length, wordPath.length, 1)
+                val startDistance = keyDistance(sampledPoints.first(), word.first(), targetsByChar)
+                    ?: return@mapNotNull null
+                val endDistance = keyDistance(sampledPoints.last(), word.last(), targetsByChar)
+                    ?: return@mapNotNull null
                 val frequency = DictionaryManager.frequencyScore(DictionaryManager.Language.EN, word)
                 val personal = userWords[word]?.coerceAtMost(50) ?: 0
                 val learned = learningStore.score(pathKey, word)
-                val endPenalty = if (word.first() == firstChar && word.last() == lastChar) 0.0 else 0.65
-                val score = -((distance + endPenalty) * 1000.0) +
-                    frequency * 6.0 +
-                    personal * 35.0 +
-                    learned
+                val lengthPenalty = abs(observedPath.length - wordPath.length).toDouble() /
+                    maxOf(observedPath.length, wordPath.length, 1)
+                val cost =
+                    distance * 1.25 +
+                    sequenceDistance * 0.85 +
+                    startDistance * 0.42 +
+                    endDistance * 0.52 +
+                    lengthPenalty * 0.22 -
+                    frequency * 0.018 -
+                    personal * 0.08 -
+                    learned / 1400.0
+                val score = -cost
                 word to score
             }
             .sortedByDescending { it.second }
@@ -165,24 +179,26 @@ class AospGestureTypingEngine(
         }
     }
 
-    private fun nearestChar(
-        point: SwipePoint,
-        targetsByChar: Map<Char, KeyHitTarget>,
-    ): Char? =
-        targetsByChar.minByOrNull { (_, target) ->
-            hypot(point.x - target.centerX, point.y - target.centerY)
-        }?.key
-
     private fun isFallbackCandidate(
         word: String,
-        firstChar: Char,
-        lastChar: Char,
+        points: List<SwipePoint>,
+        observedPath: String,
         targetsByChar: Map<Char, KeyHitTarget>,
     ): Boolean {
         if (word.length !in 2..FALLBACK_MAX_WORD_LENGTH) return false
         if (word.any { it !in targetsByChar }) return false
-        if (word.first() != firstChar && word.last() != lastChar) return false
-        return abs(word.length - pathKeyForWord(word).length) <= FALLBACK_LENGTH_SLOP
+        val wordPath = pathKeyForWord(word)
+        val maxSequenceDistance = when {
+            wordPath.length <= 3 -> 1
+            wordPath.length <= 6 -> 2
+            else -> 3
+        }
+        if (editDistance(observedPath, wordPath) > maxSequenceDistance) return false
+        val startDistance = keyDistance(points.first(), word.first(), targetsByChar) ?: return false
+        val endDistance = keyDistance(points.last(), word.last(), targetsByChar) ?: return false
+        return startDistance <= FALLBACK_ENDPOINT_RADIUS &&
+            endDistance <= FALLBACK_ENDPOINT_RADIUS &&
+            abs(observedPath.length - wordPath.length) <= FALLBACK_LENGTH_SLOP
     }
 
     private fun pathKeyForWord(word: String): String {
@@ -202,30 +218,97 @@ class AospGestureTypingEngine(
         word: String,
         targetsByChar: Map<Char, KeyHitTarget>,
     ): Double? {
-        val wordTargets = word.map { targetsByChar[it] ?: return null }
-        if (wordTargets.isEmpty()) return null
+        val wordPoints = wordPathPoints(word, targetsByChar) ?: return null
+        if (wordPoints.isEmpty()) return null
         val norm = averageLetterWidth.coerceAtLeast(1f)
-        val rows = points.size + 1
-        val cols = wordTargets.size + 1
-        val costs = DoubleArray(rows * cols) { Double.POSITIVE_INFINITY }
-        fun idx(row: Int, col: Int) = row * cols + col
-        costs[idx(0, 0)] = 0.0
-        for (row in 1..points.size) {
-            val point = points[row - 1]
-            for (col in 1..wordTargets.size) {
-                val target = wordTargets[col - 1]
-                val distance = hypot(point.x - target.centerX, point.y - target.centerY) / norm
-                val previous = minOf(
-                    costs[idx(row - 1, col)],
-                    costs[idx(row, col - 1)],
-                    costs[idx(row - 1, col - 1)],
-                )
-                costs[idx(row, col)] = distance + previous
-            }
+        val gesture = resamplePoints(points, SHAPE_SAMPLE_COUNT)
+        val ideal = resamplePath(wordPoints, SHAPE_SAMPLE_COUNT)
+        if (gesture.size != ideal.size || gesture.isEmpty()) return null
+        var total = 0.0
+        for (index in gesture.indices) {
+            total += hypot(
+                gesture[index].first - ideal[index].first,
+                gesture[index].second - ideal[index].second,
+            ) / norm
         }
-        val raw = costs[idx(points.size, wordTargets.size)]
-        if (!raw.isFinite()) return null
-        return raw / (points.size + wordTargets.size)
+        return total / gesture.size
+    }
+
+    private fun wordPathPoints(
+        word: String,
+        targetsByChar: Map<Char, KeyHitTarget>,
+    ): List<Pair<Float, Float>>? {
+        val out = ArrayList<Pair<Float, Float>>(word.length)
+        var last: Char? = null
+        for (char in word) {
+            if (char == last) continue
+            val target = targetsByChar[char] ?: return null
+            out.add(target.centerX to target.centerY)
+            last = char
+        }
+        return out
+    }
+
+    private fun keyDistance(
+        point: SwipePoint,
+        char: Char,
+        targetsByChar: Map<Char, KeyHitTarget>,
+    ): Double? {
+        val target = targetsByChar[char] ?: return null
+        return (hypot(point.x - target.centerX, point.y - target.centerY) /
+            averageLetterWidth.coerceAtLeast(1f)).toDouble()
+    }
+
+    private fun resamplePoints(points: List<SwipePoint>, count: Int): List<Pair<Float, Float>> =
+        resamplePath(points.map { it.x to it.y }, count)
+
+    private fun resamplePath(points: List<Pair<Float, Float>>, count: Int): List<Pair<Float, Float>> {
+        if (points.isEmpty()) return emptyList()
+        if (points.size == 1 || count <= 1) return List(count.coerceAtLeast(1)) { points.first() }
+        val distances = FloatArray(points.size)
+        var total = 0f
+        for (index in 1 until points.size) {
+            total += hypot(
+                points[index].first - points[index - 1].first,
+                points[index].second - points[index - 1].second,
+            )
+            distances[index] = total
+        }
+        if (total <= 0f) return List(count) { points.first() }
+        return List(count) { sampleIndex ->
+            val target = total * sampleIndex / (count - 1)
+            var right = 1
+            while (right < distances.size - 1 && distances[right] < target) {
+                right++
+            }
+            val left = (right - 1).coerceAtLeast(0)
+            val span = (distances[right] - distances[left]).coerceAtLeast(0.001f)
+            val t = ((target - distances[left]) / span).coerceIn(0f, 1f)
+            val a = points[left]
+            val b = points[right]
+            (a.first + (b.first - a.first) * t) to (a.second + (b.second - a.second) * t)
+        }
+    }
+
+    private fun editDistance(a: String, b: String): Int {
+        if (a == b) return 0
+        if (a.isEmpty()) return b.length
+        if (b.isEmpty()) return a.length
+        val prev = IntArray(b.length + 1) { it }
+        val curr = IntArray(b.length + 1)
+        for (i in 1..a.length) {
+            curr[0] = i
+            for (j in 1..b.length) {
+                val cost = if (a[i - 1] == b[j - 1]) 0 else 1
+                curr[j] = minOf(
+                    prev[j] + 1,
+                    curr[j - 1] + 1,
+                    prev[j - 1] + cost,
+                )
+            }
+            for (j in curr.indices) prev[j] = curr[j]
+        }
+        return prev[b.length]
     }
 
     override fun close() {
@@ -236,11 +319,13 @@ class AospGestureTypingEngine(
 
     private companion object {
         private const val MIN_POINTS = 5
-        private const val FALLBACK_WORD_LIMIT = 8_000
+        private const val FALLBACK_WORD_LIMIT = 18_000
         private const val FALLBACK_MAX_WORD_LENGTH = 14
         private const val FALLBACK_LENGTH_SLOP = 4
+        private const val FALLBACK_ENDPOINT_RADIUS = 2.05
         private const val MAX_FALLBACK_POINTS = 42
         private const val MAX_FALLBACK_RESULTS = 8
+        private const val SHAPE_SAMPLE_COUNT = 32
     }
 }
 
