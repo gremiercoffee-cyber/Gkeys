@@ -42,7 +42,9 @@ import com.gremier.gkeys.ime.emoji.EmojiUsageStore
 import com.gremier.gkeys.ime.layout.KeyboardLayoutMetrics
 import com.gremier.gkeys.ime.layout.KeyboardLayoutMetrics.Profile
 import com.gremier.gkeys.ime.suggestions.DictionaryManager
+import com.gremier.gkeys.ime.suggestions.SuggestionChip
 import com.gremier.gkeys.ime.suggestions.SuggestionEngine
+import com.gremier.gkeys.ime.suggestions.SuggestionStripModel
 import com.gremier.gkeys.ime.suggestions.SuggestionStripController
 import com.gremier.gkeys.ime.suggestions.SuggestionVisibilityController
 import com.gremier.gkeys.ime.suggestions.UserWordsRepository
@@ -271,6 +273,7 @@ class GkeysIME : InputMethodService() {
         private const val FIELD_TEXT_SCAN_LIMIT = 100_000
         private const val ALLOW_AOSP_GESTURE_TYPING = true
         private const val SWIPE_BACKSPACE_WINDOW_MS = 8000L
+        private const val POST_SWIPE_WORK_DELAY_MS = 80L
 
         private val letterLongPressAlts = mapOf(
             "q" to "1", "w" to "2", "e" to "3", "r" to "4", "t" to "5",
@@ -3770,15 +3773,9 @@ class GkeysIME : InputMethodService() {
         pendingSwipeWord = decodedWord
         pendingSwipeCorrectionPathKey = null
         pendingSwipeCorrectionWrongWord = null
-        gestureTyping.recordAccepted(decoded.pathKey, decodedWord)
-
         lastCompletedWord = normalizeCompletedWord(decodedWord)
         currentWordPrefix = ""
-        learnCompletedWord(decodedWord)
-        if (::adaptiveTouch.isInitialized) {
-            adaptiveTouch.setWordPrefix("")
-            adaptiveTouch.recordWordCompleted(normalizeCompletedWord(decodedWord))
-        }
+        if (::adaptiveTouch.isInitialized) adaptiveTouch.setWordPrefix("")
         if (isShifted && !capsLock) {
             isShifted = false
             handler.post { refreshLetterCaseOnKeys() }
@@ -3787,8 +3784,42 @@ class GkeysIME : InputMethodService() {
         updateTouchContext(" ")
         updateUndoButtonState()
         suggestionVisibilityController?.extendVisible()
-        refreshSuggestions()
+        showSwipeCandidates(decoded.candidates)
+        schedulePostSwipeWork(decoded.pathKey, decodedWord)
         hapticKeyTap()
+    }
+
+    private fun schedulePostSwipeWork(pathKey: String, decodedWord: String) {
+        handler.postDelayed({
+            if (pendingSwipePathKey != pathKey || pendingSwipeWord != decodedWord) return@postDelayed
+            scope.launch(Dispatchers.IO) {
+                aospGestureTyping?.recordAccepted(pathKey, decodedWord)
+            }
+            learnCompletedWord(decodedWord)
+            if (::adaptiveTouch.isInitialized) {
+                adaptiveTouch.recordWordCompleted(normalizeCompletedWord(decodedWord))
+            }
+        }, POST_SWIPE_WORK_DELAY_MS)
+    }
+
+    private fun showSwipeCandidates(candidates: List<String>) {
+        val controller = suggestionStripController ?: return
+        val unique = candidates.map { it.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+            .take(3)
+        if (unique.isEmpty()) return
+        hideAiBarsForOverlay()
+        controller.setActive(true)
+        controller.render(
+            SuggestionStripModel(
+                left = unique.getOrNull(1)?.let { SuggestionChip(it, isCorrection = true) },
+                center = unique.getOrNull(0)?.let { SuggestionChip(it, isPrimary = true, isCorrection = true) },
+                right = unique.getOrNull(2)?.let { SuggestionChip(it, isCorrection = true) },
+            ),
+            primaryColor = themeColor(R.color.gkeys_text_primary),
+            secondaryColor = themeColor(R.color.gkeys_text_secondary),
+        )
     }
 
     private fun applySuggestion(word: String) {
@@ -3808,6 +3839,7 @@ class GkeysIME : InputMethodService() {
         }
 
         val ic = currentInputConnection ?: return
+        if (applySwipeCandidateReplacement(ic, pick)) return
         hapticKeyTap()
         val replaceLen = currentWordPrefix.length
         if (replaceLen > 0) {
@@ -3880,6 +3912,39 @@ class GkeysIME : InputMethodService() {
             suggestionVisibilityController?.extendVisible()
         }
         refreshSuggestions()
+    }
+
+    private fun applySwipeCandidateReplacement(ic: InputConnection, pick: String): Boolean {
+        val inserted = pendingSwipeDeleteText ?: return false
+        val beforeCursor = ic.getTextBeforeCursor(inserted.length, 0)?.toString().orEmpty()
+        if (beforeCursor != inserted) return false
+        hapticKeyTap()
+        val wrongPath = pendingSwipePathKey
+        val wrongWord = pendingSwipeWord
+        ic.deleteSurroundingText(inserted.length, 0)
+        val replacement = "$pick "
+        ic.commitText(replacement, 1)
+        fieldUndo.recordDelete(inserted)
+        fieldUndo.recordInsert(replacement)
+        if (!wrongPath.isNullOrBlank() && !wrongWord.isNullOrBlank() && wrongWord != pick) {
+            aospGestureTyping?.recordCorrection(wrongPath, wrongWord, normalizeCompletedWord(pick))
+        }
+        pendingSwipeDeleteText = replacement
+        pendingSwipeDeleteTimeMs = SystemClock.uptimeMillis()
+        pendingSwipePathKey = wrongPath
+        pendingSwipeWord = pick
+        pendingSwipeCorrectionPathKey = null
+        pendingSwipeCorrectionWrongWord = null
+        lastCompletedWord = normalizeCompletedWord(pick)
+        currentWordPrefix = ""
+        learnCompletedWord(pick)
+        if (::adaptiveTouch.isInitialized) {
+            adaptiveTouch.setWordPrefix("")
+            adaptiveTouch.recordWordCompleted(normalizeCompletedWord(pick))
+        }
+        updateUndoButtonState()
+        hideSuggestionBar()
+        return true
     }
 
     private fun handleTextPromptKey(key: String) {

@@ -15,6 +15,7 @@ class AospGestureTypingEngine(
     private var averageLetterWidth = 48f
     private var loadedWordCount = 0
     private var targetSignature = ""
+    private var fallbackWords: List<String> = emptyList()
 
     @Synchronized
     fun ensureDictionary(
@@ -23,8 +24,8 @@ class AospGestureTypingEngine(
     ) {
         if (loadedWordCount > 0) return
         DictionaryManager.ensureLoaded(context, DictionaryManager.Language.EN)
-        loadedWordCount = DictionaryManager.topWords(DictionaryManager.Language.EN, maxSystemWords).size +
-            userWords.size
+        fallbackWords = DictionaryManager.topWords(DictionaryManager.Language.EN, FALLBACK_WORD_LIMIT)
+        loadedWordCount = fallbackWords.take(maxSystemWords).size + userWords.size
     }
 
     @Synchronized
@@ -35,9 +36,7 @@ class AospGestureTypingEngine(
     ) {
         val letters = targets.filter { it.char != null }
         if (keyboardWidth <= 0 || keyboardHeight <= 0 || letters.isEmpty()) return
-        this.letters = letters
-        averageLetterWidth = letters.map { it.width }.average().toFloat().takeIf { !it.isNaN() } ?: 48f
-        targetSignature = buildString {
+        val signature = buildString {
             append(keyboardWidth).append('x').append(keyboardHeight)
             letters.forEach {
                 append('|').append(it.char)
@@ -47,6 +46,10 @@ class AospGestureTypingEngine(
                     .append(',').append(it.height.roundToInt())
             }
         }
+        if (signature == targetSignature) return
+        this.letters = letters
+        averageLetterWidth = letters.map { it.width }.average().toFloat().takeIf { !it.isNaN() } ?: 48f
+        targetSignature = signature
     }
 
     @Synchronized
@@ -119,11 +122,11 @@ class AospGestureTypingEngine(
         userWords.keys.asSequence()
             .map { it.lowercase() }
             .filterTo(candidates) { isFallbackCandidate(it, sampledPoints, observedPath, targetsByChar) }
-        DictionaryManager.topWords(DictionaryManager.Language.EN, FALLBACK_WORD_LIMIT)
+        dictionaryWords()
             .asSequence()
             .filterTo(candidates) { isFallbackCandidate(it, sampledPoints, observedPath, targetsByChar) }
         if (candidates.size < MIN_FALLBACK_CANDIDATES) {
-            DictionaryManager.topWords(DictionaryManager.Language.EN, FALLBACK_WORD_LIMIT)
+            dictionaryWords()
                 .asSequence()
                 .filterTo(candidates) { isRelaxedFallbackCandidate(it, sampledPoints, observedPath, targetsByChar) }
         }
@@ -199,6 +202,13 @@ class AospGestureTypingEngine(
         return List(MAX_FALLBACK_POINTS) { index ->
             out[(index * step).roundToInt().coerceIn(0, out.lastIndex)]
         }
+    }
+
+    private fun dictionaryWords(): List<String> {
+        if (fallbackWords.isEmpty()) {
+            fallbackWords = DictionaryManager.topWords(DictionaryManager.Language.EN, FALLBACK_WORD_LIMIT)
+        }
+        return fallbackWords
     }
 
     private fun isFallbackCandidate(
@@ -369,6 +379,7 @@ class AospGestureTypingEngine(
         letters = emptyList()
         loadedWordCount = 0
         targetSignature = ""
+        fallbackWords = emptyList()
     }
 
     private companion object {
