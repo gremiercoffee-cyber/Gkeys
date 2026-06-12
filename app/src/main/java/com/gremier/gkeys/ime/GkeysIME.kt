@@ -2952,6 +2952,7 @@ class GkeysIME : InputMethodService() {
                 disableAospGestureTypingAfterFailure()
             }
         }
+        warmUpAospGestureTyping()
     }
 
     private fun warmUpAospGestureTyping() {
