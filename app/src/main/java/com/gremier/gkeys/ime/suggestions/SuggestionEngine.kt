@@ -24,6 +24,7 @@ object SuggestionEngine {
         prefix: String,
         userWords: Map<String, Int>,
         previousWords: List<String> = emptyList(),
+        nextWord: String? = null,
     ): SuggestionStripModel {
         DictionaryManager.ensureLoaded(context, language)
         val normalizedPrefix = normalize(prefix, language)
@@ -42,9 +43,9 @@ object SuggestionEngine {
                     return correctionModel(normalizedPrefix, it)
                 }
             }
-            val correction = rankCorrection(language, normalizedPrefix, userWords, previousWords)
-            if (correction != null && correction.word != normalizedPrefix) {
-                return correctionModel(normalizedPrefix, correction.word)
+            val corrections = rankCorrections(language, normalizedPrefix, userWords, previousWords, nextWord)
+            if (corrections.isNotEmpty()) {
+                return correctionChoicesModel(corrections.map { it.word })
             }
             // Compound split is suggestion-only (not auto-applied on space) to stay safe.
             if (en) {
@@ -77,6 +78,7 @@ object SuggestionEngine {
         prefix: String,
         userWords: Map<String, Int>,
         previousWords: List<String> = emptyList(),
+        nextWord: String? = null,
     ): String? {
         DictionaryManager.ensureLoaded(context, language)
         val normalized = normalize(prefix, language)
@@ -90,7 +92,7 @@ object SuggestionEngine {
             contractionFor(normalized)?.let { return it }
             repeatedCharFix(language, normalized, userWords)?.let { return it }
         }
-        val correction = rankCorrection(language, normalized, userWords, previousWords)
+        val correction = rankCorrections(language, normalized, userWords, previousWords, nextWord).firstOrNull()
         if (correction != null && correction.word != normalized && shouldAutocorrect(normalized, correction)) {
             return correction.word
         }
@@ -106,6 +108,15 @@ object SuggestionEngine {
         center = SuggestionChip(fix, isPrimary = true, isCorrection = true),
         right = null,
     )
+
+    private fun correctionChoicesModel(words: List<String>): SuggestionStripModel {
+        val unique = words.distinct().take(3)
+        return SuggestionStripModel(
+            left = unique.getOrNull(1)?.let { SuggestionChip(it, isCorrection = true) },
+            center = unique.getOrNull(0)?.let { SuggestionChip(it, isPrimary = true, isCorrection = true) },
+            right = unique.getOrNull(2)?.let { SuggestionChip(it, isCorrection = true) },
+        )
+    }
 
     /** Curated, unambiguous contractions — every source here is NOT a normal English word. */
     private val CONTRACTIONS: Map<String, String> = mapOf(
@@ -270,48 +281,131 @@ object SuggestionEngine {
         return score
     }
 
-    private fun rankCorrection(
+    private fun rankCorrections(
         language: DictionaryManager.Language,
         typed: String,
         userWords: Map<String, Int>,
         previousWords: List<String> = emptyList(),
-    ): Scored? {
-        return (
+        nextWord: String? = null,
+        limit: Int = 3,
+    ): List<Scored> {
+        val maxDistance = maxCorrectionDistance(typed, previousWords, nextWord)
+        val rerankCandidates = (
             DictionaryManager.correctionCandidates(language, typed)
                 .asSequence()
                 .plus(keyboardSlipCandidates(language, typed))
-                .plus(proximityCorrectionCandidates(language, typed, previousWords))
+                .plus(proximityCorrectionCandidates(language, typed, previousWords, nextWord))
+                .plus(contextSeedCandidates(language, previousWords, nextWord))
         )
+            .distinct()
             .filter { it != typed }
             .mapNotNull { candidate ->
                 val dist = weightedDistance(typed, candidate, language)
-                if (dist > MAX_EDIT_DISTANCE) return@mapNotNull null
-                val score = scoreCorrection(language, typed, candidate, userWords, dist) +
-                    keyboardMistakeScore(typed, candidate) +
-                    contextScore(previousWords, candidate)
-                if (score < MIN_CORRECTION_SCORE) null else Scored(candidate, score)
+                if (dist > maxDistance) return@mapNotNull null
+                ContextualCandidateReranker.Candidate(
+                    word = candidate,
+                    swipeOrTouchScore = correctionTouchScore(typed, candidate, dist, maxDistance),
+                    baseFrequencyScore = (DictionaryManager.frequencyScore(language, candidate) / 100.0)
+                        .coerceIn(0.0, 1.0),
+                    personalPreferenceScore = ((userWords[candidate] ?: 0).coerceAtMost(50) / 50.0)
+                        .coerceIn(0.0, 1.0),
+                )
             }
-            .maxByOrNull { it.score }
+            .toList()
+        val ranked = ContextualCandidateReranker.rerank(
+            rerankCandidates,
+            ContextualCandidateReranker.Context(previousWords = previousWords, nextWord = nextWord),
+        )
+        return ranked
+            .asSequence()
+            .map { Scored(it.word, it.finalScore * 100.0) }
+            .filter { it.score >= MIN_CORRECTION_SCORE }
+            .take(limit)
+            .toList()
     }
 
     private fun proximityCorrectionCandidates(
         language: DictionaryManager.Language,
         typed: String,
         previousWords: List<String>,
+        nextWord: String?,
     ): Sequence<String> {
         if (language != DictionaryManager.Language.EN || typed.length < 3) return emptySequence()
-        val poolLimit = if (previousWords.isEmpty()) 8_000 else 18_000
-        val maxDistance = when {
-            typed.length <= 4 -> 2.0
-            typed.length <= 7 -> 3.0
-            else -> 3.6
-        }
+        val hasContext = previousWords.isNotEmpty() || !nextWord.isNullOrBlank()
+        val poolLimit = if (hasContext) 24_000 else 8_000
+        val maxDistance = maxCorrectionDistance(typed, previousWords, nextWord)
         return DictionaryManager.topWords(language, poolLimit)
             .asSequence()
             .filter { candidate ->
                 abs(candidate.length - typed.length) <= 2 &&
                     weightedDistance(typed, candidate, language) <= maxDistance
             }
+    }
+
+    private fun contextSeedCandidates(
+        language: DictionaryManager.Language,
+        previousWords: List<String>,
+        nextWord: String?,
+    ): Sequence<String> {
+        if (language != DictionaryManager.Language.EN) return emptySequence()
+        val previous = previousWords.lastOrNull().orEmpty().lowercase()
+        val next = nextWord.orEmpty().lowercase()
+        val words = LinkedHashSet<String>()
+        when {
+            previous in setOf("it", "this", "that", "he", "she", "what", "where") -> words.add("is")
+            previous in setOf("for", "with", "let") -> words.add("us")
+            previous == "thank" -> words.add("god")
+            previous in setOf("feel", "is", "was", "am", "are", "a") -> words.add("good")
+            previous in setOf("going", "want", "have", "need") -> words.add("to")
+            previous in setOf("in", "on", "at", "for", "with", "to") -> words.add("the")
+        }
+        when {
+            next in setOf("not", "clearly", "really", "very", "wrong", "right", "working") -> {
+                words.add("is")
+                words.add("are")
+            }
+            next == "flavor" -> words.add("its")
+            next == "house" -> words.add("their")
+            next == "going" || next.endsWith("ing") -> words.add("they're")
+            next in setOf("much", "many") -> words.add("too")
+            next in setOf("idea", "job") -> words.add("good")
+            next in setOf("store", "phone", "name", "time", "way", "thing", "message", "keyboard") -> {
+                words.add("the")
+                words.add("my")
+                words.add("your")
+            }
+        }
+        return words.asSequence()
+    }
+
+    private fun maxCorrectionDistance(
+        typed: String,
+        previousWords: List<String>,
+        nextWord: String?,
+    ): Double {
+        val hasContext = previousWords.isNotEmpty() || !nextWord.isNullOrBlank()
+        return when {
+            hasContext && typed.length <= 4 -> 2.8
+            hasContext && typed.length <= 7 -> 3.4
+            hasContext -> 4.0
+            typed.length <= 4 -> 2.0
+            typed.length <= 7 -> 3.0
+            else -> MAX_EDIT_DISTANCE
+        }
+    }
+
+    private fun correctionTouchScore(
+        typed: String,
+        candidate: String,
+        weightedDist: Double,
+        maxDistance: Double,
+    ): Double {
+        val distanceScore = 1.0 - (weightedDist / maxDistance.coerceAtLeast(1.0))
+        val keyboardSlip = (keyboardMistakeScore(typed, candidate) / 125.0).coerceIn(0.0, 0.3)
+        val sameFirst = if (typed.firstOrNull() == candidate.firstOrNull()) 0.08 else 0.0
+        val sameLength = if (typed.length == candidate.length) 0.08 else 0.0
+        val lengthPenalty = abs(typed.length - candidate.length) * 0.04
+        return (distanceScore + keyboardSlip + sameFirst + sameLength - lengthPenalty).coerceIn(0.0, 1.0)
     }
 
     private fun shouldAutocorrect(typed: String, correction: Scored): Boolean {

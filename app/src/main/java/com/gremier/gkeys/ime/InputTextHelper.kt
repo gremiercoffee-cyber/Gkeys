@@ -110,6 +110,21 @@ object InputTextHelper {
         return if (hebrew) word else word.lowercase()
     }
 
+    /** First whole/partial word after the cursor, used only as local ranking context. */
+    fun wordAfterCursor(ic: InputConnection, hebrew: Boolean = false): String {
+        val after = ic.getTextAfterCursor(64, 0)?.toString().orEmpty()
+        var start = 0
+        while (start < after.length && !isWordCharacter(after[start], hebrew)) {
+            start++
+        }
+        var end = start
+        while (end < after.length && isWordCharacter(after[end], hebrew)) {
+            end++
+        }
+        val word = after.substring(start, end)
+        return if (hebrew) word else word.lowercase()
+    }
+
     private fun isWordCharacter(c: Char, hebrew: Boolean): Boolean =
         c.isLetter() || (!hebrew && c == '\'')
 

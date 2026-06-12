@@ -3637,6 +3637,14 @@ class GkeysIME : InputMethodService() {
         }
     }
 
+    private fun contextPreviousWords(): List<String> =
+        listOfNotNull(lastCompletedWord.takeIf { it.isNotBlank() })
+
+    private fun contextNextWord(ic: InputConnection? = currentInputConnection): String? {
+        if (ic == null || isHebrew) return null
+        return InputTextHelper.wordAfterCursor(ic, hebrew = false).takeIf { it.isNotBlank() }
+    }
+
     private fun refreshSuggestions() {
         val controller = suggestionStripController ?: return
         val undo = postAutocorrectUndo
@@ -3657,7 +3665,8 @@ class GkeysIME : InputMethodService() {
                 activeSuggestionLanguage(),
                 currentWordPrefix,
                 userWordsForSuggestions(),
-                previousWords = listOfNotNull(lastCompletedWord.takeIf { it.isNotBlank() }),
+                previousWords = contextPreviousWords(),
+                nextWord = contextNextWord(),
             )
         }
         controller.setActive(true)
@@ -3736,6 +3745,7 @@ class GkeysIME : InputMethodService() {
             points = points,
             userWords = userWordsForSuggestions(),
             previousWord = lastCompletedWord,
+            nextWord = contextNextWord(ic),
         ) ?: return
         val decodedWord = decoded.word.trim()
         if (decodedWord.length < 2) return
@@ -3831,7 +3841,8 @@ class GkeysIME : InputMethodService() {
                 lang,
                 prefix,
                 userWordsForSuggestions(),
-                previousWords = listOfNotNull(lastCompletedWord.takeIf { it.isNotBlank() }),
+                previousWords = contextPreviousWords(),
+                nextWord = contextNextWord(ic),
             )
         } else {
             null
