@@ -2952,19 +2952,28 @@ class GkeysIME : InputMethodService() {
                 disableAospGestureTypingAfterFailure()
             }
         }
+        if (aospGestureTyping == null) {
+            aospGestureTyping = AospGestureTypingEngine(
+                applicationContext,
+                SwipeLearningStore(applicationContext),
+            )
+            if (::touchResolver.isInitialized) {
+                refreshAospGestureGeometry(keyboardRows)
+            }
+        }
         warmUpAospGestureTyping()
     }
 
     private fun warmUpAospGestureTyping() {
         if (!ALLOW_AOSP_GESTURE_TYPING || !experimentalSwipeTypingEnabled) return
-        if (aospGestureTyping != null || aospGestureWarmupInProgress) return
+        if (aospGestureWarmupInProgress) return
         aospGestureWarmupInProgress = true
         scope.launch(Dispatchers.IO) {
             val engine = try {
-                AospGestureTypingEngine(
+                (aospGestureTyping ?: AospGestureTypingEngine(
                     applicationContext,
                     SwipeLearningStore(applicationContext),
-                ).also { created ->
+                )).also { created ->
                     DictionaryManager.ensureLoaded(applicationContext, DictionaryManager.Language.EN)
                     userWordsRepository.ensureCache(DictionaryManager.Language.EN)
                     created.ensureDictionary(userWordsRepository.words(DictionaryManager.Language.EN))
@@ -3648,6 +3657,7 @@ class GkeysIME : InputMethodService() {
                 activeSuggestionLanguage(),
                 currentWordPrefix,
                 userWordsForSuggestions(),
+                previousWords = listOfNotNull(lastCompletedWord.takeIf { it.isNotBlank() }),
             )
         }
         controller.setActive(true)
@@ -3816,7 +3826,13 @@ class GkeysIME : InputMethodService() {
         maybeRecordSwipeCorrection(prefix)
         val lang = activeSuggestionLanguage()
         val corrected = if (suggestionsSupported() && prefix.length >= 2) {
-            SuggestionEngine.autocorrectOnSpace(this, lang, prefix, userWordsForSuggestions())
+            SuggestionEngine.autocorrectOnSpace(
+                this,
+                lang,
+                prefix,
+                userWordsForSuggestions(),
+                previousWords = listOfNotNull(lastCompletedWord.takeIf { it.isNotBlank() }),
+            )
         } else {
             null
         }

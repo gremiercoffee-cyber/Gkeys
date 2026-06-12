@@ -118,6 +118,11 @@ class AospGestureTypingEngine(
         DictionaryManager.topWords(DictionaryManager.Language.EN, FALLBACK_WORD_LIMIT)
             .asSequence()
             .filterTo(candidates) { isFallbackCandidate(it, sampledPoints, observedPath, targetsByChar) }
+        if (candidates.size < MIN_FALLBACK_CANDIDATES) {
+            DictionaryManager.topWords(DictionaryManager.Language.EN, FALLBACK_WORD_LIMIT)
+                .asSequence()
+                .filterTo(candidates) { isRelaxedFallbackCandidate(it, sampledPoints, observedPath, targetsByChar) }
+        }
 
         val ranked = candidates.asSequence()
             .mapNotNull { word ->
@@ -199,6 +204,22 @@ class AospGestureTypingEngine(
         return startDistance <= FALLBACK_ENDPOINT_RADIUS &&
             endDistance <= FALLBACK_ENDPOINT_RADIUS &&
             abs(observedPath.length - wordPath.length) <= FALLBACK_LENGTH_SLOP
+    }
+
+    private fun isRelaxedFallbackCandidate(
+        word: String,
+        points: List<SwipePoint>,
+        observedPath: String,
+        targetsByChar: Map<Char, KeyHitTarget>,
+    ): Boolean {
+        if (word.length !in 2..FALLBACK_MAX_WORD_LENGTH) return false
+        if (word.any { it !in targetsByChar }) return false
+        val wordPath = pathKeyForWord(word)
+        val startDistance = keyDistance(points.first(), word.first(), targetsByChar) ?: return false
+        val endDistance = keyDistance(points.last(), word.last(), targetsByChar) ?: return false
+        val sequenceDistance = editDistance(observedPath, wordPath)
+        return (startDistance <= RELAXED_ENDPOINT_RADIUS && endDistance <= RELAXED_ENDPOINT_RADIUS) ||
+            sequenceDistance <= RELAXED_SEQUENCE_DISTANCE
     }
 
     private fun pathKeyForWord(word: String): String {
@@ -323,8 +344,11 @@ class AospGestureTypingEngine(
         private const val FALLBACK_MAX_WORD_LENGTH = 14
         private const val FALLBACK_LENGTH_SLOP = 4
         private const val FALLBACK_ENDPOINT_RADIUS = 2.05
+        private const val RELAXED_ENDPOINT_RADIUS = 3.25
+        private const val RELAXED_SEQUENCE_DISTANCE = 5
         private const val MAX_FALLBACK_POINTS = 42
         private const val MAX_FALLBACK_RESULTS = 8
+        private const val MIN_FALLBACK_CANDIDATES = 12
         private const val SHAPE_SAMPLE_COUNT = 32
     }
 }

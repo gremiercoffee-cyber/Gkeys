@@ -280,6 +280,7 @@ object SuggestionEngine {
             DictionaryManager.correctionCandidates(language, typed)
                 .asSequence()
                 .plus(keyboardSlipCandidates(language, typed))
+                .plus(proximityCorrectionCandidates(language, typed, previousWords))
         )
             .filter { it != typed }
             .mapNotNull { candidate ->
@@ -291,6 +292,26 @@ object SuggestionEngine {
                 if (score < MIN_CORRECTION_SCORE) null else Scored(candidate, score)
             }
             .maxByOrNull { it.score }
+    }
+
+    private fun proximityCorrectionCandidates(
+        language: DictionaryManager.Language,
+        typed: String,
+        previousWords: List<String>,
+    ): Sequence<String> {
+        if (language != DictionaryManager.Language.EN || typed.length < 3) return emptySequence()
+        val poolLimit = if (previousWords.isEmpty()) 8_000 else 18_000
+        val maxDistance = when {
+            typed.length <= 4 -> 2.0
+            typed.length <= 7 -> 3.0
+            else -> 3.6
+        }
+        return DictionaryManager.topWords(language, poolLimit)
+            .asSequence()
+            .filter { candidate ->
+                abs(candidate.length - typed.length) <= 2 &&
+                    weightedDistance(typed, candidate, language) <= maxDistance
+            }
     }
 
     private fun shouldAutocorrect(typed: String, correction: Scored): Boolean {
