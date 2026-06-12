@@ -164,6 +164,7 @@ class GkeysIME : InputMethodService() {
     private var dictationStatusClearRunnable: Runnable? = null
     private var imeStatusBannerClearRunnable: Runnable? = null
     private var deleteRunnable: Runnable? = null
+    private var deleteForwardRunnable: Runnable? = null
     private val longPressRunnable = Runnable { onMicLongPress() }
 
     private lateinit var vibrator: Vibrator
@@ -226,6 +227,7 @@ class GkeysIME : InputMethodService() {
     private var clipboardManager: GkeysClipboardManager? = null
     private val fieldUndo = FieldUndoManager()
     private var isDeleteRepeating = false
+    private var isDeleteForwardRepeating = false
     private var keyboardHeightPx = 0
     private var keyboardSizeRail: LinearLayout? = null
     private lateinit var touchPersonalization: TouchPersonalization
@@ -677,8 +679,21 @@ class GkeysIME : InputMethodService() {
         btnClipboardUndo.setOnClickListener {
             undoFieldEdit()
         }
-        btnDeleteForward.setOnClickListener {
-            deleteForward()
+        btnDeleteForward.setOnTouchListener { _, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    btnDeleteForward.isPressed = true
+                    deleteForward()
+                    startDeleteForwardRepeat(skipInitial = true)
+                    true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    btnDeleteForward.isPressed = false
+                    stopDeleteForwardRepeat()
+                    true
+                }
+                else -> true
+            }
         }
         btnSelectAll.setOnClickListener {
             selectAllFieldText()
@@ -1310,7 +1325,7 @@ class GkeysIME : InputMethodService() {
             if (voiceBubbleModeActive && voiceBubbleEnabled) {
                 scheduleHideBubbleWhenNoField()
             } else if (!isRecording && !micIsProcessing && !liveSttActive && !liveSttConnecting) {
-                hideBubbleOverlay(animate = true)
+                hideBubbleOverlay(animate = false)
             }
         } catch (e: Exception) {
             android.util.Log.e("GkeysIME", "onFinishInput failed", e)
@@ -4024,6 +4039,29 @@ class GkeysIME : InputMethodService() {
         deleteRunnable = null
     }
 
+    private fun startDeleteForwardRepeat(skipInitial: Boolean = false) {
+        if (isDeleteForwardRepeating) return
+        deleteForwardRunnable?.let { handler.removeCallbacks(it) }
+        isDeleteForwardRepeating = true
+        if (!skipInitial) {
+            deleteForward()
+        }
+        deleteForwardRunnable = object : Runnable {
+            override fun run() {
+                if (!isDeleteForwardRepeating) return
+                deleteForward()
+                handler.postDelayed(this, deleteSpeedMs.toLong())
+            }
+        }
+        handler.postDelayed(deleteForwardRunnable!!, deleteSpeedMs.toLong())
+    }
+
+    private fun stopDeleteForwardRepeat() {
+        isDeleteForwardRepeating = false
+        deleteForwardRunnable?.let { handler.removeCallbacks(it) }
+        deleteForwardRunnable = null
+    }
+
     private fun startRecording() {
         refreshApiKeys()
         if (openAiKey.isBlank()) {
@@ -4456,6 +4494,7 @@ class GkeysIME : InputMethodService() {
         clipboardManager?.destroy()
         scope.cancel()
         stopDeleteRepeat()
+        stopDeleteForwardRepeat()
         handler.removeCallbacks(longPressRunnable)
         stopLiveStt()
         audioRecorder.cancelRecording()

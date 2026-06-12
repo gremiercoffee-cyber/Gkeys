@@ -427,7 +427,7 @@ class VoiceBubbleController(
             cancelHideAnimation()
 
             if (!animate) {
-                removeViewImmediate(view)
+                detachOverlayQuietly()
                 onEnd?.invoke()
                 return
             }
@@ -436,8 +436,6 @@ class VoiceBubbleController(
             hideAnimationRunning = true
             view.animate()
                 .alpha(0f)
-                .scaleX(0.4f)
-                .scaleY(0.4f)
                 .setDuration(180)
                 .withEndAction {
                     synchronized(overlayLock) {

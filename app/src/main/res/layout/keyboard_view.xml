@@ -112,13 +112,14 @@
                     android:layout_height="match_parent"
                     android:src="@drawable/mic_sparkle_pair_gold"
                     android:alpha="0.95"
+                    android:visibility="gone"
                     android:importantForAccessibility="no" />
 
                 <ImageView
-                    android:layout_width="18dp"
-                    android:layout_height="18dp"
+                    android:layout_width="19dp"
+                    android:layout_height="19dp"
                     android:layout_gravity="center"
-                    android:src="@drawable/ic_ghostwriter_hand"
+                    android:src="@drawable/ic_quill"
                     android:scaleType="centerInside"
                     android:importantForAccessibility="no" />
 
