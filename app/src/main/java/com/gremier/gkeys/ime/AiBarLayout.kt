@@ -15,6 +15,7 @@ object AiBarLayout {
     const val DELETE_FORWARD = "delete_forward"
     const val SELECT_ALL = "select_all"
     const val BUBBLE = "bubble"
+    const val ONE_HANDED = "one_handed"
 
     /** @deprecated Removed from toolbar — migrated out of saved order */
     const val PAGE = "page"
@@ -27,7 +28,7 @@ object AiBarLayout {
 
     val DEFAULT_ORDER = listOf(
         WAND, POLISH, RAW_POLISH, DELETE_FORWARD, CLEAR_ALL, CLIPBOARD,
-        LIVE, MIC, NUMPAD, SETTINGS, UNDO, SELECT_ALL, BUBBLE,
+        LIVE, MIC, NUMPAD, ONE_HANDED, SETTINGS, UNDO, SELECT_ALL, BUBBLE,
     )
 
     val ALL_ITEMS = DEFAULT_ORDER
@@ -81,6 +82,7 @@ object AiBarLayout {
         DELETE_FORWARD -> com.gremier.gkeys.R.drawable.ic_delete_forward
         SELECT_ALL -> com.gremier.gkeys.R.drawable.ic_select_all
         BUBBLE -> com.gremier.gkeys.R.drawable.ic_voice_bubble
+        ONE_HANDED -> com.gremier.gkeys.R.drawable.ic_keyboard_grid
         else -> com.gremier.gkeys.R.drawable.ic_settings
     }
 
@@ -101,6 +103,7 @@ object AiBarLayout {
         DELETE_FORWARD -> "Delete forward"
         SELECT_ALL -> "Select all"
         BUBBLE -> "Voice bubble mode"
+        ONE_HANDED -> "One-handed mode"
         PAGE, BACK -> ""
         else -> id
     }

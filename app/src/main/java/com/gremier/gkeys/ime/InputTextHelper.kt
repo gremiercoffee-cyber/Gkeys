@@ -107,7 +107,7 @@ object InputTextHelper {
             start--
         }
         val word = before.substring(start)
-        return if (hebrew) word else word.lowercase()
+        return word
     }
 
     /** First whole/partial word after the cursor, used only as local ranking context. */

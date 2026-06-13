@@ -372,6 +372,7 @@ class SettingsActivity : AppCompatActivity() {
                 clearAllEnabled = GkeysSettings.aiBarClearAllEnabled(this@SettingsActivity).first(),
                 clipboardEnabled = GkeysSettings.aiBarClipboardToolbarEnabled(this@SettingsActivity).first(),
                 numpadEnabled = GkeysSettings.aiBarNumpadEnabled(this@SettingsActivity).first(),
+                oneHandedEnabled = GkeysSettings.aiBarOneHandedEnabled(this@SettingsActivity).first(),
                 micToolbarEnabled = GkeysSettings.aiBarMicToolbarEnabled(this@SettingsActivity).first(),
                 voiceBubbleToolbarEnabled = GkeysSettings.voiceBubbleEnabled(this@SettingsActivity).first(),
             )
@@ -856,6 +857,7 @@ class SettingsActivity : AppCompatActivity() {
         clearAllEnabled: Boolean,
         clipboardEnabled: Boolean,
         numpadEnabled: Boolean,
+        oneHandedEnabled: Boolean,
         micToolbarEnabled: Boolean,
         voiceBubbleToolbarEnabled: Boolean,
     ) {
@@ -868,7 +870,7 @@ class SettingsActivity : AppCompatActivity() {
                     id = id,
                     enabled = itemEnabled(
                         id, wandEnabled, polishEnabled, clearAllEnabled, clipboardEnabled,
-                        numpadEnabled, micToolbarEnabled, voiceBubbleToolbarEnabled,
+                        numpadEnabled, oneHandedEnabled, micToolbarEnabled, voiceBubbleToolbarEnabled,
                     ),
                     canToggle = itemCanToggle(id),
                     isFixed = false,
@@ -897,6 +899,7 @@ class SettingsActivity : AppCompatActivity() {
         clearAllEnabled: Boolean,
         clipboardEnabled: Boolean,
         numpadEnabled: Boolean,
+        oneHandedEnabled: Boolean,
         micToolbarEnabled: Boolean,
         voiceBubbleToolbarEnabled: Boolean,
     ): Boolean = when (id) {
@@ -906,6 +909,7 @@ class SettingsActivity : AppCompatActivity() {
         com.gremier.gkeys.ime.AiBarLayout.CLEAR_ALL -> clearAllEnabled
         com.gremier.gkeys.ime.AiBarLayout.CLIPBOARD -> clipboardEnabled
         com.gremier.gkeys.ime.AiBarLayout.NUMPAD -> numpadEnabled
+        com.gremier.gkeys.ime.AiBarLayout.ONE_HANDED -> oneHandedEnabled
         com.gremier.gkeys.ime.AiBarLayout.MIC -> micToolbarEnabled
         com.gremier.gkeys.ime.AiBarLayout.LIVE -> voiceInputIncludesLive()
         com.gremier.gkeys.ime.AiBarLayout.BUBBLE -> voiceBubbleToolbarEnabled
@@ -925,6 +929,8 @@ class SettingsActivity : AppCompatActivity() {
                     GkeysSettings.saveAiBarClipboardToolbarEnabled(this@SettingsActivity, enabled)
                 com.gremier.gkeys.ime.AiBarLayout.NUMPAD ->
                     GkeysSettings.saveAiBarNumpadEnabled(this@SettingsActivity, enabled)
+                com.gremier.gkeys.ime.AiBarLayout.ONE_HANDED ->
+                    GkeysSettings.saveAiBarOneHandedEnabled(this@SettingsActivity, enabled)
                 com.gremier.gkeys.ime.AiBarLayout.MIC ->
                     GkeysSettings.saveAiBarMicToolbarEnabled(this@SettingsActivity, enabled)
                 com.gremier.gkeys.ime.AiBarLayout.BUBBLE ->
@@ -944,6 +950,7 @@ class SettingsActivity : AppCompatActivity() {
             clearAllEnabled = GkeysSettings.aiBarClearAllEnabled(this@SettingsActivity).first(),
             clipboardEnabled = GkeysSettings.aiBarClipboardToolbarEnabled(this@SettingsActivity).first(),
             numpadEnabled = GkeysSettings.aiBarNumpadEnabled(this@SettingsActivity).first(),
+            oneHandedEnabled = GkeysSettings.aiBarOneHandedEnabled(this@SettingsActivity).first(),
             micToolbarEnabled = GkeysSettings.aiBarMicToolbarEnabled(this@SettingsActivity).first(),
             voiceBubbleToolbarEnabled = GkeysSettings.voiceBubbleEnabled(this@SettingsActivity).first(),
         )

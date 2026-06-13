@@ -33,7 +33,7 @@
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="Choose which buttons appear and their order on the toolbar. Swipe the bar left or right for more icons. Mic is hidden while Voice Bubble mode is active."
+                    android:text="Choose which buttons appear and their order on the toolbar. Swipe the bar left or right for more icons. Mic stays available unless you turn it off."
                     android:textColor="@color/settings_card_muted"
                     android:textSize="12sp"
                     android:layout_marginBottom="8dp" />
@@ -49,7 +49,7 @@
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="Mic only keeps dictation available — turn off the mic icon to use the floating bubble instead. Live transcribe is hidden in mic-only mode."
+                    android:text="Mic only keeps dictation available. Turn off the mic icon below if you only want the floating bubble. Live transcribe is hidden in mic-only mode."
                     android:textColor="@color/settings_card_muted"
                     android:textSize="12sp"
                     android:layout_marginBottom="8dp" />

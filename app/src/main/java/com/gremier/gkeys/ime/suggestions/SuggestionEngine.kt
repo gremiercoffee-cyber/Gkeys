@@ -29,27 +29,28 @@ object SuggestionEngine {
         DictionaryManager.ensureLoaded(context, language)
         val normalizedPrefix = normalize(prefix, language)
         if (normalizedPrefix.isEmpty()) return SuggestionStripModel(null, null, null)
+        val literalTyped = prefix
 
         val en = language == DictionaryManager.Language.EN
 
         // Standalone "i" -> "I" (it's a valid word, so this runs before the word check).
-        if (en && normalizedPrefix == "i") return correctionModel("i", "I")
+        if (en && normalizedPrefix == "i") return correctionModel(literalTyped, "I")
 
         val typedIsWord = isRealWord(language, normalizedPrefix, userWords)
         if (!typedIsWord) {
             if (en) {
-                contractionFor(normalizedPrefix)?.let { return correctionModel(normalizedPrefix, it) }
+                contractionFor(normalizedPrefix)?.let { return correctionModel(literalTyped, it) }
                 repeatedCharFix(language, normalizedPrefix, userWords)?.let {
-                    return correctionModel(normalizedPrefix, it)
+                    return correctionModel(literalTyped, it)
                 }
             }
             val corrections = rankCorrections(language, normalizedPrefix, userWords, previousWords, nextWord)
             if (corrections.isNotEmpty()) {
-                return correctionChoicesModel(corrections.map { it.word })
+                return correctionChoicesModel(literalTyped, corrections.map { it.word })
             }
             // Compound split is suggestion-only (not auto-applied on space) to stay safe.
             if (en) {
-                compoundSplit(normalizedPrefix)?.let { return correctionModel(normalizedPrefix, it) }
+                compoundSplit(normalizedPrefix)?.let { return correctionModel(literalTyped, it) }
             }
         }
 
@@ -57,10 +58,10 @@ object SuggestionEngine {
             .filter { it.word != normalizedPrefix }
             .distinctBy { it.word }
 
-        val centerWord = completions.getOrNull(0)?.word ?: normalizedPrefix
+        val centerWord = completions.getOrNull(0)?.word ?: literalTyped
         val center = SuggestionChip(centerWord, isPrimary = true)
-        val left = completions.getOrNull(1)?.let { SuggestionChip(it.word) }
-        val right = completions.getOrNull(2)?.let { SuggestionChip(it.word) }
+        val left = SuggestionChip(literalTyped, isLiteralTyped = true)
+        val right = completions.getOrNull(1)?.let { SuggestionChip(it.word) }
         return SuggestionStripModel(left, center, right)
     }
 
@@ -109,12 +110,13 @@ object SuggestionEngine {
         right = null,
     )
 
-    private fun correctionChoicesModel(words: List<String>): SuggestionStripModel {
-        val unique = words.distinct().take(3)
+    private fun correctionChoicesModel(typed: String, words: List<String>): SuggestionStripModel {
+        val typedNormalized = typed.lowercase()
+        val unique = words.filter { it.lowercase() != typedNormalized }.distinct().take(2)
         return SuggestionStripModel(
-            left = unique.getOrNull(1)?.let { SuggestionChip(it, isCorrection = true) },
+            left = SuggestionChip(typed, isLiteralTyped = true),
             center = unique.getOrNull(0)?.let { SuggestionChip(it, isPrimary = true, isCorrection = true) },
-            right = unique.getOrNull(2)?.let { SuggestionChip(it, isCorrection = true) },
+            right = unique.getOrNull(1)?.let { SuggestionChip(it, isCorrection = true) },
         )
     }
 

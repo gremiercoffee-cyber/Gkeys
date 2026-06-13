@@ -55,6 +55,7 @@ object GkeysSettings {
     val AI_BAR_CLEAR_ALL_ENABLED = booleanPreferencesKey("ai_bar_clear_all_enabled")
     val AI_BAR_CLIPBOARD_TOOLBAR_ENABLED = booleanPreferencesKey("ai_bar_clipboard_toolbar_enabled")
     val AI_BAR_NUMPAD_ENABLED = booleanPreferencesKey("ai_bar_numpad_enabled")
+    val AI_BAR_ONE_HANDED_ENABLED = booleanPreferencesKey("ai_bar_one_handed_enabled")
     val AI_BAR_MIC_TOOLBAR_ENABLED = booleanPreferencesKey("ai_bar_mic_toolbar_enabled")
     val SPEECH_PROFILE = stringPreferencesKey("speech_profile")
     val AI_INSTRUCTIONS = stringPreferencesKey("ai_instructions")
@@ -255,6 +256,9 @@ object GkeysSettings {
 
     fun aiBarNumpadEnabled(context: Context): Flow<Boolean> =
         settingsStore(context).data.map { it[AI_BAR_NUMPAD_ENABLED] ?: DEFAULT_AI_BAR_FEATURE_ENABLED }
+
+    fun aiBarOneHandedEnabled(context: Context): Flow<Boolean> =
+        settingsStore(context).data.map { it[AI_BAR_ONE_HANDED_ENABLED] ?: DEFAULT_AI_BAR_FEATURE_ENABLED }
 
     private fun legacyAiBarVoiceInputMode(prefs: Preferences): String =
         if (prefs[AI_BAR_LIVE_TRANSCRIBE_ENABLED] == false) AI_BAR_VOICE_MIC else AI_BAR_VOICE_BOTH
@@ -538,6 +542,10 @@ object GkeysSettings {
 
     suspend fun saveAiBarNumpadEnabled(context: Context, enabled: Boolean) {
         settingsStore(context).edit { it[AI_BAR_NUMPAD_ENABLED] = enabled }
+    }
+
+    suspend fun saveAiBarOneHandedEnabled(context: Context, enabled: Boolean) {
+        settingsStore(context).edit { it[AI_BAR_ONE_HANDED_ENABLED] = enabled }
     }
 
     suspend fun saveAiBarMicToolbarEnabled(context: Context, enabled: Boolean) {

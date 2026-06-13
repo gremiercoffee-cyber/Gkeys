@@ -341,6 +341,17 @@
                 android:padding="5dp" />
 
             <ImageButton
+                android:id="@+id/btn_one_handed"
+                android:layout_width="30dp"
+                android:layout_height="30dp"
+                android:layout_marginStart="5dp"
+                android:src="@drawable/ic_keyboard_grid"
+                android:background="@drawable/ai_bar_icon_btn_bg"
+                android:contentDescription="One-handed mode"
+                android:scaleType="centerInside"
+                android:padding="5dp" />
+
+            <ImageButton
                 android:id="@+id/btn_settings"
                 android:layout_width="30dp"
                 android:layout_height="30dp"

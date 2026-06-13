@@ -108,6 +108,7 @@ class GkeysIME : InputMethodService() {
     private var aiBarClearAllEnabled = GkeysSettings.DEFAULT_AI_BAR_FEATURE_ENABLED
     private var aiBarClipboardToolbarEnabled = GkeysSettings.DEFAULT_AI_BAR_FEATURE_ENABLED
     private var aiBarNumpadEnabled = GkeysSettings.DEFAULT_AI_BAR_FEATURE_ENABLED
+    private var aiBarOneHandedEnabled = GkeysSettings.DEFAULT_AI_BAR_FEATURE_ENABLED
     private var aiBarOrder = AiBarLayout.DEFAULT_ORDER
     private var darkTheme = true
     private var voiceBubbleController: VoiceBubbleController? = null
@@ -212,6 +213,7 @@ class GkeysIME : InputMethodService() {
     private lateinit var micAiShimmer: View
     private lateinit var micAiSparkles: ImageView
     private lateinit var btnKeyboard: ImageButton
+    private lateinit var btnOneHanded: ImageButton
     private lateinit var btnSettings: ImageButton
     private lateinit var btnVoiceBubble: ImageButton
     private lateinit var btnWand: FrameLayout
@@ -332,6 +334,8 @@ class GkeysIME : InputMethodService() {
         window.decorView.layoutDirection = View.LAYOUT_DIRECTION_LTR
     }
 
+    override fun onEvaluateFullscreenMode(): Boolean = false
+
     private fun forceLayoutLtr(view: View) {
         view.layoutDirection = View.LAYOUT_DIRECTION_LTR
         if (view is ViewGroup) {
@@ -414,8 +418,9 @@ class GkeysIME : InputMethodService() {
                     GkeysSettings.aiBarClearAllEnabled(this@GkeysIME),
                     GkeysSettings.aiBarClipboardToolbarEnabled(this@GkeysIME),
                     GkeysSettings.aiBarNumpadEnabled(this@GkeysIME),
-                ) { order, clearAll, clipboard, numpad ->
-                    arrayOf(order, clearAll, clipboard, numpad)
+                    GkeysSettings.aiBarOneHandedEnabled(this@GkeysIME),
+                ) { order, clearAll, clipboard, numpad, oneHanded ->
+                    arrayOf(order, clearAll, clipboard, numpad, oneHanded)
                 },
             ) { toggles, bubble, layout ->
                 aiBarWandEnabled = toggles[0]
@@ -429,6 +434,7 @@ class GkeysIME : InputMethodService() {
                 aiBarClearAllEnabled = layout[1] as Boolean
                 aiBarClipboardToolbarEnabled = layout[2] as Boolean
                 aiBarNumpadEnabled = layout[3] as Boolean
+                aiBarOneHandedEnabled = layout[4] as Boolean
             }.collect {
                 try {
                     if (::aiStrip.isInitialized) {
@@ -590,6 +596,7 @@ class GkeysIME : InputMethodService() {
         micAiShimmer = keyboardView.findViewById(R.id.mic_ai_shimmer)
         micAiSparkles = keyboardView.findViewById(R.id.mic_ai_sparkles)
         btnKeyboard = keyboardView.findViewById(R.id.btn_keyboard)
+        btnOneHanded = keyboardView.findViewById(R.id.btn_one_handed)
         btnSettings = keyboardView.findViewById(R.id.btn_settings)
         btnVoiceBubble = keyboardView.findViewById(R.id.btn_voice_bubble)
         btnWand = keyboardView.findViewById(R.id.btn_wand)
@@ -751,6 +758,8 @@ class GkeysIME : InputMethodService() {
             outInsets.touchableInsets = Insets.TOUCHABLE_INSETS_CONTENT
             return
         }
+        // Host apps decide whether their content resizes above a visible IME. Keep our own
+        // insets conventional here; collapsed bubble mode is the only safe zero-inset path.
         super.onComputeInsets(outInsets)
     }
 
@@ -1491,6 +1500,7 @@ class GkeysIME : InputMethodService() {
                 aiBarClearAllEnabled = GkeysSettings.aiBarClearAllEnabled(this@GkeysIME).first()
                 aiBarClipboardToolbarEnabled = GkeysSettings.aiBarClipboardToolbarEnabled(this@GkeysIME).first()
                 aiBarNumpadEnabled = GkeysSettings.aiBarNumpadEnabled(this@GkeysIME).first()
+                aiBarOneHandedEnabled = GkeysSettings.aiBarOneHandedEnabled(this@GkeysIME).first()
                 val themeMode = GkeysSettings.themeMode(this@GkeysIME).first()
                 val newDarkTheme = GkeysSettings.isDarkThemeMode(themeMode)
                 val themeChanged = newDarkTheme != darkTheme
@@ -1586,6 +1596,11 @@ class GkeysIME : InputMethodService() {
             updateNumpadButton()
         }
 
+        btnOneHanded.setOnClickListener {
+            vibrate()
+            cycleOneHandedModeFromToolbar()
+        }
+
         btnSettings.setOnClickListener {
             hapticKeyTap()
             openAppSettings()
@@ -1619,6 +1634,7 @@ class GkeysIME : InputMethodService() {
         btnRawPolish.setOnClickListener { polishFieldTextManual() }
         updatePolishLevelButton()
         updateNumpadButton()
+        updateOneHandedButton()
         updateVoiceBubbleButtonVisibility()
         AiBarShimmer.attach(aiBarShimmerPrimary)
         startMicIdleSparkleAnimation()
@@ -2298,6 +2314,7 @@ class GkeysIME : InputMethodService() {
         AiBarLayout.LIVE -> if (::btnLiveTranscribe.isInitialized) btnLiveTranscribe else null
         AiBarLayout.MIC -> if (::micGroup.isInitialized) micGroup else null
         AiBarLayout.NUMPAD -> if (::btnKeyboard.isInitialized) btnKeyboard else null
+        AiBarLayout.ONE_HANDED -> if (::btnOneHanded.isInitialized) btnOneHanded else null
         AiBarLayout.SETTINGS -> if (::btnSettings.isInitialized) btnSettings else null
         AiBarLayout.UNDO -> if (::btnClipboardUndo.isInitialized) btnClipboardUndo else null
         AiBarLayout.SELECT_ALL -> if (::btnSelectAll.isInitialized) btnSelectAll else null
@@ -2340,10 +2357,13 @@ class GkeysIME : InputMethodService() {
         if (::btnKeyboard.isInitialized) {
             btnKeyboard.visibility = if (aiBarNumpadEnabled) View.VISIBLE else View.GONE
         }
+        if (::btnOneHanded.isInitialized) {
+            btnOneHanded.visibility = if (aiBarOneHandedEnabled) View.VISIBLE else View.GONE
+            updateOneHandedButton()
+        }
         if (::micGroup.isInitialized) {
             val showMic = aiBarVoiceInputIncludesMic &&
-                aiBarMicToolbarEnabled &&
-                !voiceBubbleModeActive
+                aiBarMicToolbarEnabled
             micGroup.visibility = if (showMic) View.VISIBLE else View.GONE
         }
         btnLiveTranscribe.visibility = if (aiBarLiveTranscribeEnabled) View.VISIBLE else View.GONE
@@ -2501,6 +2521,31 @@ class GkeysIME : InputMethodService() {
             if (isNumpad) themeDrawable(R.drawable.ic_keyboard_grid) else createDigitsGridIcon()
         )
         btnKeyboard.contentDescription = if (isNumpad) "Show letters" else "Number pad"
+    }
+
+    private fun cycleOneHandedModeFromToolbar() {
+        oneHandedMode = when (oneHandedMode) {
+            GkeysSettings.ONE_HANDED_OFF -> GkeysSettings.ONE_HANDED_RIGHT
+            GkeysSettings.ONE_HANDED_RIGHT -> GkeysSettings.ONE_HANDED_LEFT
+            else -> GkeysSettings.ONE_HANDED_OFF
+        }
+        applyOneHandedMode()
+        updateOneHandedButton()
+        scope.launch {
+            GkeysSettings.saveOneHandedMode(this@GkeysIME, oneHandedMode)
+        }
+    }
+
+    private fun updateOneHandedButton() {
+        if (!::btnOneHanded.isInitialized) return
+        val label = when (oneHandedMode) {
+            GkeysSettings.ONE_HANDED_RIGHT -> "One-handed mode: right"
+            GkeysSettings.ONE_HANDED_LEFT -> "One-handed mode: left"
+            else -> "One-handed mode: off"
+        }
+        btnOneHanded.contentDescription = label
+        btnOneHanded.isSelected = oneHandedMode != GkeysSettings.ONE_HANDED_OFF
+        btnOneHanded.alpha = if (oneHandedMode == GkeysSettings.ONE_HANDED_OFF) 0.72f else 1f
     }
 
     /** Toolbar icon: 3×3 grid of digits 1–9 (readable at small size). */
@@ -3145,6 +3190,7 @@ class GkeysIME : InputMethodService() {
         forceLayoutLtr(container)
         refreshTouchTargetsAfterLayout(container)
         updateNumpadButton()
+        updateOneHandedButton()
         if (::keyboardRows.isInitialized) {
             applyOneHandedMode()
         }
@@ -3600,9 +3646,6 @@ class GkeysIME : InputMethodService() {
 
     private fun isWordCharacter(c: Char): Boolean = c.isLetter() || c == '\''
 
-    private fun normalizeWordChar(fragment: String): String =
-        if (isHebrew) fragment else fragment.lowercase()
-
     private fun normalizeCompletedWord(word: String): String =
         if (isHebrew) word else word.lowercase()
 
@@ -3616,7 +3659,7 @@ class GkeysIME : InputMethodService() {
     /** Read the partial word at the cursor — avoids stale prefix from earlier keystrokes. */
     private fun syncWordPrefixFromField(ic: InputConnection? = currentInputConnection) {
         val conn = ic ?: return
-        currentWordPrefix = normalizeWordChar(InputTextHelper.wordBeforeCursor(conn, isHebrew))
+        currentWordPrefix = InputTextHelper.wordBeforeCursor(conn, isHebrew)
         if (::adaptiveTouch.isInitialized) {
             adaptiveTouch.setWordPrefix(currentWordPrefix)
         }
@@ -4042,8 +4085,7 @@ class GkeysIME : InputMethodService() {
                 val toInsert = if (isShifted && !isHebrew && key.length == 1 && key[0].isLetter()) key.uppercase()
                 else key
 
-                ic.commitText(toInsert, 1)
-                fieldUndo.recordInsert(toInsert)
+                commitTypedText(ic, toInsert)
                 updateTouchContext(toInsert)
                 updateUndoButtonState()
 
@@ -4067,6 +4109,26 @@ class GkeysIME : InputMethodService() {
             }
         }
     }
+
+    private fun commitTypedText(ic: InputConnection, text: String) {
+        val removeSpaceBeforePunctuation = text.isClosingOrSentencePunctuation() &&
+            ic.getTextBeforeCursor(1, 0)?.toString() == " "
+        if (removeSpaceBeforePunctuation) {
+            ic.deleteSurroundingText(1, 0)
+            fieldUndo.recordDelete(" ")
+            if (pendingSwipeDeleteText?.endsWith(" ") == true) {
+                pendingSwipeDeleteText = pendingSwipeDeleteText?.dropLast(1)
+            }
+        }
+        ic.commitText(text, 1)
+        fieldUndo.recordInsert(text)
+        if (removeSpaceBeforePunctuation) {
+            clearPendingSwipeDelete()
+        }
+    }
+
+    private fun String.isClosingOrSentencePunctuation(): Boolean =
+        this in setOf(".", ",", "!", "?", ":", ";", ")", "]", "}", "\"", "'", "”", "’", "…")
 
     private fun completeCurrentWord() {
         val word = currentWordPrefix
