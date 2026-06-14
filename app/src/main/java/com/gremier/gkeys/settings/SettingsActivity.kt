@@ -25,6 +25,8 @@ import com.gremier.gkeys.ime.slm.AiModelDownloader
 import com.gremier.gkeys.ime.slm.DownloadResult
 import com.gremier.gkeys.ime.slm.LocalModelConfig
 import com.gremier.gkeys.ime.slm.LocalSlmManager
+import com.gremier.gkeys.ime.touch.SwipeDebugStore
+import com.gremier.gkeys.ime.touch.SwipeTestRunner
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.progressindicator.LinearProgressIndicator
 import com.google.android.material.slider.Slider
@@ -80,7 +82,10 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var switchRawTextSamples: SwitchMaterial
     private lateinit var tvAdaptiveTouchStats: TextView
     private lateinit var tvPredictionDebug: TextView
+    private lateinit var tvSwipeDiagnostics: TextView
     private lateinit var btnResetAdaptiveTouch: MaterialButton
+    private lateinit var btnRunSwipeDiagnostics: MaterialButton
+    private lateinit var btnRefreshSwipeDiagnostics: MaterialButton
     private lateinit var radioOneHanded: RadioGroup
     private lateinit var btnEnableKeyboard: MaterialButton
     private lateinit var cardCrash: com.google.android.material.card.MaterialCardView
@@ -261,6 +266,7 @@ class SettingsActivity : AppCompatActivity() {
             updatePhotoPermissionButton()
             updateOverlayPermissionButton()
             refreshAdaptiveTouchStats()
+            refreshSwipeDiagnostics()
             checkKeyboardEnabled()
             refreshCrashCard()
             refreshPolishLevelRadio()
@@ -335,7 +341,10 @@ class SettingsActivity : AppCompatActivity() {
         switchRawTextSamples = findViewById(R.id.switch_raw_text_samples)
         tvAdaptiveTouchStats = findViewById(R.id.tv_adaptive_touch_stats)
         tvPredictionDebug = findViewById(R.id.tv_prediction_debug)
+        tvSwipeDiagnostics = findViewById(R.id.tv_swipe_diagnostics)
         btnResetAdaptiveTouch = findViewById(R.id.btn_reset_adaptive_touch)
+        btnRunSwipeDiagnostics = findViewById(R.id.btn_run_swipe_diagnostics)
+        btnRefreshSwipeDiagnostics = findViewById(R.id.btn_refresh_swipe_diagnostics)
         radioOneHanded = findViewById(R.id.radio_one_handed)
         btnEnableKeyboard = findViewById(R.id.btn_enable_keyboard)
         cardCrash = findViewById(R.id.card_crash)
@@ -581,6 +590,12 @@ class SettingsActivity : AppCompatActivity() {
         switchExperimentalSwipeTyping.setOnCheckedChangeListener { _, checked ->
             autoSave { GkeysSettings.saveExperimentalSwipeTypingEnabled(this@SettingsActivity, checked) }
         }
+        btnRefreshSwipeDiagnostics.setOnClickListener {
+            refreshSwipeDiagnostics()
+        }
+        btnRunSwipeDiagnostics.setOnClickListener {
+            runSwipeDiagnostics()
+        }
         switchDailyAiLearning.setOnCheckedChangeListener { _, checked ->
             autoSave {
                 GkeysSettings.saveDailyAiLearningEnabled(this@SettingsActivity, checked)
@@ -762,6 +777,33 @@ class SettingsActivity : AppCompatActivity() {
                 append("\nLatest suggestion reasons:\n")
                 append(reasons.joinToString("\n"))
             }
+        }
+    }
+
+    private fun refreshSwipeDiagnostics() {
+        if (!::tvSwipeDiagnostics.isInitialized) return
+        val live = SwipeDebugStore.loadLastLive(this)
+        val report = SwipeDebugStore.loadLastTestReport(this)
+        tvSwipeDiagnostics.text = buildString {
+            append("Latest live swipe:\n")
+            append(live)
+            append("\n\nLast swipe suite:\n")
+            append(report)
+        }
+    }
+
+    private fun runSwipeDiagnostics() {
+        btnRunSwipeDiagnostics.isEnabled = false
+        btnRunSwipeDiagnostics.text = "Running swipe diagnostics..."
+        lifecycleScope.launch {
+            val report = withContext(Dispatchers.Default) {
+                SwipeTestRunner.format(SwipeTestRunner.run(this@SettingsActivity))
+            }
+            SwipeDebugStore.saveLastTestReport(this@SettingsActivity, report)
+            refreshSwipeDiagnostics()
+            btnRunSwipeDiagnostics.isEnabled = true
+            btnRunSwipeDiagnostics.text = "Run swipe diagnostics"
+            Toast.makeText(this@SettingsActivity, "Swipe diagnostics finished", Toast.LENGTH_SHORT).show()
         }
     }
 

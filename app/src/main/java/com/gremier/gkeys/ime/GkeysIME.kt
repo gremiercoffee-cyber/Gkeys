@@ -53,6 +53,7 @@ import com.gremier.gkeys.ime.suggestions.UserWordsRepository
 import com.gremier.gkeys.ime.suggestions.UserWordsRepository.LearningSource
 import com.gremier.gkeys.ime.touch.AdaptiveTouchIntelligence
 import com.gremier.gkeys.ime.touch.AospGestureTypingEngine
+import com.gremier.gkeys.ime.touch.SwipeDebugStore
 import com.gremier.gkeys.ime.touch.SwipePoint
 import com.gremier.gkeys.ime.touch.SwipeLearningStore
 import com.gremier.gkeys.ime.touch.TouchInputResolver
@@ -3919,12 +3920,14 @@ class GkeysIME : InputMethodService() {
             refreshAospGestureGeometry(keyboardRows)
         }
 
-        val decoded = gestureTyping.decode(
+        val diagnostics = gestureTyping.diagnose(
             points = points,
             userWords = userWordsForSuggestions(),
             previousWord = lastCompletedWord,
             nextWord = contextNextWord(ic),
-        ) ?: return
+        )
+        SwipeDebugStore.saveLastLive(applicationContext, diagnostics)
+        val decoded = diagnostics.decode ?: return
         val decodedWord = decoded.word.trim()
         if (decodedWord.length < 2) return
         maybeRecordSwipeCorrection(decodedWord)

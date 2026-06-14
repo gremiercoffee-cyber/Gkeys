@@ -71,8 +71,8 @@ class AospGestureTypingEngine(
         nextWord: String? = null,
         targetWord: String? = null,
     ): SwipeDiagnostics {
-        val pathKey = pathKey(points)
-        return fallbackDecode(points, userWords, pathKey, previousWord, nextWord, targetWord)
+        val learningPathKey = pathKey(points)
+        return fallbackDecode(points, userWords, learningPathKey, previousWord, nextWord, targetWord)
     }
 
     fun recordAccepted(pathKey: String, word: String) {
@@ -98,16 +98,18 @@ class AospGestureTypingEngine(
         val target = targetWord?.lowercase()
         val targetsByChar = letters.mapNotNull { targetKey -> targetKey.char?.let { it to targetKey } }.toMap()
         val sampledPoints = simplifyPoints(points)
-        val observedPath = pathKey(sampledPoints)
+        val turnPoints = detectTurnPoints(sampledPoints)
+        val observedPath = likelyKeySequence(sampledPoints, turnPoints)
+        val detailedObservedPath = pathKey(sampledPoints)
         val diagnostics = SwipeDiagnostics(
             targetWord = targetWord,
             rawPathPointCount = points.size,
             simplifiedPathPointCount = sampledPoints.size,
-            turnPoints = detectTurnPoints(sampledPoints),
+            turnPoints = turnPoints,
             likelyKeySequence = observedPath,
             targetInDictionary = target?.let { allDictionaryWords(userWords).contains(it) } ?: false,
         )
-        if (points.size < MIN_POINTS || letters.isEmpty() || targetsByChar.isEmpty() || observedPath.length < 2) {
+        if (points.size < MIN_POINTS || letters.isEmpty() || targetsByChar.isEmpty() || detailedObservedPath.length < 2) {
             return diagnostics.copy(failureReason = "not_enough_geometry")
         }
 
@@ -135,7 +137,7 @@ class AospGestureTypingEngine(
             when {
                 normalized.length !in 2..FALLBACK_MAX_WORD_LENGTH -> reject(normalized, "length")
                 normalized.any { it.isLetter() && it !in targetsByChar } -> reject(normalized, "missing_key")
-                isFallbackCandidate(normalized, sampledPoints, observedPath, targetsByChar) -> add(normalized, "strict")
+                isFallbackCandidate(normalized, sampledPoints, observedPath, detailedObservedPath, targetsByChar) -> add(normalized, "strict")
                 else -> reject(normalized, "strict_shape_or_endpoint")
             }
         }
@@ -145,7 +147,7 @@ class AospGestureTypingEngine(
             dictionary.forEach { word ->
                 val normalized = word.lowercase()
                 if (normalized !in candidates &&
-                    isRelaxedFallbackCandidate(normalized, sampledPoints, observedPath, targetsByChar)
+                    isRelaxedFallbackCandidate(normalized, sampledPoints, observedPath, detailedObservedPath, targetsByChar)
                 ) {
                     add(normalized, "relaxed")
                 }
@@ -154,7 +156,7 @@ class AospGestureTypingEngine(
         diagnostics.pruningStages += SwipePruningStage("relaxed_geometry", candidates.size)
 
         val scored = candidates.mapNotNull { word ->
-            scoreCandidate(word, sampledPoints, observedPath, pathKey, targetsByChar, userWords)
+            scoreCandidate(word, sampledPoints, observedPath, detailedObservedPath, pathKey, targetsByChar, userWords)
         }
         diagnostics.pruningStages += SwipePruningStage("scored", scored.size)
         val ranked = ContextualCandidateReranker.rerank(
@@ -208,14 +210,17 @@ class AospGestureTypingEngine(
         word: String,
         points: List<SwipePoint>,
         observedPath: String,
+        detailedObservedPath: String,
         pathKey: String,
         targetsByChar: Map<Char, KeyHitTarget>,
         userWords: Map<String, Int>,
     ): SwipeScoredCandidate? {
         val distance = gestureDistance(points, word, targetsByChar) ?: return null
         val wordPath = pathKeyForWord(word)
-        val sequenceDistance = editDistance(observedPath, wordPath).toDouble() /
-            maxOf(observedPath.length, wordPath.length, 1)
+        val sequenceDistance = minOf(
+            normalizedSequenceDistance(observedPath, wordPath),
+            normalizedSequenceDistance(detailedObservedPath, wordPath),
+        )
         val startDistance = keyDistance(points.first(), firstLetter(word), targetsByChar) ?: return null
         val endDistance = keyDistance(points.last(), lastLetter(word), targetsByChar) ?: return null
         val frequency = DictionaryManager.frequencyScore(DictionaryManager.Language.EN, word)
@@ -267,6 +272,17 @@ class AospGestureTypingEngine(
             lastPoint = point
         }
         return out.toString().take(40)
+    }
+
+    private fun likelyKeySequence(points: List<SwipePoint>, turnPoints: List<SwipePoint>): String {
+        if (points.isEmpty()) return ""
+        val anchors = buildList {
+            add(points.first())
+            addAll(turnPoints)
+            if (points.last() != points.first()) add(points.last())
+        }.distinct()
+        val coarse = pathKey(anchors)
+        return if (coarse.length >= 2) coarse else pathKey(points)
     }
 
     private fun simplifyPoints(points: List<SwipePoint>): List<SwipePoint> {
@@ -327,6 +343,7 @@ class AospGestureTypingEngine(
         word: String,
         points: List<SwipePoint>,
         observedPath: String,
+        detailedObservedPath: String,
         targetsByChar: Map<Char, KeyHitTarget>,
     ): Boolean {
         if (word.length !in 2..FALLBACK_MAX_WORD_LENGTH) return false
@@ -337,7 +354,9 @@ class AospGestureTypingEngine(
             wordPath.length <= 6 -> 3
             else -> 5
         }
-        if (editDistance(observedPath, wordPath) > maxSequenceDistance) return false
+        if (minOf(editDistance(observedPath, wordPath), editDistance(detailedObservedPath, wordPath)) > maxSequenceDistance) {
+            return false
+        }
         val startDistance = keyDistance(points.first(), firstLetter(word), targetsByChar) ?: return false
         val endDistance = keyDistance(points.last(), lastLetter(word), targetsByChar) ?: return false
         return startDistance <= FALLBACK_ENDPOINT_RADIUS &&
@@ -349,6 +368,7 @@ class AospGestureTypingEngine(
         word: String,
         points: List<SwipePoint>,
         observedPath: String,
+        detailedObservedPath: String,
         targetsByChar: Map<Char, KeyHitTarget>,
     ): Boolean {
         if (word.length !in 2..FALLBACK_MAX_WORD_LENGTH) return false
@@ -356,7 +376,7 @@ class AospGestureTypingEngine(
         val wordPath = pathKeyForWord(word)
         val startDistance = keyDistance(points.first(), firstLetter(word), targetsByChar) ?: return false
         val endDistance = keyDistance(points.last(), lastLetter(word), targetsByChar) ?: return false
-        val sequenceDistance = editDistance(observedPath, wordPath)
+        val sequenceDistance = minOf(editDistance(observedPath, wordPath), editDistance(detailedObservedPath, wordPath))
         return (startDistance <= RELAXED_ENDPOINT_RADIUS && endDistance <= RELAXED_ENDPOINT_RADIUS) ||
             sequenceDistance <= RELAXED_SEQUENCE_DISTANCE
     }
@@ -386,6 +406,9 @@ class AospGestureTypingEngine(
             else -> extra * 0.10
         }
     }
+
+    private fun normalizedSequenceDistance(observedPath: String, wordPath: String): Double =
+        editDistance(observedPath, wordPath).toDouble() / maxOf(observedPath.length, wordPath.length, 1)
 
     private fun repeatedLetterRelief(word: String, observedPath: String): Double =
         if (word.zipWithNext().any { it.first == it.second } && pathKeyForWord(word) == observedPath) 0.34 else 0.0
@@ -508,7 +531,7 @@ class AospGestureTypingEngine(
     private companion object {
         private const val MIN_POINTS = 5
         private const val FALLBACK_WORD_LIMIT = 24_000
-        private const val FALLBACK_MAX_WORD_LENGTH = 14
+        private const val FALLBACK_MAX_WORD_LENGTH = 18
         private const val FALLBACK_LENGTH_SLOP = 6
         private const val FALLBACK_ENDPOINT_RADIUS = 2.4
         private const val RELAXED_ENDPOINT_RADIUS = 3.6
