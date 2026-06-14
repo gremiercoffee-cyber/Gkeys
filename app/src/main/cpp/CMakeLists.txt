@@ -4,7 +4,7 @@ project(gkeys_native)
 
 set(LATINIME_DIR ${CMAKE_CURRENT_SOURCE_DIR}/aosp-latinime)
 
-file(GLOB_RECURSE LATINIME_CPP CONFIGURE_DEPENDS
+file(GLOB_RECURSE LATINIME_CPP
     ${LATINIME_DIR}/*.cpp
 )
 
