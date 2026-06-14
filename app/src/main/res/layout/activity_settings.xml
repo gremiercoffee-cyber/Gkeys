@@ -28,6 +28,7 @@
 
         <include layout="@layout/settings_panel_setup" />
         <include layout="@layout/settings_panel_ai" />
+        <include layout="@layout/settings_panel_ai_models" />
         <include layout="@layout/settings_panel_keyboard" />
         <include layout="@layout/settings_panel_toolbar" />
 

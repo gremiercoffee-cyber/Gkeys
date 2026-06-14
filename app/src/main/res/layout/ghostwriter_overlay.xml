@@ -47,7 +47,7 @@
                 android:layout_width="48dp"
                 android:layout_height="48dp"
                 android:layout_gravity="center"
-                android:src="@drawable/mic_sparkle_pair_gold"
+                android:src="@drawable/ic_quill"
                 android:contentDescription="Ghostwriter" />
 
         </FrameLayout>

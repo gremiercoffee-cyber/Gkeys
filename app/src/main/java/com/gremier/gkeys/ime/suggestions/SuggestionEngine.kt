@@ -3,6 +3,7 @@ package com.gremier.gkeys.ime.suggestions
 import android.content.Context
 import com.gremier.gkeys.ime.personalization.PersonalLanguageProfile
 import com.gremier.gkeys.ime.personalization.PersonalLanguageProfileStore
+import com.gremier.gkeys.ime.slm.SlmSuggestionReranker
 import kotlin.math.abs
 
 data class SuggestionChip(
@@ -50,7 +51,16 @@ object SuggestionEngine {
                     if (!profile.blocksCorrection(normalizedPrefix, it)) return correctionModel(literalTyped, it)
                 }
             }
-            val corrections = rankCorrections(language, normalizedPrefix, userWords, previousWords, nextWord, profile = profile)
+            val corrections = rankCorrections(
+                context,
+                language,
+                normalizedPrefix,
+                userWords,
+                previousWords,
+                nextWord,
+                profile = profile,
+                useSlm = true,
+            )
             if (corrections.isNotEmpty()) {
                 return correctionChoicesModel(literalTyped, corrections.map { it.word })
             }
@@ -60,7 +70,7 @@ object SuggestionEngine {
             }
         }
 
-        val completions = rankCompletions(language, normalizedPrefix, userWords, previousWords, nextWord, profile)
+        val completions = rankCompletions(context, language, normalizedPrefix, userWords, previousWords, nextWord, profile)
             .filter { it.word != normalizedPrefix }
             .distinctBy { it.word }
 
@@ -103,7 +113,16 @@ object SuggestionEngine {
                 ?.takeUnless { profile.blocksCorrection(normalized, it) }
                 ?.let { return it }
         }
-        val correction = rankCorrections(language, normalized, userWords, previousWords, nextWord, profile = profile).firstOrNull()
+        val correction = rankCorrections(
+            context,
+            language,
+            normalized,
+            userWords,
+            previousWords,
+            nextWord,
+            profile = profile,
+            useSlm = false,
+        ).firstOrNull()
         if (correction != null && correction.word != normalized && shouldAutocorrect(normalized, correction)) {
             return correction.word
         }
@@ -294,6 +313,7 @@ object SuggestionEngine {
     }
 
     private fun rankCorrections(
+        context: Context,
         language: DictionaryManager.Language,
         typed: String,
         userWords: Map<String, Int>,
@@ -301,6 +321,7 @@ object SuggestionEngine {
         nextWord: String? = null,
         limit: Int = 3,
         profile: PersonalLanguageProfile = PersonalLanguageProfile.empty(),
+        useSlm: Boolean = false,
     ): List<Scored> {
         val maxDistance = maxCorrectionDistance(typed, previousWords, nextWord)
         val rerankCandidates = (
@@ -337,8 +358,21 @@ object SuggestionEngine {
                 profile = profile,
             ),
         )
+        val slmOrderedWords = if (useSlm) {
+            SlmSuggestionReranker.rerankIfAvailable(
+                context = context,
+                previousWords = previousWords,
+                currentPartial = typed,
+                candidates = ranked.map { it.word },
+                underLatencyPressure = slmWouldAddLatencyPressure(typed, ranked.size),
+            )
+        } else {
+            ranked.map { it.word }
+        }
+        val order = slmOrderedWords.withIndex().associate { it.value to it.index }
         return ranked
             .asSequence()
+            .sortedBy { order[it.word] ?: Int.MAX_VALUE }
             .map { Scored(it.word, it.finalScore * 100.0) }
             .filter { it.score >= MIN_CORRECTION_SCORE }
             .take(limit)
@@ -438,6 +472,7 @@ object SuggestionEngine {
     }
 
     private fun rankCompletions(
+        context: Context,
         language: DictionaryManager.Language,
         prefix: String,
         userWords: Map<String, Int>,
@@ -484,7 +519,18 @@ object SuggestionEngine {
                 profile = profile,
             ),
         )
-        return reranked.map { Scored(it.word, it.finalScore * 100.0) }.take(8)
+        val slmOrderedWords = SlmSuggestionReranker.rerankIfAvailable(
+            context = context,
+            previousWords = previousWords,
+            currentPartial = prefix,
+            candidates = reranked.map { it.word },
+            underLatencyPressure = slmWouldAddLatencyPressure(prefix, reranked.size),
+        )
+        val order = slmOrderedWords.withIndex().associate { it.value to it.index }
+        return reranked
+            .sortedBy { order[it.word] ?: Int.MAX_VALUE }
+            .map { Scored(it.word, it.finalScore * 100.0) }
+            .take(8)
     }
 
 
@@ -555,6 +601,9 @@ object SuggestionEngine {
                 it.correction.equals(correction, ignoreCase = true) &&
                 it.weight >= 0.95
         }
+
+    private fun slmWouldAddLatencyPressure(partial: String, candidateCount: Int): Boolean =
+        partial.length <= 1 && candidateCount >= 6
 
     private const val MAX_EDIT_DISTANCE = 2.5
     private const val MIN_CORRECTION_SCORE = 22.0

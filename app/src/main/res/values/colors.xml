@@ -8,8 +8,8 @@
     <color name="gkeys_key_special">#D1D1D6</color>
     <color name="gkeys_key_stroke">#33000000</color>
     <color name="gkeys_text_primary">#1C1C1E</color>
-    <color name="gkeys_text_secondary">#636366</color>
-    <color name="gkeys_text_muted">#8E8E93</color>
+    <color name="gkeys_text_secondary">#2B2B2F</color>
+    <color name="gkeys_text_muted">#3F3F46</color>
     <color name="gkeys_clipboard_pill">#FFFFFF</color>
     <color name="gkeys_clipboard_stroke">#D1D1D6</color>
     <color name="gkeys_divider">#C6C6C8</color>
@@ -20,7 +20,7 @@
     <color name="gkeys_ai_bar_top">#FFFFFF</color>
     <color name="gkeys_ai_bar_bottom">#ECECF0</color>
     <color name="gkeys_ai_bar_stroke">#33000000</color>
-    <color name="gkeys_ai_bar_btn">#1A000000</color>
+    <color name="gkeys_ai_bar_btn">#33000000</color>
     <color name="gkeys_ai_bar_shimmer">#55FFFFFF</color>
     <color name="gkeys_clipboard_card">#FFFFFF</color>
     <color name="gkeys_clipboard_tab">#D1D1D6</color>

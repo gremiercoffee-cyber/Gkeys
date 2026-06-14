@@ -19,12 +19,17 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.gremier.gkeys.BuildConfig
 import com.gremier.gkeys.R
+import com.gremier.gkeys.ime.slm.AiModelDownloader
+import com.gremier.gkeys.ime.slm.DownloadResult
+import com.gremier.gkeys.ime.slm.LocalSlmManager
 import com.google.android.material.button.MaterialButton
+import com.google.android.material.progressindicator.LinearProgressIndicator
 import com.google.android.material.slider.Slider
 import com.google.android.material.switchmaterial.SwitchMaterial
 import androidx.recyclerview.widget.ItemTouchHelper
 import com.google.android.material.tabs.TabLayout
 import com.google.android.material.textfield.TextInputEditText
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
@@ -76,6 +81,14 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var tvCrashLog: TextView
     private lateinit var btnCopyCrash: MaterialButton
     private lateinit var btnClearCrash: MaterialButton
+    private lateinit var switchOnDeviceAiPredictions: SwitchMaterial
+    private lateinit var tvAiModelStatus: TextView
+    private lateinit var tvAiModelDetails: TextView
+    private lateinit var tvAiModelProgress: TextView
+    private lateinit var progressAiModelDownload: LinearProgressIndicator
+    private lateinit var btnDownloadAiModel: MaterialButton
+    private lateinit var btnCancelAiModelDownload: MaterialButton
+    private lateinit var btnRemoveAiModel: MaterialButton
     private var crashScreenShown = false
     private var overlayRestrictedStep = 0
     private var settingsLoaded = false
@@ -85,6 +98,9 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var orderAdapter: AiBarOrderDragAdapter
     private var suppressThemeAutoSave = false
     private lateinit var radioTheme: RadioGroup
+    private var suppressOnDeviceAiAutoSave = false
+    private var modelDownloadJob: Job? = null
+    private var modelDownloader: AiModelDownloader? = null
 
     private val micPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -245,10 +261,11 @@ class SettingsActivity : AppCompatActivity() {
         val panels = listOf(
             findViewById<android.view.View>(R.id.panel_setup),
             findViewById(R.id.panel_ai),
+            findViewById(R.id.panel_ai_models),
             findViewById(R.id.panel_keyboard),
             findViewById(R.id.panel_toolbar)
         )
-        listOf("Setup", "AI", "Keyboard", "Toolbar").forEach { label ->
+        listOf("Setup", "AI", "AI Models", "Keyboard", "Toolbar").forEach { label ->
             tabs.addTab(tabs.newTab().setText(label))
         }
         tabs.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
@@ -313,6 +330,14 @@ class SettingsActivity : AppCompatActivity() {
         btnCopyCrash = findViewById(R.id.btn_copy_crash)
         btnClearCrash = findViewById(R.id.btn_clear_crash)
         radioTheme = findViewById(R.id.radio_theme)
+        switchOnDeviceAiPredictions = findViewById(R.id.switch_on_device_ai_predictions)
+        tvAiModelStatus = findViewById(R.id.tv_ai_model_status)
+        tvAiModelDetails = findViewById(R.id.tv_ai_model_details)
+        tvAiModelProgress = findViewById(R.id.tv_ai_model_progress)
+        progressAiModelDownload = findViewById(R.id.progress_ai_model_download)
+        btnDownloadAiModel = findViewById(R.id.btn_download_ai_model)
+        btnCancelAiModelDownload = findViewById(R.id.btn_cancel_ai_model_download)
+        btnRemoveAiModel = findViewById(R.id.btn_remove_ai_model)
     }
 
     private fun refreshCrashCard() {
@@ -394,6 +419,11 @@ class SettingsActivity : AppCompatActivity() {
                 GkeysSettings.dailyAiLearningEnabled(this@SettingsActivity).first()
             switchRawTextSamples.isChecked =
                 GkeysSettings.allowRawTextSamples(this@SettingsActivity).first()
+            suppressOnDeviceAiAutoSave = true
+            switchOnDeviceAiPredictions.isChecked =
+                AiPredictionSettings.enabled(this@SettingsActivity).first()
+            suppressOnDeviceAiAutoSave = false
+            refreshAiModelStatus()
             refreshAdaptiveTouchStats()
             refreshPredictionDebug()
             when (GkeysSettings.oneHandedMode(this@SettingsActivity).first()) {
@@ -546,6 +576,40 @@ class SettingsActivity : AppCompatActivity() {
         switchRawTextSamples.setOnCheckedChangeListener { _, checked ->
             autoSave { GkeysSettings.saveAllowRawTextSamples(this@SettingsActivity, checked) }
         }
+        switchOnDeviceAiPredictions.setOnCheckedChangeListener { _, checked ->
+            if (!settingsLoaded || suppressOnDeviceAiAutoSave) return@setOnCheckedChangeListener
+            autoSave {
+                val saved = AiPredictionSettings.saveEnabled(this@SettingsActivity, checked)
+                if (!saved && checked) {
+                    runOnUiThread {
+                        suppressOnDeviceAiAutoSave = true
+                        switchOnDeviceAiPredictions.isChecked = false
+                        suppressOnDeviceAiAutoSave = false
+                        Toast.makeText(
+                            this@SettingsActivity,
+                            "Download the on-device AI model first.",
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    }
+                }
+                runOnUiThread { refreshAiModelStatus() }
+            }
+        }
+        btnDownloadAiModel.setOnClickListener { startAiModelDownload() }
+        btnCancelAiModelDownload.setOnClickListener {
+            modelDownloader?.cancel()
+            tvAiModelStatus.text = "Download canceled"
+        }
+        btnRemoveAiModel.setOnClickListener {
+            lifecycleScope.launch {
+                LocalSlmManager(this@SettingsActivity).removeModel()
+                suppressOnDeviceAiAutoSave = true
+                switchOnDeviceAiPredictions.isChecked = false
+                suppressOnDeviceAiAutoSave = false
+                refreshAiModelStatus()
+                Toast.makeText(this@SettingsActivity, "Model removed", Toast.LENGTH_SHORT).show()
+            }
+        }
 
         btnMicPermission.setOnClickListener { requestMicPermissionIfNeeded() }
         btnPhotoPermission.setOnClickListener { requestPhotoPermissionIfNeeded() }
@@ -682,6 +746,72 @@ class SettingsActivity : AppCompatActivity() {
                 append(reasons.joinToString("\n"))
             }
         }
+    }
+
+    private fun refreshAiModelStatus() {
+        if (!::tvAiModelStatus.isInitialized) return
+        val status = LocalSlmManager(this).status()
+        tvAiModelStatus.text = status.message
+        tvAiModelDetails.text = buildString {
+            append("Model installed: ").append(if (status.verified) "Yes" else "No")
+            append("\nModel name: ").append(status.modelName)
+            append("\nModel version: ").append(status.modelVersion)
+            append("\nModel file size: ").append(formatBytes(status.fileSizeBytes))
+        }
+        btnRemoveAiModel.isEnabled = status.installed
+        btnDownloadAiModel.isEnabled = modelDownloadJob?.isActive != true
+    }
+
+    private fun startAiModelDownload() {
+        if (modelDownloadJob?.isActive == true) return
+        val downloader = AiModelDownloader(this)
+        modelDownloader = downloader
+        progressAiModelDownload.visibility = android.view.View.VISIBLE
+        btnCancelAiModelDownload.visibility = android.view.View.VISIBLE
+        btnDownloadAiModel.isEnabled = false
+        tvAiModelStatus.text = "Downloading model..."
+        progressAiModelDownload.progress = 0
+        modelDownloadJob = lifecycleScope.launch {
+            val result = downloader.downloadRecommended { progress ->
+                runOnUiThread {
+                    progressAiModelDownload.progress = progress.percent
+                    tvAiModelProgress.text = "${progress.percent}% - ${progress.message}"
+                    tvAiModelStatus.text = progress.message
+                }
+            }
+            btnCancelAiModelDownload.visibility = android.view.View.GONE
+            btnDownloadAiModel.isEnabled = true
+            when (result) {
+                DownloadResult.Success -> {
+                    tvAiModelStatus.text = "Model installed"
+                    tvAiModelProgress.text = "100% - Model installed"
+                }
+                DownloadResult.Canceled -> {
+                    tvAiModelStatus.text = "Download canceled"
+                    tvAiModelProgress.text = ""
+                }
+                DownloadResult.ChecksumFailed -> {
+                    AiPredictionSettings.saveEnabled(this@SettingsActivity, false)
+                    tvAiModelStatus.text = "Model failed checksum verification"
+                    tvAiModelProgress.text = ""
+                }
+                DownloadResult.NotEnoughStorage -> {
+                    tvAiModelStatus.text = "Not enough storage"
+                    tvAiModelProgress.text = ""
+                }
+                is DownloadResult.Failed -> {
+                    tvAiModelStatus.text = result.message
+                    tvAiModelProgress.text = ""
+                }
+            }
+            refreshAiModelStatus()
+        }
+    }
+
+    private fun formatBytes(bytes: Long): String {
+        if (bytes <= 0L) return "0 MB"
+        val mb = bytes / (1024.0 * 1024.0)
+        return String.format(java.util.Locale.US, "%.1f MB", mb)
     }
 
     private fun updateOverlayPermissionButton() {

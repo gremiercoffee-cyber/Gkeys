@@ -34,6 +34,7 @@ object GkeysSettings {
     val EXPERIMENTAL_SWIPE_TYPING_ENABLED = booleanPreferencesKey("experimental_swipe_typing_enabled")
     val DAILY_AI_LEARNING_ENABLED = booleanPreferencesKey("daily_ai_learning_enabled")
     val ALLOW_RAW_TEXT_SAMPLES = booleanPreferencesKey("allow_raw_text_samples")
+    val ON_DEVICE_AI_PREDICTIONS_ENABLED = booleanPreferencesKey("on_device_ai_predictions_enabled")
     val RIGHT_HANDED_MODE = booleanPreferencesKey("right_handed_mode")
     val VOICE_TRANSLATE_FROM = stringPreferencesKey("voice_translate_from")
     val VOICE_TRANSLATE_TO = stringPreferencesKey("voice_translate_to")
@@ -91,6 +92,7 @@ object GkeysSettings {
     const val DEFAULT_EXPERIMENTAL_SWIPE_TYPING = false
     const val DEFAULT_DAILY_AI_LEARNING = false
     const val DEFAULT_ALLOW_RAW_TEXT_SAMPLES = false
+    const val DEFAULT_ON_DEVICE_AI_PREDICTIONS = false
 
     const val POLISH_FORMAL = "formal"
     const val POLISH_NATURAL = "natural"
@@ -295,6 +297,11 @@ object GkeysSettings {
     fun allowRawTextSamples(context: Context): Flow<Boolean> =
         settingsStore(context).data.map { it[ALLOW_RAW_TEXT_SAMPLES] ?: DEFAULT_ALLOW_RAW_TEXT_SAMPLES }
 
+    fun onDeviceAiPredictionsEnabled(context: Context): Flow<Boolean> =
+        settingsStore(context).data.map {
+            it[ON_DEVICE_AI_PREDICTIONS_ENABLED] ?: DEFAULT_ON_DEVICE_AI_PREDICTIONS
+        }
+
     fun speechProfile(context: Context): Flow<String> =
         settingsStore(context).data.map { it[SPEECH_PROFILE] ?: "" }
 
@@ -481,6 +488,10 @@ object GkeysSettings {
 
     suspend fun saveAllowRawTextSamples(context: Context, enabled: Boolean) {
         settingsStore(context).edit { it[ALLOW_RAW_TEXT_SAMPLES] = enabled }
+    }
+
+    suspend fun saveOnDeviceAiPredictionsEnabled(context: Context, enabled: Boolean) {
+        settingsStore(context).edit { it[ON_DEVICE_AI_PREDICTIONS_ENABLED] = enabled }
     }
 
     suspend fun saveVoiceTranslateFrom(context: Context, lang: String) {

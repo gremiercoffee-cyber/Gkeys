@@ -119,8 +119,6 @@ class AospGestureTypingEngine(
         val observedPath = pathKey(sampledPoints)
         if (observedPath.length < 2) return null
         val candidates = LinkedHashSet<String>()
-        observedPath.takeIf { it.length in 2..FALLBACK_MAX_WORD_LENGTH }
-            ?.let { candidates.add(it) }
         contractionlessVariant(observedPath)?.let { candidates.add(it) }
         userWords.keys.asSequence()
             .map { it.lowercase() }
