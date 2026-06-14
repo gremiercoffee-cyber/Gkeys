@@ -119,9 +119,15 @@ class AospGestureTypingEngine(
         val observedPath = pathKey(sampledPoints)
         if (observedPath.length < 2) return null
         val candidates = LinkedHashSet<String>()
+        observedPath.takeIf { it.length in 2..FALLBACK_MAX_WORD_LENGTH }
+            ?.let { candidates.add(it) }
+        contractionlessVariant(observedPath)?.let { candidates.add(it) }
         userWords.keys.asSequence()
             .map { it.lowercase() }
             .filterTo(candidates) { isFallbackCandidate(it, sampledPoints, observedPath, targetsByChar) }
+        userWords.keys.asSequence()
+            .map { it.lowercase() }
+            .filterTo(candidates) { isRelaxedFallbackCandidate(it, sampledPoints, observedPath, targetsByChar) }
         dictionaryWords()
             .asSequence()
             .filterTo(candidates) { isFallbackCandidate(it, sampledPoints, observedPath, targetsByChar) }
@@ -149,6 +155,7 @@ class AospGestureTypingEngine(
                     maxOf(observedPath.length, wordPath.length, 1)
                 val extraLetterPenalty = extraLetterPenalty(observedPath, wordPath)
                 val shortWordBoost = shortWordBoost(observedPath, word)
+                val literalPathBoost = literalPathBoost(observedPath, wordPath, word, personal)
                 val cost =
                     distance * 1.25 +
                     sequenceDistance * 0.85 +
@@ -156,7 +163,8 @@ class AospGestureTypingEngine(
                     endDistance * 0.52 +
                     lengthPenalty * 0.35 +
                     extraLetterPenalty -
-                    shortWordBoost
+                    shortWordBoost -
+                    literalPathBoost
                 val swipeScore = (1.0 / (1.0 + cost.coerceAtLeast(0.0))).coerceIn(0.0, 1.0)
                 ContextualCandidateReranker.Candidate(
                     word = word,
@@ -180,6 +188,7 @@ class AospGestureTypingEngine(
             word = best,
             pathKey = pathKey,
             candidates = ranked.map { it.word },
+            candidateScores = ranked.map { it.finalScore },
         )
     }
 
@@ -218,7 +227,7 @@ class AospGestureTypingEngine(
         targetsByChar: Map<Char, KeyHitTarget>,
     ): Boolean {
         if (word.length !in 2..FALLBACK_MAX_WORD_LENGTH) return false
-        if (word.any { it !in targetsByChar }) return false
+        if (word.any { it.isLetter() && it !in targetsByChar }) return false
         val wordPath = pathKeyForWord(word)
         val maxSequenceDistance = when {
             wordPath.length <= 3 -> 1
@@ -240,7 +249,7 @@ class AospGestureTypingEngine(
         targetsByChar: Map<Char, KeyHitTarget>,
     ): Boolean {
         if (word.length !in 2..FALLBACK_MAX_WORD_LENGTH) return false
-        if (word.any { it !in targetsByChar }) return false
+        if (word.any { it.isLetter() && it !in targetsByChar }) return false
         val wordPath = pathKeyForWord(word)
         val startDistance = keyDistance(points.first(), word.first(), targetsByChar) ?: return false
         val endDistance = keyDistance(points.last(), word.last(), targetsByChar) ?: return false
@@ -253,6 +262,7 @@ class AospGestureTypingEngine(
         val out = StringBuilder()
         var last: Char? = null
         for (char in word) {
+            if (!char.isLetter()) continue
             if (char != last) {
                 out.append(char)
                 last = char
@@ -275,6 +285,32 @@ class AospGestureTypingEngine(
         if (observedPath.length > 3 || word.length > 3) return 0.0
         val wordPath = pathKeyForWord(word)
         return if (observedPath == wordPath) 0.65 else 0.0
+    }
+
+    private fun literalPathBoost(
+        observedPath: String,
+        wordPath: String,
+        word: String,
+        personalFrequency: Int,
+    ): Double {
+        if (observedPath != wordPath) return 0.0
+        var boost = 0.9
+        if (word.length <= 5) boost += 0.35
+        if (personalFrequency > 0) boost += 0.55
+        return boost
+    }
+
+    private fun contractionlessVariant(path: String): String? = when (path) {
+        "thats" -> "that's"
+        "whats" -> "what's"
+        "dont" -> "don't"
+        "cant" -> "can't"
+        "wont" -> "won't"
+        "im" -> "i'm"
+        "ive" -> "i've"
+        "youre" -> "you're"
+        "theyre" -> "they're"
+        else -> null
     }
 
     private fun gestureDistance(
@@ -305,6 +341,7 @@ class AospGestureTypingEngine(
         val out = ArrayList<Pair<Float, Float>>(word.length)
         var last: Char? = null
         for (char in word) {
+            if (!char.isLetter()) continue
             if (char == last) continue
             val target = targetsByChar[char] ?: return null
             out.add(target.centerX to target.centerY)
@@ -401,4 +438,5 @@ data class GestureDecode(
     val word: String,
     val pathKey: String,
     val candidates: List<String>,
+    val candidateScores: List<Double> = emptyList(),
 )

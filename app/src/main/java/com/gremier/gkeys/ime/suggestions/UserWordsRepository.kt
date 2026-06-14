@@ -27,32 +27,65 @@ class UserWordsRepository(context: Context) {
     fun words(language: DictionaryManager.Language): Map<String, Int> =
         cache[language.code].orEmpty()
 
-    suspend fun recordWord(language: DictionaryManager.Language, word: String) {
+    fun recordWordInMemory(language: DictionaryManager.Language, word: String, weight: Int = 1) {
+        val normalized = normalize(word, language)
+        if (normalized.length < 2) return
+        bumpCache(language, normalized, weight)
+    }
+
+    suspend fun recordWord(
+        language: DictionaryManager.Language,
+        word: String,
+        source: LearningSource = LearningSource.TYPED,
+    ) {
         val normalized = normalize(word, language)
         if (normalized.length < 2) return
         withContext(Dispatchers.IO) {
-            val existing = dao.frequency(normalized, language.code)
+            val now = System.currentTimeMillis()
+            val existing = dao.word(normalized, language.code)
             if (existing != null) {
-                dao.incrementFrequency(normalized, language.code)
+                dao.upsert(existing.learned(source, now))
             } else {
                 dao.upsert(
                     UserWordEntity(
                         word = normalized,
                         language = language.code,
-                        frequency = 1,
-                        addedAt = System.currentTimeMillis(),
+                        frequency = source.frequencyDelta,
+                        addedAt = now,
+                        updatedAt = now,
+                        confidence = source.confidenceDelta,
+                        typedCount = if (source == LearningSource.TYPED) 1 else 0,
+                        swipeCount = if (source == LearningSource.SWIPE_ACCEPTED) 1 else 0,
+                        selectedCount = if (source == LearningSource.SELECTED) 1 else 0,
+                        autocorrectAcceptedCount = if (source == LearningSource.AUTOCORRECT_ACCEPTED) 1 else 0,
+                        correctionAcceptedCount = if (source == LearningSource.CORRECTION_ACCEPTED) 1 else 0,
                     )
                 )
             }
         }
-        bumpCache(language, normalized)
+    }
+
+    suspend fun recordRejected(language: DictionaryManager.Language, word: String) {
+        val normalized = normalize(word, language)
+        if (normalized.length < 2) return
+        withContext(Dispatchers.IO) {
+            val now = System.currentTimeMillis()
+            val existing = dao.word(normalized, language.code) ?: return@withContext
+            dao.upsert(
+                existing.copy(
+                    updatedAt = now,
+                    confidence = (existing.confidence - 0.8f).coerceAtLeast(0f),
+                    rejectedCount = existing.rejectedCount + 1,
+                )
+            )
+        }
     }
 
     /** Keep in-memory vocabulary hot so new words surface in suggestions immediately. */
-    private fun bumpCache(language: DictionaryManager.Language, word: String) {
+    private fun bumpCache(language: DictionaryManager.Language, word: String, amount: Int = 1) {
         val code = language.code
         val updated = cache[code].orEmpty().toMutableMap()
-        updated[word] = (updated[word] ?: 0) + 1
+        updated[word] = (updated[word] ?: 0) + amount
         cache = cache + (code to updated)
     }
 
@@ -72,4 +105,30 @@ class UserWordsRepository(context: Context) {
         DictionaryManager.Language.EN -> word.lowercase()
         DictionaryManager.Language.HE -> word
     }
+
+    enum class LearningSource(
+        val frequencyDelta: Int,
+        val confidenceDelta: Float,
+        val cacheWeight: Int = frequencyDelta,
+    ) {
+        TYPED(1, 1.0f),
+        SWIPE_ACCEPTED(2, 1.6f),
+        SELECTED(3, 2.0f),
+        AUTOCORRECT_ACCEPTED(2, 1.4f),
+        CORRECTION_ACCEPTED(4, 3.0f),
+    }
+
+    private fun UserWordEntity.learned(source: LearningSource, now: Long): UserWordEntity =
+        copy(
+            frequency = frequency + source.frequencyDelta,
+            updatedAt = now,
+            confidence = (confidence + source.confidenceDelta).coerceAtMost(250f),
+            typedCount = typedCount + if (source == LearningSource.TYPED) 1 else 0,
+            swipeCount = swipeCount + if (source == LearningSource.SWIPE_ACCEPTED) 1 else 0,
+            selectedCount = selectedCount + if (source == LearningSource.SELECTED) 1 else 0,
+            autocorrectAcceptedCount = autocorrectAcceptedCount +
+                if (source == LearningSource.AUTOCORRECT_ACCEPTED) 1 else 0,
+            correctionAcceptedCount = correctionAcceptedCount +
+                if (source == LearningSource.CORRECTION_ACCEPTED) 1 else 0,
+        )
 }

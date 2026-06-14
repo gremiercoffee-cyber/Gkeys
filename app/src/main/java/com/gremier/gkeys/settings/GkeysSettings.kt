@@ -32,6 +32,8 @@ object GkeysSettings {
     val TOUCH_OFFSET_SAMPLES = intPreferencesKey("touch_offset_samples")
     val ADAPTIVE_TOUCH_ENABLED = booleanPreferencesKey("adaptive_touch_enabled")
     val EXPERIMENTAL_SWIPE_TYPING_ENABLED = booleanPreferencesKey("experimental_swipe_typing_enabled")
+    val DAILY_AI_LEARNING_ENABLED = booleanPreferencesKey("daily_ai_learning_enabled")
+    val ALLOW_RAW_TEXT_SAMPLES = booleanPreferencesKey("allow_raw_text_samples")
     val RIGHT_HANDED_MODE = booleanPreferencesKey("right_handed_mode")
     val VOICE_TRANSLATE_FROM = stringPreferencesKey("voice_translate_from")
     val VOICE_TRANSLATE_TO = stringPreferencesKey("voice_translate_to")
@@ -87,6 +89,8 @@ object GkeysSettings {
     const val DEFAULT_AUTO_POLISH = true
     const val DEFAULT_ADAPTIVE_TOUCH = true
     const val DEFAULT_EXPERIMENTAL_SWIPE_TYPING = false
+    const val DEFAULT_DAILY_AI_LEARNING = false
+    const val DEFAULT_ALLOW_RAW_TEXT_SAMPLES = false
 
     const val POLISH_FORMAL = "formal"
     const val POLISH_NATURAL = "natural"
@@ -285,6 +289,12 @@ object GkeysSettings {
             it[EXPERIMENTAL_SWIPE_TYPING_ENABLED] ?: DEFAULT_EXPERIMENTAL_SWIPE_TYPING
         }
 
+    fun dailyAiLearningEnabled(context: Context): Flow<Boolean> =
+        settingsStore(context).data.map { it[DAILY_AI_LEARNING_ENABLED] ?: DEFAULT_DAILY_AI_LEARNING }
+
+    fun allowRawTextSamples(context: Context): Flow<Boolean> =
+        settingsStore(context).data.map { it[ALLOW_RAW_TEXT_SAMPLES] ?: DEFAULT_ALLOW_RAW_TEXT_SAMPLES }
+
     fun speechProfile(context: Context): Flow<String> =
         settingsStore(context).data.map { it[SPEECH_PROFILE] ?: "" }
 
@@ -463,6 +473,14 @@ object GkeysSettings {
 
     suspend fun saveExperimentalSwipeTypingEnabled(context: Context, enabled: Boolean) {
         settingsStore(context).edit { it[EXPERIMENTAL_SWIPE_TYPING_ENABLED] = enabled }
+    }
+
+    suspend fun saveDailyAiLearningEnabled(context: Context, enabled: Boolean) {
+        settingsStore(context).edit { it[DAILY_AI_LEARNING_ENABLED] = enabled }
+    }
+
+    suspend fun saveAllowRawTextSamples(context: Context, enabled: Boolean) {
+        settingsStore(context).edit { it[ALLOW_RAW_TEXT_SAMPLES] = enabled }
     }
 
     suspend fun saveVoiceTranslateFrom(context: Context, lang: String) {

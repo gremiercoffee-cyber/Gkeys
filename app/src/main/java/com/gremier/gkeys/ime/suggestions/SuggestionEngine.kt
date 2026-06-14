@@ -1,6 +1,8 @@
 package com.gremier.gkeys.ime.suggestions
 
 import android.content.Context
+import com.gremier.gkeys.ime.personalization.PersonalLanguageProfile
+import com.gremier.gkeys.ime.personalization.PersonalLanguageProfileStore
 import kotlin.math.abs
 
 data class SuggestionChip(
@@ -30,21 +32,25 @@ object SuggestionEngine {
         val normalizedPrefix = normalize(prefix, language)
         if (normalizedPrefix.isEmpty()) return SuggestionStripModel(null, null, null)
         val literalTyped = prefix
+        val profile = PersonalLanguageProfileStore.load(context)
 
         val en = language == DictionaryManager.Language.EN
 
         // Standalone "i" -> "I" (it's a valid word, so this runs before the word check).
-        if (en && normalizedPrefix == "i") return correctionModel(literalTyped, "I")
+        if (en && normalizedPrefix == "i" && !profile.neverAutocorrects(normalizedPrefix)) {
+            return correctionModel(literalTyped, "I")
+        }
 
         val typedIsWord = isRealWord(language, normalizedPrefix, userWords)
         if (!typedIsWord) {
             if (en) {
-                contractionFor(normalizedPrefix)?.let { return correctionModel(literalTyped, it) }
+                contractionFor(normalizedPrefix)?.takeUnless { profile.blocksCorrection(normalizedPrefix, it) }
+                    ?.let { return correctionModel(literalTyped, it) }
                 repeatedCharFix(language, normalizedPrefix, userWords)?.let {
-                    return correctionModel(literalTyped, it)
+                    if (!profile.blocksCorrection(normalizedPrefix, it)) return correctionModel(literalTyped, it)
                 }
             }
-            val corrections = rankCorrections(language, normalizedPrefix, userWords, previousWords, nextWord)
+            val corrections = rankCorrections(language, normalizedPrefix, userWords, previousWords, nextWord, profile = profile)
             if (corrections.isNotEmpty()) {
                 return correctionChoicesModel(literalTyped, corrections.map { it.word })
             }
@@ -54,7 +60,7 @@ object SuggestionEngine {
             }
         }
 
-        val completions = rankCompletions(language, normalizedPrefix, userWords)
+        val completions = rankCompletions(language, normalizedPrefix, userWords, previousWords, nextWord, profile)
             .filter { it.word != normalizedPrefix }
             .distinctBy { it.word }
 
@@ -83,17 +89,21 @@ object SuggestionEngine {
     ): String? {
         DictionaryManager.ensureLoaded(context, language)
         val normalized = normalize(prefix, language)
+        val profile = PersonalLanguageProfileStore.load(context)
         val en = language == DictionaryManager.Language.EN
 
-        if (en && normalized == "i") return "I"
+        if (en && normalized == "i" && !profile.neverAutocorrects(normalized)) return "I"
         if (prefix.length < 2) return null
         if (isRealWord(language, normalized, userWords)) return null
+        if (profile.neverAutocorrects(normalized)) return null
 
         if (en) {
-            contractionFor(normalized)?.let { return it }
-            repeatedCharFix(language, normalized, userWords)?.let { return it }
+            contractionFor(normalized)?.takeUnless { profile.blocksCorrection(normalized, it) }?.let { return it }
+            repeatedCharFix(language, normalized, userWords)
+                ?.takeUnless { profile.blocksCorrection(normalized, it) }
+                ?.let { return it }
         }
-        val correction = rankCorrections(language, normalized, userWords, previousWords, nextWord).firstOrNull()
+        val correction = rankCorrections(language, normalized, userWords, previousWords, nextWord, profile = profile).firstOrNull()
         if (correction != null && correction.word != normalized && shouldAutocorrect(normalized, correction)) {
             return correction.word
         }
@@ -290,17 +300,21 @@ object SuggestionEngine {
         previousWords: List<String> = emptyList(),
         nextWord: String? = null,
         limit: Int = 3,
+        profile: PersonalLanguageProfile = PersonalLanguageProfile.empty(),
     ): List<Scored> {
         val maxDistance = maxCorrectionDistance(typed, previousWords, nextWord)
         val rerankCandidates = (
             DictionaryManager.correctionCandidates(language, typed)
                 .asSequence()
                 .plus(keyboardSlipCandidates(language, typed))
-                .plus(proximityCorrectionCandidates(language, typed, previousWords, nextWord))
-                .plus(contextSeedCandidates(language, previousWords, nextWord))
+            .plus(proximityCorrectionCandidates(language, typed, previousWords, nextWord))
+            .plus(contextSeedCandidates(language, previousWords, nextWord))
+            .plus(profile.customVocabulary.asSequence().map { it.text })
+            .plus(profile.recentTopicBoosts.asSequence().map { it.text })
         )
             .distinct()
             .filter { it != typed }
+            .filterNot { profile.blocksCorrection(typed, it) }
             .mapNotNull { candidate ->
                 val dist = weightedDistance(typed, candidate, language)
                 if (dist > maxDistance) return@mapNotNull null
@@ -316,7 +330,12 @@ object SuggestionEngine {
             .toList()
         val ranked = ContextualCandidateReranker.rerank(
             rerankCandidates,
-            ContextualCandidateReranker.Context(previousWords = previousWords, nextWord = nextWord),
+            ContextualCandidateReranker.Context(
+                previousWords = previousWords,
+                nextWord = nextWord,
+                typedWord = typed,
+                profile = profile,
+            ),
         )
         return ranked
             .asSequence()
@@ -422,6 +441,9 @@ object SuggestionEngine {
         language: DictionaryManager.Language,
         prefix: String,
         userWords: Map<String, Int>,
+        previousWords: List<String>,
+        nextWord: String?,
+        profile: PersonalLanguageProfile,
     ): List<Scored> {
         val userMatches = userWords.entries
             .asSequence()
@@ -439,7 +461,30 @@ object SuggestionEngine {
             .sortedByDescending { it.score }
             .toList()
 
-        return (userMatches + dictMatches).take(8)
+        val profileMatches = (profile.customVocabulary + profile.recentTopicBoosts)
+            .asSequence()
+            .map { it.text }
+            .filter { normalize(it, language).startsWith(prefix) && normalize(it, language).length > prefix.length }
+            .map { Scored(it, 100.0) }
+            .toList()
+
+        val reranked = ContextualCandidateReranker.rerank(
+            (userMatches + profileMatches + dictMatches).distinctBy { normalize(it.word, language) }.map {
+                ContextualCandidateReranker.Candidate(
+                    word = it.word,
+                    swipeOrTouchScore = 0.7,
+                    baseFrequencyScore = (it.score / 100.0).coerceIn(0.0, 1.0),
+                    personalPreferenceScore = ((userWords[normalize(it.word, language)] ?: 0).coerceAtMost(50) / 50.0),
+                )
+            },
+            ContextualCandidateReranker.Context(
+                previousWords = previousWords,
+                nextWord = nextWord,
+                typedWord = prefix,
+                profile = profile,
+            ),
+        )
+        return reranked.map { Scored(it.word, it.finalScore * 100.0) }.take(8)
     }
 
 
@@ -500,6 +545,16 @@ object SuggestionEngine {
         DictionaryManager.Language.EN -> word.lowercase()
         DictionaryManager.Language.HE -> word
     }
+
+    private fun PersonalLanguageProfile.neverAutocorrects(word: String): Boolean =
+        neverAutocorrect.any { it.equals(word, ignoreCase = true) }
+
+    private fun PersonalLanguageProfile.blocksCorrection(typed: String, correction: String): Boolean =
+        neverAutocorrects(typed) || correctionPenalties.any {
+            it.typed.equals(typed, ignoreCase = true) &&
+                it.correction.equals(correction, ignoreCase = true) &&
+                it.weight >= 0.95
+        }
 
     private const val MAX_EDIT_DISTANCE = 2.5
     private const val MIN_CORRECTION_SCORE = 22.0

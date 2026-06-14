@@ -1,5 +1,7 @@
 package com.gremier.gkeys.ime.suggestions
 
+import com.gremier.gkeys.ime.personalization.PersonalLanguageProfile
+
 /**
  * Reranks already-plausible candidates using lightweight local language signals.
  *
@@ -19,6 +21,8 @@ object ContextualCandidateReranker {
     data class Context(
         val previousWords: List<String> = emptyList(),
         val nextWord: String? = null,
+        val typedWord: String = "",
+        val profile: PersonalLanguageProfile? = null,
     ) {
         val previous: String get() = previousWords.lastOrNull().orEmpty().lowercase()
         val next: String get() = nextWord.orEmpty().lowercase()
@@ -33,7 +37,14 @@ object ContextualCandidateReranker {
         val grammarCompatibilityScore: Double,
         val personalPreferenceScore: Double,
         val correctionLearningScore: Double,
+        val llmProfileBoostScore: Double,
+        val autocorrectUndoPenaltyScore: Double,
+        val explanations: List<String> = emptyList(),
     )
+
+    @Volatile
+    var lastDebugExplanations: List<String> = emptyList()
+        private set
 
     fun rerank(candidates: List<Candidate>, context: Context): List<RankedCandidate> =
         candidates
@@ -44,13 +55,16 @@ object ContextualCandidateReranker {
                 val grammarScore = grammarCompatibilityScore(context, normalized)
                 val personal = candidate.personalPreferenceScore.coerceIn(-1.0, 1.0)
                 val learning = candidate.correctionLearningScore.coerceIn(-1.0, 1.0)
+                val profileSignal = profileSignal(context, normalized)
                 val finalScore =
                     candidate.swipeOrTouchScore.coerceIn(0.0, 1.0) * WEIGHT_TOUCH +
                     candidate.baseFrequencyScore.coerceIn(0.0, 1.0) * WEIGHT_FREQUENCY +
                     contextScore * WEIGHT_CONTEXT +
                     grammarScore * WEIGHT_GRAMMAR +
                     personal * WEIGHT_PERSONAL +
-                    learning * WEIGHT_LEARNING
+                    learning * WEIGHT_LEARNING +
+                    profileSignal.boost * WEIGHT_PROFILE -
+                    profileSignal.undoPenalty * WEIGHT_UNDO_PENALTY
                 RankedCandidate(
                     word = candidate.word,
                     finalScore = finalScore,
@@ -60,9 +74,68 @@ object ContextualCandidateReranker {
                     grammarCompatibilityScore = grammarScore,
                     personalPreferenceScore = personal,
                     correctionLearningScore = learning,
+                    llmProfileBoostScore = profileSignal.boost,
+                    autocorrectUndoPenaltyScore = profileSignal.undoPenalty,
+                    explanations = profileSignal.explanations,
                 )
             }
             .sortedByDescending { it.finalScore }
+            .also { ranked ->
+                lastDebugExplanations = ranked.take(3).flatMap { candidate ->
+                    candidate.explanations.map { "${candidate.word}: $it" }
+                }
+            }
+
+    private data class ProfileSignal(
+        val boost: Double,
+        val undoPenalty: Double,
+        val explanations: List<String>,
+    )
+
+    private fun profileSignal(context: Context, candidate: String): ProfileSignal {
+        val profile = context.profile ?: return ProfileSignal(0.0, 0.0, emptyList())
+        val previous = context.previous
+        val typed = context.typedWord.lowercase()
+        var boost = 0.0
+        var penalty = 0.0
+        val reasons = mutableListOf<String>()
+
+        profile.customVocabulary.firstOrNull { it.text.equals(candidate, ignoreCase = true) }?.let {
+            boost += it.weight.coerceIn(0.0, 1.0)
+            reasons += it.reason.ifBlank { "boosted as personal vocabulary" }
+        }
+        profile.recentTopicBoosts.firstOrNull { it.text.equals(candidate, ignoreCase = true) }?.let {
+            boost += it.weight.coerceIn(0.0, 1.0) * 0.8
+            reasons += it.reason.ifBlank { "boosted as a recent project or brand term" }
+        }
+        profile.nextWordPredictions.firstOrNull {
+            it.previous.equals(previous, ignoreCase = true) && it.next.equals(candidate, ignoreCase = true)
+        }?.let {
+            boost += it.weight.coerceIn(0.0, 1.0)
+            reasons += it.reason.ifBlank { "boosted because user often writes '$previous $candidate'" }
+        }
+        profile.phraseBoosts.firstOrNull {
+            it.text.equals("$previous $candidate", ignoreCase = true)
+        }?.let {
+            boost += it.weight.coerceIn(0.0, 1.0)
+            reasons += it.reason.ifBlank { "boosted because user often writes '${it.text}'" }
+        }
+        if (profile.neverAutocorrect.any { it.equals(typed, ignoreCase = true) || it.equals(candidate, ignoreCase = true) }) {
+            penalty += 1.0
+            reasons += "penalized because this word is marked never autocorrect"
+        }
+        profile.correctionPenalties.firstOrNull {
+            it.typed.equals(typed, ignoreCase = true) && it.correction.equals(candidate, ignoreCase = true)
+        }?.let {
+            penalty += it.weight.coerceIn(0.0, 1.0)
+            reasons += it.reason.ifBlank { "penalized because user previously undid this autocorrect" }
+        }
+        return ProfileSignal(
+            boost = boost.coerceIn(0.0, 1.0),
+            undoPenalty = penalty.coerceIn(0.0, 1.0),
+            explanations = reasons.take(3),
+        )
+    }
 
     private fun contextLanguageScore(context: Context, candidate: String): Double {
         val previous = context.previous
@@ -186,4 +259,6 @@ object ContextualCandidateReranker {
     private const val WEIGHT_GRAMMAR = 0.20
     private const val WEIGHT_PERSONAL = 0.07
     private const val WEIGHT_LEARNING = 0.05
+    private const val WEIGHT_PROFILE = 0.14
+    private const val WEIGHT_UNDO_PENALTY = 0.30
 }

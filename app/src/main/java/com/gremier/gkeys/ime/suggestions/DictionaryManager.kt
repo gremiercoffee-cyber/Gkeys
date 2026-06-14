@@ -19,6 +19,7 @@ object DictionaryManager {
     private data class LoadedDict(
         val rankByWord: Map<String, Int>,
         val byFirstChar: Map<Char, List<String>>,
+        val rankedWords: List<String>,
     )
 
     @Volatile
@@ -72,12 +73,7 @@ object DictionaryManager {
 
     fun topWords(language: Language, limit: Int = 40_000): List<String> {
         val dict = dict(language) ?: return emptyList()
-        return dict.byFirstChar.values
-            .asSequence()
-            .flatten()
-            .sortedBy { frequencyRank(language, it) }
-            .take(limit)
-            .toList()
+        return dict.rankedWords.take(limit)
     }
 
     fun correctionCandidates(language: Language, typed: String): List<String> {
@@ -151,7 +147,12 @@ val pool = LinkedHashSet<String>()
             byFirstChar.getOrPut(word.firstOrNull() ?: return@forEachIndexed) { ArrayList(800) }
                 .add(word)
         }
-        return LoadedDict(rankByWord, byFirstChar.mapValues { it.value.toList() })
+        val rankedWords = parsed.asSequence()
+            .map { normalize(it.word, language) }
+            .filter { it.isNotEmpty() }
+            .distinct()
+            .toList()
+        return LoadedDict(rankByWord, byFirstChar.mapValues { it.value.toList() }, rankedWords)
     }
 
     private fun normalize(word: String, language: Language): String = when (language) {

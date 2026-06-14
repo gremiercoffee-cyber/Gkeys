@@ -65,7 +65,10 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var voiceBubbleDefaultRow: android.view.View
     private lateinit var switchAdaptiveTouch: SwitchMaterial
     private lateinit var switchExperimentalSwipeTyping: SwitchMaterial
+    private lateinit var switchDailyAiLearning: SwitchMaterial
+    private lateinit var switchRawTextSamples: SwitchMaterial
     private lateinit var tvAdaptiveTouchStats: TextView
+    private lateinit var tvPredictionDebug: TextView
     private lateinit var btnResetAdaptiveTouch: MaterialButton
     private lateinit var radioOneHanded: RadioGroup
     private lateinit var btnEnableKeyboard: MaterialButton
@@ -298,7 +301,10 @@ class SettingsActivity : AppCompatActivity() {
         voiceBubbleDefaultRow = findViewById(R.id.voice_bubble_default_row)
         switchAdaptiveTouch = findViewById(R.id.switch_adaptive_touch)
         switchExperimentalSwipeTyping = findViewById(R.id.switch_experimental_swipe_typing)
+        switchDailyAiLearning = findViewById(R.id.switch_daily_ai_learning)
+        switchRawTextSamples = findViewById(R.id.switch_raw_text_samples)
         tvAdaptiveTouchStats = findViewById(R.id.tv_adaptive_touch_stats)
+        tvPredictionDebug = findViewById(R.id.tv_prediction_debug)
         btnResetAdaptiveTouch = findViewById(R.id.btn_reset_adaptive_touch)
         radioOneHanded = findViewById(R.id.radio_one_handed)
         btnEnableKeyboard = findViewById(R.id.btn_enable_keyboard)
@@ -384,7 +390,12 @@ class SettingsActivity : AppCompatActivity() {
                 GkeysSettings.adaptiveTouchEnabled(this@SettingsActivity).first()
             switchExperimentalSwipeTyping.isChecked =
                 GkeysSettings.experimentalSwipeTypingEnabled(this@SettingsActivity).first()
+            switchDailyAiLearning.isChecked =
+                GkeysSettings.dailyAiLearningEnabled(this@SettingsActivity).first()
+            switchRawTextSamples.isChecked =
+                GkeysSettings.allowRawTextSamples(this@SettingsActivity).first()
             refreshAdaptiveTouchStats()
+            refreshPredictionDebug()
             when (GkeysSettings.oneHandedMode(this@SettingsActivity).first()) {
                 GkeysSettings.ONE_HANDED_LEFT -> radioOneHanded.check(R.id.radio_one_hand_left)
                 GkeysSettings.ONE_HANDED_RIGHT -> radioOneHanded.check(R.id.radio_one_hand_right)
@@ -526,6 +537,15 @@ class SettingsActivity : AppCompatActivity() {
         switchExperimentalSwipeTyping.setOnCheckedChangeListener { _, checked ->
             autoSave { GkeysSettings.saveExperimentalSwipeTypingEnabled(this@SettingsActivity, checked) }
         }
+        switchDailyAiLearning.setOnCheckedChangeListener { _, checked ->
+            autoSave {
+                GkeysSettings.saveDailyAiLearningEnabled(this@SettingsActivity, checked)
+                PredictionSettingsScreen.onDailyAiLearningChanged(this@SettingsActivity, checked)
+            }
+        }
+        switchRawTextSamples.setOnCheckedChangeListener { _, checked ->
+            autoSave { GkeysSettings.saveAllowRawTextSamples(this@SettingsActivity, checked) }
+        }
 
         btnMicPermission.setOnClickListener { requestMicPermissionIfNeeded() }
         btnPhotoPermission.setOnClickListener { requestPhotoPermissionIfNeeded() }
@@ -649,6 +669,19 @@ class SettingsActivity : AppCompatActivity() {
         val engine = com.gremier.gkeys.ime.touch.AdaptiveTouchIntelligence(this, lifecycleScope)
         engine.load()
         tvAdaptiveTouchStats.text = engine.statsSummary()
+    }
+
+    private fun refreshPredictionDebug() {
+        if (!::tvPredictionDebug.isInitialized) return
+        val profile = com.gremier.gkeys.ime.personalization.PersonalLanguageProfileStore.latestDebugSummary(this)
+        val reasons = com.gremier.gkeys.ime.suggestions.ContextualCandidateReranker.lastDebugExplanations
+        tvPredictionDebug.text = buildString {
+            append(profile)
+            if (reasons.isNotEmpty()) {
+                append("\nLatest suggestion reasons:\n")
+                append(reasons.joinToString("\n"))
+            }
+        }
     }
 
     private fun updateOverlayPermissionButton() {

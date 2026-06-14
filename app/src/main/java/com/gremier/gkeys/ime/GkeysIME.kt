@@ -41,6 +41,8 @@ import com.gremier.gkeys.ime.emoji.EmojiCatalog
 import com.gremier.gkeys.ime.emoji.EmojiUsageStore
 import com.gremier.gkeys.ime.layout.KeyboardLayoutMetrics
 import com.gremier.gkeys.ime.layout.KeyboardLayoutMetrics.Profile
+import com.gremier.gkeys.ime.personalization.AutocorrectUndoLearner
+import com.gremier.gkeys.ime.personalization.TypingEventLogger
 import com.gremier.gkeys.ime.suggestions.DictionaryManager
 import com.gremier.gkeys.ime.suggestions.SuggestionChip
 import com.gremier.gkeys.ime.suggestions.SuggestionEngine
@@ -48,6 +50,7 @@ import com.gremier.gkeys.ime.suggestions.SuggestionStripModel
 import com.gremier.gkeys.ime.suggestions.SuggestionStripController
 import com.gremier.gkeys.ime.suggestions.SuggestionVisibilityController
 import com.gremier.gkeys.ime.suggestions.UserWordsRepository
+import com.gremier.gkeys.ime.suggestions.UserWordsRepository.LearningSource
 import com.gremier.gkeys.ime.touch.AdaptiveTouchIntelligence
 import com.gremier.gkeys.ime.touch.AospGestureTypingEngine
 import com.gremier.gkeys.ime.touch.SwipePoint
@@ -66,6 +69,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import java.util.concurrent.atomic.AtomicInteger
 
 class GkeysIME : InputMethodService() {
 
@@ -96,6 +100,7 @@ class GkeysIME : InputMethodService() {
     private var openAiKey = ""
     private var anthropicKey = ""
     private var deepgramKey = ""
+    private var allowRawTextSamples = GkeysSettings.DEFAULT_ALLOW_RAW_TEXT_SAMPLES
     private var voiceBubbleModeActive = false
     /** When true the keyboard is hidden but the floating bubble stays on screen. */
     private var bubbleKeyboardCollapsed = false
@@ -188,6 +193,8 @@ class GkeysIME : InputMethodService() {
     /** After autocorrect on space: original typed word -> corrected word (for undo chip). */
     private var postAutocorrectUndo: Pair<String, String>? = null
     private lateinit var userWordsRepository: UserWordsRepository
+    private lateinit var typingEventLogger: TypingEventLogger
+    private lateinit var autocorrectUndoLearner: AutocorrectUndoLearner
     private lateinit var aiBarScroll: HorizontalScrollView
     private lateinit var aiStrip: LinearLayout
     private lateinit var aiBarShellPrimary: FrameLayout
@@ -249,6 +256,10 @@ class GkeysIME : InputMethodService() {
     private var pendingSwipeWord: String? = null
     private var pendingSwipeCorrectionPathKey: String? = null
     private var pendingSwipeCorrectionWrongWord: String? = null
+    private var pendingSwipeSession: SwipeSession? = null
+    private var lastSwipeSession: SwipeSession? = null
+    private var suggestionRefreshJob: Job? = null
+    private val suggestionRefreshToken = AtomicInteger(0)
     private var adaptiveTouchEnabled = GkeysSettings.DEFAULT_ADAPTIVE_TOUCH
     private var experimentalSwipeTypingEnabled = GkeysSettings.DEFAULT_EXPERIMENTAL_SWIPE_TYPING
     private var aospGestureWarmupInProgress = false
@@ -263,6 +274,16 @@ class GkeysIME : InputMethodService() {
     private var micShimmerRotateAnimator: ObjectAnimator? = null
     private var micIconPulseAnimator: ObjectAnimator? = null
 
+    private data class SwipeSession(
+        val pathKey: String,
+        val points: List<SwipePoint>,
+        val candidates: List<String>,
+        val candidateScores: List<Double>,
+        val selectedCandidate: String,
+        val insertedText: String,
+        val createdAtMs: Long,
+    )
+
     companion object {
         private const val LONG_PRESS_MS = 380L
         /** Block keyboard auto-show briefly after navigation focuses a new text field. */
@@ -275,6 +296,7 @@ class GkeysIME : InputMethodService() {
         private const val FIELD_TEXT_SCAN_LIMIT = 100_000
         private const val ALLOW_AOSP_GESTURE_TYPING = true
         private const val SWIPE_BACKSPACE_WINDOW_MS = 8000L
+        private const val SWIPE_RESTORE_WINDOW_MS = 120_000L
         private const val POST_SWIPE_WORK_DELAY_MS = 80L
 
         private val letterLongPressAlts = mapOf(
@@ -384,6 +406,7 @@ class GkeysIME : InputMethodService() {
             voiceBubbleController?.destroy()
             voiceBubbleController = VoiceBubbleController(this, voiceBubbleListener)
             observePolishLevel()
+            observePredictionPrivacySettings()
             observeAiBarSettings()
             loadSettings()
         } catch (e: Throwable) {
@@ -396,6 +419,14 @@ class GkeysIME : InputMethodService() {
             GkeysSettings.polishLevel(this@GkeysIME).collect { level ->
                 polishLevel = level
                 if (::btnPolishLevel.isInitialized) updatePolishLevelButton()
+            }
+        }
+    }
+
+    private fun observePredictionPrivacySettings() {
+        scope.launch {
+            GkeysSettings.allowRawTextSamples(this@GkeysIME).collect { enabled ->
+                allowRawTextSamples = enabled
             }
         }
     }
@@ -571,6 +602,8 @@ class GkeysIME : InputMethodService() {
             refreshSuggestions()
         }
         userWordsRepository = UserWordsRepository(applicationContext)
+        typingEventLogger = TypingEventLogger(applicationContext)
+        autocorrectUndoLearner = AutocorrectUndoLearner(applicationContext)
         aiBarScroll = keyboardView.findViewById(R.id.ai_bar_scroll)
         aiStrip = keyboardView.findViewById(R.id.ai_strip)
         aiBarShellPrimary = keyboardView.findViewById(R.id.ai_bar_shell_primary)
@@ -1515,6 +1548,7 @@ class GkeysIME : InputMethodService() {
                 }
                 experimentalSwipeTypingEnabled =
                     GkeysSettings.experimentalSwipeTypingEnabled(this@GkeysIME).first()
+                allowRawTextSamples = GkeysSettings.allowRawTextSamples(this@GkeysIME).first()
                 configureAospGestureTyping()
                 layoutProfile = KeyboardLayoutMetrics.profile(keySizePreset, rightHandedMode)
                 keyboardHeightPx = 0
@@ -2443,6 +2477,14 @@ class GkeysIME : InputMethodService() {
     private fun commitTranscriptionResult(text: String, onComplete: (Boolean) -> Unit) {
         val trimmed = text.trim()
         if (trimmed.isEmpty()) {
+            android.util.Log.w("GkeysIME", "Empty transcription result ignored")
+            onComplete(false)
+            return
+        }
+
+        if (!isSafeTranscriptionCommitSync(trimmed)) {
+            android.util.Log.w("GkeysIME", "Unsafe empty/config transcription result ignored")
+            showDictationStatus("Nothing heard - try again", autoClearMs = 6000L)
             onComplete(false)
             return
         }
@@ -2472,6 +2514,36 @@ class GkeysIME : InputMethodService() {
     ): Boolean {
         commitTranscriptionResult(text) { success -> onComplete?.invoke(success) }
         return false
+    }
+
+    private fun isSafeTranscriptionCommitSync(text: String): Boolean {
+        val normalized = text.trim()
+        if (normalized.isBlank()) return false
+        val lower = normalized.lowercase()
+        val blockedLabels = listOf(
+            "user speech profile",
+            "speech profile",
+            "mandatory user rules",
+            "mandatory custom instructions",
+            "ai instructions",
+            "language expectations",
+            "return only",
+        )
+        if (blockedLabels.any { lower.contains(it) }) return false
+        return try {
+            val profile = runBlocking(Dispatchers.IO) {
+                GkeysSettings.speechProfile(this@GkeysIME).first().trim()
+            }
+            val instructions = runBlocking(Dispatchers.IO) {
+                GkeysSettings.aiInstructions(this@GkeysIME).first().trim()
+            }
+            val profileMatch = profile.length >= 12 && normalized.equals(profile, ignoreCase = true)
+            val instructionMatch = instructions.length >= 12 && normalized.equals(instructions, ignoreCase = true)
+            !(profileMatch || instructionMatch)
+        } catch (e: Exception) {
+            android.util.Log.w("GkeysIME", "Speech commit validation could not read settings", e)
+            true
+        }
     }
 
     private fun tryCommitToField(trimmed: String): Boolean {
@@ -3630,10 +3702,13 @@ class GkeysIME : InputMethodService() {
     }
 
     private fun handleKey(key: String) {
+        val start = SystemClock.uptimeMillis()
         try {
             handleKeyInternal(key)
         } catch (e: Exception) {
             android.util.Log.e("GkeysIME", "handleKey failed for '$key'", e)
+        } finally {
+            logLatency("key_to_render", start, warnAtMs = 16L)
         }
     }
 
@@ -3656,6 +3731,13 @@ class GkeysIME : InputMethodService() {
             emptyMap()
         }
 
+    private fun logLatency(name: String, startMs: Long, warnAtMs: Long = 24L) {
+        val elapsed = SystemClock.uptimeMillis() - startMs
+        if (elapsed >= warnAtMs) {
+            android.util.Log.d("GkeysPerf", "$name=${elapsed}ms")
+        }
+    }
+
     /** Read the partial word at the cursor — avoids stale prefix from earlier keystrokes. */
     private fun syncWordPrefixFromField(ic: InputConnection? = currentInputConnection) {
         val conn = ic ?: return
@@ -3672,14 +3754,37 @@ class GkeysIME : InputMethodService() {
         } else if (suggestionsSupported()) {
             onSuggestionTypingKey()
         }
+        if (maybeRestoreSwipeSessionCandidates()) return
         refreshSuggestions()
     }
 
-    private fun learnCompletedWord(word: String) {
+    private fun maybeRestoreSwipeSessionCandidates(): Boolean {
+        val session = lastSwipeSession ?: return false
+        if (!suggestionsSupported() || currentWordPrefix.isBlank()) return false
+        val freshEnough = SystemClock.uptimeMillis() - session.createdAtMs <= SWIPE_RESTORE_WINDOW_MS
+        if (!freshEnough) return false
+        val selected = normalizeCompletedWord(session.selectedCandidate)
+        val prefix = normalizeCompletedWord(currentWordPrefix)
+        if (prefix != selected && !selected.startsWith(prefix)) return false
+        suggestionVisibilityController?.extendVisible()
+        showSwipeSessionCandidates(session)
+        return true
+    }
+
+    private fun learnCompletedWord(
+        word: String,
+        source: LearningSource = LearningSource.TYPED,
+        previousWord: String? = lastCompletedWord.takeIf { it.isNotBlank() },
+    ) {
         val w = word.trim()
         if (w.length < 2 || !::userWordsRepository.isInitialized) return
+        if (::typingEventLogger.isInitialized) {
+            typingEventLogger.logCompletedWord(w, previousWord)
+        }
+        val lang = activeSuggestionLanguage()
+        userWordsRepository.recordWordInMemory(lang, w, source.cacheWeight)
         scope.launch {
-            userWordsRepository.recordWord(activeSuggestionLanguage(), w)
+            userWordsRepository.recordWord(lang, w, source)
         }
     }
 
@@ -3703,18 +3808,41 @@ class GkeysIME : InputMethodService() {
             return
         }
         hideAiBarsForOverlay()
-        val model = if (showUndo && undo != null) {
-            SuggestionEngine.buildPostAutocorrectUndo(undo.first, undo.second)
-        } else {
-            SuggestionEngine.build(
-                this,
-                activeSuggestionLanguage(),
-                currentWordPrefix,
-                userWordsForSuggestions(),
-                previousWords = contextPreviousWords(),
-                nextWord = contextNextWord(),
+        if (showUndo && undo != null) {
+            suggestionRefreshJob?.cancel()
+            renderSuggestionModel(
+                SuggestionEngine.buildPostAutocorrectUndo(undo.first, undo.second),
             )
+            return
         }
+
+        val prefix = currentWordPrefix
+        val language = activeSuggestionLanguage()
+        val userWords = userWordsForSuggestions()
+        val previousWords = contextPreviousWords()
+        val nextWord = contextNextWord()
+        val token = suggestionRefreshToken.incrementAndGet()
+        suggestionRefreshJob?.cancel()
+        suggestionRefreshJob = scope.launch(Dispatchers.Default) {
+            val start = SystemClock.uptimeMillis()
+            val model = SuggestionEngine.build(
+                this@GkeysIME,
+                language,
+                prefix,
+                userWords,
+                previousWords = previousWords,
+                nextWord = nextWord,
+            )
+            logLatency("suggestion_generation", start)
+            withContext(Dispatchers.Main) {
+                if (token != suggestionRefreshToken.get() || prefix != currentWordPrefix) return@withContext
+                renderSuggestionModel(model)
+            }
+        }
+    }
+
+    private fun renderSuggestionModel(model: SuggestionStripModel) {
+        val controller = suggestionStripController ?: return
         controller.setActive(true)
         controller.render(
             model,
@@ -3748,6 +3876,9 @@ class GkeysIME : InputMethodService() {
         val undo = postAutocorrectUndo ?: return
         val ic = currentInputConnection ?: return
         val (original, corrected) = undo
+        if (::autocorrectUndoLearner.isInitialized) {
+            autocorrectUndoLearner.recordUndo(original, corrected)
+        }
         hapticKeyTap()
         ic.deleteSurroundingText(corrected.length + 1, 0)
         ic.commitText("$original ", 1)
@@ -3776,6 +3907,7 @@ class GkeysIME : InputMethodService() {
     }
 
     private fun handleAospSwipeGesture(firstLabel: String, points: List<SwipePoint>) {
+        val start = SystemClock.uptimeMillis()
         if (!suggestionsSupported() || isHebrew || isSymbols || isNumpad || emojiPanelVisible) return
         val ic = currentInputConnection ?: return
         val gestureTyping = aospGestureTyping ?: run {
@@ -3807,13 +3939,26 @@ class GkeysIME : InputMethodService() {
         } else {
             decodedWord
         }
+        val previousWord = lastCompletedWord.takeIf { it.isNotBlank() }
         val inserted = "$output "
         ic.commitText(inserted, 1)
         fieldUndo.recordInsert(inserted)
+        maybeRecordRawTextSample(ic)
+        val session = SwipeSession(
+            pathKey = decoded.pathKey,
+            points = points.toList(),
+            candidates = decoded.candidates,
+            candidateScores = decoded.candidateScores,
+            selectedCandidate = decodedWord,
+            insertedText = inserted,
+            createdAtMs = SystemClock.uptimeMillis(),
+        )
         pendingSwipeDeleteText = inserted
         pendingSwipeDeleteTimeMs = SystemClock.uptimeMillis()
         pendingSwipePathKey = decoded.pathKey
         pendingSwipeWord = decodedWord
+        pendingSwipeSession = session
+        lastSwipeSession = session
         pendingSwipeCorrectionPathKey = null
         pendingSwipeCorrectionWrongWord = null
         lastCompletedWord = normalizeCompletedWord(decodedWord)
@@ -3827,18 +3972,19 @@ class GkeysIME : InputMethodService() {
         updateTouchContext(" ")
         updateUndoButtonState()
         suggestionVisibilityController?.extendVisible()
-        showSwipeCandidates(decoded.candidates)
-        schedulePostSwipeWork(decoded.pathKey, decodedWord)
+        showSwipeSessionCandidates(session)
+        schedulePostSwipeWork(decoded.pathKey, decodedWord, previousWord)
         hapticKeyTap()
+        logLatency("swipe_to_render", start, warnAtMs = 24L)
     }
 
-    private fun schedulePostSwipeWork(pathKey: String, decodedWord: String) {
+    private fun schedulePostSwipeWork(pathKey: String, decodedWord: String, previousWord: String?) {
         handler.postDelayed({
             if (pendingSwipePathKey != pathKey || pendingSwipeWord != decodedWord) return@postDelayed
             scope.launch(Dispatchers.IO) {
                 aospGestureTyping?.recordAccepted(pathKey, decodedWord)
             }
-            learnCompletedWord(decodedWord)
+            learnCompletedWord(decodedWord, LearningSource.SWIPE_ACCEPTED, previousWord)
             if (::adaptiveTouch.isInitialized) {
                 adaptiveTouch.recordWordCompleted(normalizeCompletedWord(decodedWord))
             }
@@ -3846,8 +3992,22 @@ class GkeysIME : InputMethodService() {
     }
 
     private fun showSwipeCandidates(candidates: List<String>) {
+        showSwipeSessionCandidates(
+            SwipeSession(
+                pathKey = "",
+                points = emptyList(),
+                candidates = candidates,
+                candidateScores = emptyList(),
+                selectedCandidate = candidates.firstOrNull().orEmpty(),
+                insertedText = "",
+                createdAtMs = SystemClock.uptimeMillis(),
+            )
+        )
+    }
+
+    private fun showSwipeSessionCandidates(session: SwipeSession) {
         val controller = suggestionStripController ?: return
-        val unique = candidates.map { it.trim() }
+        val unique = session.candidates.map { it.trim() }
             .filter { it.isNotBlank() }
             .distinct()
             .take(3)
@@ -3868,6 +4028,9 @@ class GkeysIME : InputMethodService() {
     private fun applySuggestion(word: String) {
         val pick = word.trim()
         if (pick.isEmpty()) return
+        if (::typingEventLogger.isInitialized) {
+            typingEventLogger.logAcceptedSuggestion(pick)
+        }
         maybeRecordSwipeCorrection(pick)
 
         val undo = postAutocorrectUndo
@@ -3884,15 +4047,17 @@ class GkeysIME : InputMethodService() {
         val ic = currentInputConnection ?: return
         if (applySwipeCandidateReplacement(ic, pick)) return
         hapticKeyTap()
+        val previousWord = lastCompletedWord.takeIf { it.isNotBlank() }
         val replaceLen = currentWordPrefix.length
         if (replaceLen > 0) {
             ic.deleteSurroundingText(replaceLen, 0)
         }
         ic.commitText("$pick ", 1)
         fieldUndo.recordInsert("$pick ")
+        maybeRecordRawTextSample(ic)
         lastCompletedWord = normalizeCompletedWord(pick)
         currentWordPrefix = ""
-        learnCompletedWord(pick)
+        learnCompletedWord(pick, LearningSource.SELECTED, previousWord)
         if (::adaptiveTouch.isInitialized) {
             adaptiveTouch.setWordPrefix("")
             if (pick.length >= 2) {
@@ -3910,6 +4075,8 @@ class GkeysIME : InputMethodService() {
         val prefix = currentWordPrefix
         maybeRecordSwipeCorrection(prefix)
         val lang = activeSuggestionLanguage()
+        val previousWord = lastCompletedWord.takeIf { it.isNotBlank() }
+        val autocorrectStart = SystemClock.uptimeMillis()
         val corrected = if (suggestionsSupported() && prefix.length >= 2) {
             SuggestionEngine.autocorrectOnSpace(
                 this,
@@ -3922,6 +4089,7 @@ class GkeysIME : InputMethodService() {
         } else {
             null
         }
+        logLatency("autocorrect", autocorrectStart, warnAtMs = 18L)
 
         if (corrected != null && corrected != prefix) {
             if (prefix.isNotEmpty()) {
@@ -3929,8 +4097,9 @@ class GkeysIME : InputMethodService() {
             }
             ic.commitText("$corrected ", 1)
             fieldUndo.recordInsert("$corrected ")
+            maybeRecordRawTextSample(ic)
             lastCompletedWord = normalizeCompletedWord(corrected)
-            learnCompletedWord(corrected)
+            learnCompletedWord(corrected, LearningSource.AUTOCORRECT_ACCEPTED, previousWord)
             updateTouchContext(" ")
             completeCurrentWord()
             updateUndoButtonState()
@@ -3941,9 +4110,10 @@ class GkeysIME : InputMethodService() {
 
         ic.commitText(" ", 1)
         fieldUndo.recordInsert(" ")
+        maybeRecordRawTextSample(ic)
         if (prefix.isNotEmpty()) {
             lastCompletedWord = normalizeCompletedWord(prefix)
-            learnCompletedWord(prefix)
+            learnCompletedWord(prefix, LearningSource.TYPED, previousWord)
             if (::adaptiveTouch.isInitialized && prefix.length >= 2) {
                 adaptiveTouch.recordWordCompleted(normalizeCompletedWord(prefix))
             }
@@ -3955,6 +4125,12 @@ class GkeysIME : InputMethodService() {
             suggestionVisibilityController?.extendVisible()
         }
         refreshSuggestions()
+    }
+
+    private fun maybeRecordRawTextSample(ic: InputConnection) {
+        if (!allowRawTextSamples || !::typingEventLogger.isInitialized) return
+        val sample = ic.getTextBeforeCursor(160, 0)?.toString().orEmpty()
+        typingEventLogger.logRawTextSample(sample)
     }
 
     private fun applySwipeCandidateReplacement(ic: InputConnection, pick: String): Boolean {
@@ -3969,18 +4145,28 @@ class GkeysIME : InputMethodService() {
         ic.commitText(replacement, 1)
         fieldUndo.recordDelete(inserted)
         fieldUndo.recordInsert(replacement)
+        maybeRecordRawTextSample(ic)
+        var learningSource = LearningSource.SELECTED
         if (!wrongPath.isNullOrBlank() && !wrongWord.isNullOrBlank() && wrongWord != pick) {
             aospGestureTyping?.recordCorrection(wrongPath, wrongWord, normalizeCompletedWord(pick))
+            learningSource = LearningSource.CORRECTION_ACCEPTED
+            scope.launch { userWordsRepository.recordRejected(activeSuggestionLanguage(), wrongWord) }
         }
         pendingSwipeDeleteText = replacement
         pendingSwipeDeleteTimeMs = SystemClock.uptimeMillis()
         pendingSwipePathKey = wrongPath
         pendingSwipeWord = pick
+        pendingSwipeSession = pendingSwipeSession?.copy(
+            selectedCandidate = normalizeCompletedWord(pick),
+            insertedText = replacement,
+        )
+        lastSwipeSession = pendingSwipeSession ?: lastSwipeSession
         pendingSwipeCorrectionPathKey = null
         pendingSwipeCorrectionWrongWord = null
+        val previousWord = lastCompletedWord.takeIf { it.isNotBlank() && it != wrongWord }
         lastCompletedWord = normalizeCompletedWord(pick)
         currentWordPrefix = ""
-        learnCompletedWord(pick)
+        learnCompletedWord(pick, learningSource, previousWord)
         if (::adaptiveTouch.isInitialized) {
             adaptiveTouch.setWordPrefix("")
             adaptiveTouch.recordWordCompleted(normalizeCompletedWord(pick))
@@ -4417,6 +4603,8 @@ class GkeysIME : InputMethodService() {
         val correct = normalizeCompletedWord(correctWord.trim())
         if (correct.length >= 2 && correct != wrongWord) {
             aospGestureTyping?.recordCorrection(pathKey, wrongWord, correct)
+            learnCompletedWord(correct, LearningSource.CORRECTION_ACCEPTED)
+            scope.launch { userWordsRepository.recordRejected(activeSuggestionLanguage(), wrongWord) }
         }
         pendingSwipeCorrectionPathKey = null
         pendingSwipeCorrectionWrongWord = null
@@ -4456,6 +4644,7 @@ class GkeysIME : InputMethodService() {
         pendingSwipeDeleteTimeMs = 0L
         pendingSwipePathKey = null
         pendingSwipeWord = null
+        pendingSwipeSession = null
     }
 
     private fun deleteForward() {
