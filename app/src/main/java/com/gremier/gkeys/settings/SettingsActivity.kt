@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.util.Log
 import android.view.inputmethod.InputMethodManager
 import android.widget.RadioGroup
 import android.widget.Spinner
@@ -30,8 +31,11 @@ import androidx.recyclerview.widget.ItemTouchHelper
 import com.google.android.material.tabs.TabLayout
 import com.google.android.material.textfield.TextInputEditText
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
 
 class SettingsActivity : AppCompatActivity() {
 
@@ -88,6 +92,7 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var progressAiModelDownload: LinearProgressIndicator
     private lateinit var btnDownloadAiModel: MaterialButton
     private lateinit var btnCancelAiModelDownload: MaterialButton
+    private lateinit var btnImportAiModel: MaterialButton
     private lateinit var btnRemoveAiModel: MaterialButton
     private var crashScreenShown = false
     private var overlayRestrictedStep = 0
@@ -101,6 +106,12 @@ class SettingsActivity : AppCompatActivity() {
     private var suppressOnDeviceAiAutoSave = false
     private var modelDownloadJob: Job? = null
     private var modelDownloader: AiModelDownloader? = null
+
+    private val importModelLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) importAiModelFromUri(uri)
+    }
 
     private val micPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -337,6 +348,7 @@ class SettingsActivity : AppCompatActivity() {
         progressAiModelDownload = findViewById(R.id.progress_ai_model_download)
         btnDownloadAiModel = findViewById(R.id.btn_download_ai_model)
         btnCancelAiModelDownload = findViewById(R.id.btn_cancel_ai_model_download)
+        btnImportAiModel = findViewById(R.id.btn_import_ai_model)
         btnRemoveAiModel = findViewById(R.id.btn_remove_ai_model)
     }
 
@@ -596,6 +608,9 @@ class SettingsActivity : AppCompatActivity() {
             }
         }
         btnDownloadAiModel.setOnClickListener { startAiModelDownload() }
+        btnImportAiModel.setOnClickListener {
+            importModelLauncher.launch(arrayOf("application/octet-stream", "*/*"))
+        }
         btnCancelAiModelDownload.setOnClickListener {
             modelDownloader?.cancel()
             tvAiModelStatus.text = "Download canceled"
@@ -759,7 +774,9 @@ class SettingsActivity : AppCompatActivity() {
             append("\nModel file size: ").append(formatBytes(status.fileSizeBytes))
         }
         btnRemoveAiModel.isEnabled = status.installed
-        btnDownloadAiModel.isEnabled = modelDownloadJob?.isActive != true
+        btnDownloadAiModel.isEnabled =
+            modelDownloadJob?.isActive != true && com.gremier.gkeys.ime.slm.LocalModelConfig.hasRecommendedDownloadUrl()
+        btnImportAiModel.isEnabled = modelDownloadJob?.isActive != true
     }
 
     private fun startAiModelDownload() {
@@ -785,6 +802,10 @@ class SettingsActivity : AppCompatActivity() {
                 DownloadResult.Success -> {
                     tvAiModelStatus.text = "Model installed"
                     tvAiModelProgress.text = "100% - Model installed"
+                    AiPredictionSettings.saveEnabled(this@SettingsActivity, true)
+                    suppressOnDeviceAiAutoSave = true
+                    switchOnDeviceAiPredictions.isChecked = true
+                    suppressOnDeviceAiAutoSave = false
                 }
                 DownloadResult.Canceled -> {
                     tvAiModelStatus.text = "Download canceled"
@@ -805,6 +826,76 @@ class SettingsActivity : AppCompatActivity() {
                 }
             }
             refreshAiModelStatus()
+        }
+    }
+
+    private fun importAiModelFromUri(uri: Uri) {
+        tvAiModelStatus.text = "Importing model..."
+        btnImportAiModel.isEnabled = false
+        lifecycleScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                copyImportedModel(uri)
+            }
+            btnImportAiModel.isEnabled = true
+            if (result == null) {
+                tvAiModelStatus.text = "Model installed"
+                tvAiModelProgress.text = ""
+                AiPredictionSettings.saveEnabled(this@SettingsActivity, true)
+                suppressOnDeviceAiAutoSave = true
+                switchOnDeviceAiPredictions.isChecked = true
+                suppressOnDeviceAiAutoSave = false
+            } else {
+                tvAiModelStatus.text = result
+                tvAiModelProgress.text = ""
+            }
+            refreshAiModelStatus()
+        }
+    }
+
+    private fun copyImportedModel(uri: Uri): String? {
+        val tag = "AiModelImport"
+        val manager = LocalSlmManager(this)
+        val target = manager.modelFile
+        val parent = target.parentFile ?: return "Model storage is unavailable"
+        val tmp = File(parent, "${target.name}.import")
+        return try {
+            parent.mkdirs()
+            tmp.delete()
+            Log.i(tag, "download_started source=import")
+            Log.i(tag, "target_path path=${target.absolutePath}")
+            contentResolver.openInputStream(uri)?.use { input ->
+                tmp.outputStream().use { output ->
+                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                    var copied = 0L
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read <= 0) break
+                        output.write(buffer, 0, read)
+                        copied += read
+                        if (copied % (8L * 1024L * 1024L) < read) {
+                            Log.i(tag, "bytes_downloaded bytes=$copied total=unknown")
+                        }
+                    }
+                    Log.i(tag, "bytes_downloaded bytes=$copied total=unknown")
+                }
+            } ?: return "Could not open selected model file"
+            if (!manager.verifyImportedFile(tmp)) {
+                tmp.delete()
+                Log.e(tag, "checksum_result failed")
+                return "Model failed checksum verification"
+            }
+            target.delete()
+            if (!tmp.renameTo(target)) {
+                tmp.copyTo(target, overwrite = true)
+                tmp.delete()
+            }
+            Log.i(tag, "file_exists_after_download exists=${target.exists()}")
+            Log.i(tag, "file_size bytes=${target.length()}")
+            null
+        } catch (e: Exception) {
+            tmp.delete()
+            Log.e(tag, "failure reason=${e.message ?: e.javaClass.simpleName}", e)
+            e.message ?: "Import failed"
         }
     }
 

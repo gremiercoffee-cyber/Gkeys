@@ -128,6 +128,15 @@
                     android:layout_marginBottom="8dp" />
 
                 <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_import_ai_model"
+                    android:layout_width="match_parent"
+                    android:layout_height="44dp"
+                    android:text="Import model from file"
+                    android:textSize="13sp"
+                    app:backgroundTint="@color/settings_card_input_bg"
+                    android:layout_marginBottom="8dp" />
+
+                <com.google.android.material.button.MaterialButton
                     android:id="@+id/btn_remove_ai_model"
                     android:layout_width="match_parent"
                     android:layout_height="44dp"

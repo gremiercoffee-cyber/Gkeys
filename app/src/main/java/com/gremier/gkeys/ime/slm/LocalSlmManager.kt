@@ -1,6 +1,7 @@
 package com.gremier.gkeys.ime.slm
 
 import android.content.Context
+import android.util.Log
 import com.gremier.gkeys.settings.AiPredictionSettings
 import java.io.File
 import java.security.MessageDigest
@@ -9,6 +10,7 @@ class LocalSlmManager(
     context: Context,
     private val backend: LocalSlmBackend = sharedBackend,
 ) {
+    private val tag = "LocalSlmManager"
     private val appContext = context.applicationContext
 
     val modelFile: File
@@ -27,7 +29,8 @@ class LocalSlmManager(
             fileSizeBytes = if (exists) file.length() else 0L,
             message = when {
                 !exists -> "Model not installed"
-                !verified -> "Model failed checksum verification"
+                !verified && LocalModelConfig.checksumConfigured() -> "Model failed checksum verification"
+                !verified -> "Model file is empty"
                 backend.isLoaded() -> "Model loaded"
                 else -> "Model installed"
             },
@@ -35,11 +38,26 @@ class LocalSlmManager(
     }
 
     fun verifyModel(): Boolean {
-        val expected = LocalModelConfig.SHA256
-        if (expected == "CHANGE_ME_TO_RECOMMENDED_MODEL_SHA256") {
+        return verifyFile(modelFile)
+    }
+
+    fun verifyImportedFile(file: File): Boolean {
+        return verifyFile(file)
+    }
+
+    private fun verifyFile(file: File): Boolean {
+        if (!file.exists() || file.length() <= 0L) {
+            Log.i(tag, "checksum_result missing_or_empty path=${file.absolutePath}")
             return false
         }
-        return sha256(modelFile).equals(expected, ignoreCase = true)
+        if (!LocalModelConfig.checksumConfigured()) {
+            Log.i(tag, "checksum_result skipped_not_configured path=${file.absolutePath} size=${file.length()}")
+            return true
+        }
+        val actual = sha256(file)
+        val matches = actual.equals(LocalModelConfig.SHA256, ignoreCase = true)
+        Log.i(tag, "checksum_result configured matches=$matches path=${file.absolutePath} size=${file.length()}")
+        return matches
     }
 
     suspend fun ensureLoaded(): Boolean {
