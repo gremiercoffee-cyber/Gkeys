@@ -6,6 +6,7 @@ object LocalModelConfig {
     const val MODEL_NAME = "Qwen2.5-0.5B-Instruct"
     const val MODEL_VERSION = "Q4_K_M GGUF"
     const val FILE_NAME = "qwen2.5-0.5b-instruct-q4_k_m.gguf"
+    const val IMPORTED_TASK_FILE_NAME = "local-model.task"
 
     // Keep model metadata in this one object so a known-good mirror/checksum can be swapped safely.
     const val DOWNLOAD_URL =
@@ -20,4 +21,18 @@ object LocalModelConfig {
 
     fun checksumConfigured(): Boolean =
         SHA256.isNotBlank() && SHA256 != CHECKSUM_PLACEHOLDER
+
+    fun formatFor(fileName: String): LocalModelFormat =
+        if (fileName.endsWith(".task", ignoreCase = true)) {
+            LocalModelFormat.MEDIA_PIPE_TASK
+        } else {
+            LocalModelFormat.GGUF
+        }
+}
+
+enum class LocalModelFormat(
+    val displayName: String,
+) {
+    GGUF("GGUF"),
+    MEDIA_PIPE_TASK("MediaPipe .task"),
 }

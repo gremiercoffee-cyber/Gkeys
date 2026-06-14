@@ -8,29 +8,42 @@ import java.security.MessageDigest
 
 class LocalSlmManager(
     context: Context,
-    private val backend: LocalSlmBackend = sharedBackend,
+    backendFactory: ((LocalModelFormat) -> LocalSlmBackend)? = null,
 ) {
     private val tag = "LocalSlmManager"
     private val appContext = context.applicationContext
+    private val backendFactory: (LocalModelFormat) -> LocalSlmBackend =
+        backendFactory ?: { defaultBackendFor(appContext, it) }
 
     val modelFile: File
-        get() = File(File(appContext.filesDir, "models"), LocalModelConfig.FILE_NAME)
+        get() = installedModelFile() ?: recommendedModelFile
+
+    val recommendedModelFile: File
+        get() = File(modelDir(appContext), LocalModelConfig.FILE_NAME)
+
+    val importedTaskModelFile: File
+        get() = File(modelDir(appContext), LocalModelConfig.IMPORTED_TASK_FILE_NAME)
 
     fun status(): LocalSlmStatus {
         val file = modelFile
         val exists = file.exists()
         val verified = exists && verifyModel()
+        val format = LocalModelConfig.formatFor(file.name)
+        val backend = backendFactory(format)
         return LocalSlmStatus(
             installed = exists,
             verified = verified,
             loaded = backend.isLoaded(),
-            modelName = LocalModelConfig.MODEL_NAME,
-            modelVersion = LocalModelConfig.MODEL_VERSION,
+            modelName = if (format == LocalModelFormat.MEDIA_PIPE_TASK) "Imported local model" else LocalModelConfig.MODEL_NAME,
+            modelVersion = if (format == LocalModelFormat.MEDIA_PIPE_TASK) format.displayName else LocalModelConfig.MODEL_VERSION,
+            modelFormat = format,
+            runtimeAvailable = backend.runtimeAvailable,
             fileSizeBytes = if (exists) file.length() else 0L,
             message = when {
                 !exists -> "Model not installed"
                 !verified && LocalModelConfig.checksumConfigured() -> "Model failed checksum verification"
                 !verified -> "Model file is empty"
+                !backend.runtimeAvailable -> "${format.displayName} model installed, runtime missing"
                 backend.isLoaded() -> "Model loaded"
                 else -> "Model installed"
             },
@@ -63,12 +76,15 @@ class LocalSlmManager(
     suspend fun ensureLoaded(): Boolean {
         if (!verifyModel()) {
             AiPredictionSettings.saveEnabled(appContext, false)
-            backend.unload()
+            backendFactory(LocalModelFormat.GGUF).unload()
+            backendFactory(LocalModelFormat.MEDIA_PIPE_TASK).unload()
             return false
         }
+        val file = modelFile
+        val backend = backendFactory(LocalModelConfig.formatFor(file.name))
         if (backend.isLoaded()) return true
         return try {
-            backend.load(modelFile)
+            backend.load(file)
         } catch (e: Throwable) {
             android.util.Log.e("LocalSlmManager", "Local model load failed", e)
             AiPredictionSettings.saveEnabled(appContext, false)
@@ -77,15 +93,31 @@ class LocalSlmManager(
     }
 
     suspend fun removeModel() {
-        backend.unload()
-        modelFile.delete()
+        backendFactory(LocalModelFormat.GGUF).unload()
+        backendFactory(LocalModelFormat.MEDIA_PIPE_TASK).unload()
+        recommendedModelFile.delete()
+        importedTaskModelFile.delete()
         AiPredictionSettings.saveEnabled(appContext, false)
     }
 
-    fun backend(): LocalSlmBackend = backend
+    fun backend(): LocalSlmBackend = backendFactory(LocalModelConfig.formatFor(modelFile.name))
+
+    private fun installedModelFile(): File? =
+        listOf(importedTaskModelFile, recommendedModelFile).firstOrNull { it.exists() }
 
     companion object {
-        private val sharedBackend: LocalSlmBackend = MockLocalSlmBackend()
+        private val sharedGgufBackend: LocalSlmBackend = MockLocalSlmBackend()
+        @Volatile
+        private var sharedTaskBackend: LocalSlmBackend? = null
+
+        private fun defaultBackendFor(context: Context, format: LocalModelFormat): LocalSlmBackend = when (format) {
+            LocalModelFormat.GGUF -> sharedGgufBackend
+            LocalModelFormat.MEDIA_PIPE_TASK -> sharedTaskBackend ?: synchronized(this) {
+                sharedTaskBackend ?: MediaPipeTaskSlmBackend(context.applicationContext).also {
+                    sharedTaskBackend = it
+                }
+            }
+        }
 
         fun modelDir(context: Context): File = File(context.applicationContext.filesDir, "models")
 
@@ -111,6 +143,8 @@ data class LocalSlmStatus(
     val loaded: Boolean,
     val modelName: String,
     val modelVersion: String,
+    val modelFormat: LocalModelFormat,
+    val runtimeAvailable: Boolean,
     val fileSizeBytes: Long,
     val message: String,
 )

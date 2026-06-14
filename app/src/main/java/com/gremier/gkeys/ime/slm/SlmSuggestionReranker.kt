@@ -35,7 +35,7 @@ object SlmSuggestionReranker {
         val manager = if (backendOverride == null) {
             LocalSlmManager(context)
         } else {
-            LocalSlmManager(context, backendOverride)
+            LocalSlmManager(context) { backendOverride }
         }
         if (!manager.ensureLoaded()) return@withContext candidates
         rerankWithBackend(

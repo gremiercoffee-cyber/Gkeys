@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.OpenableColumns
 import android.provider.Settings
 import android.util.Log
 import android.view.inputmethod.InputMethodManager
@@ -22,6 +23,7 @@ import com.gremier.gkeys.BuildConfig
 import com.gremier.gkeys.R
 import com.gremier.gkeys.ime.slm.AiModelDownloader
 import com.gremier.gkeys.ime.slm.DownloadResult
+import com.gremier.gkeys.ime.slm.LocalModelConfig
 import com.gremier.gkeys.ime.slm.LocalSlmManager
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.progressindicator.LinearProgressIndicator
@@ -771,6 +773,8 @@ class SettingsActivity : AppCompatActivity() {
             append("Model installed: ").append(if (status.verified) "Yes" else "No")
             append("\nModel name: ").append(status.modelName)
             append("\nModel version: ").append(status.modelVersion)
+            append("\nModel format: ").append(status.modelFormat.displayName)
+            append("\nRuntime ready: ").append(if (status.runtimeAvailable) "Yes" else "No")
             append("\nModel file size: ").append(formatBytes(status.fileSizeBytes))
         }
         btnRemoveAiModel.isEnabled = status.installed
@@ -840,9 +844,9 @@ class SettingsActivity : AppCompatActivity() {
             if (result == null) {
                 tvAiModelStatus.text = "Model installed"
                 tvAiModelProgress.text = ""
-                AiPredictionSettings.saveEnabled(this@SettingsActivity, true)
+                val enabled = AiPredictionSettings.saveEnabled(this@SettingsActivity, true)
                 suppressOnDeviceAiAutoSave = true
-                switchOnDeviceAiPredictions.isChecked = true
+                switchOnDeviceAiPredictions.isChecked = enabled
                 suppressOnDeviceAiAutoSave = false
             } else {
                 tvAiModelStatus.text = result
@@ -855,7 +859,9 @@ class SettingsActivity : AppCompatActivity() {
     private fun copyImportedModel(uri: Uri): String? {
         val tag = "AiModelImport"
         val manager = LocalSlmManager(this)
-        val target = manager.modelFile
+        val fileName = displayNameForUri(uri)
+        val isTaskModel = fileName.endsWith(".task", ignoreCase = true)
+        val target = if (isTaskModel) manager.importedTaskModelFile else manager.recommendedModelFile
         val parent = target.parentFile ?: return "Model storage is unavailable"
         val tmp = File(parent, "${target.name}.import")
         return try {
@@ -884,6 +890,11 @@ class SettingsActivity : AppCompatActivity() {
                 Log.e(tag, "checksum_result failed")
                 return "Model failed checksum verification"
             }
+            if (isTaskModel) {
+                manager.recommendedModelFile.delete()
+            } else {
+                manager.importedTaskModelFile.delete()
+            }
             target.delete()
             if (!tmp.renameTo(target)) {
                 tmp.copyTo(target, overwrite = true)
@@ -897,6 +908,16 @@ class SettingsActivity : AppCompatActivity() {
             Log.e(tag, "failure reason=${e.message ?: e.javaClass.simpleName}", e)
             e.message ?: "Import failed"
         }
+    }
+
+    private fun displayNameForUri(uri: Uri): String {
+        contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (index >= 0) return cursor.getString(index).orEmpty()
+            }
+        }
+        return uri.lastPathSegment.orEmpty().ifBlank { LocalModelConfig.FILE_NAME }
     }
 
     private fun formatBytes(bytes: Long): String {

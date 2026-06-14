@@ -8,7 +8,8 @@ object AiPredictionSettings {
     fun enabled(context: Context): Flow<Boolean> = GkeysSettings.onDeviceAiPredictionsEnabled(context)
 
     suspend fun saveEnabled(context: Context, enabled: Boolean): Boolean {
-        if (enabled && !LocalSlmManager(context).status().verified) {
+        val status = LocalSlmManager(context).status()
+        if (enabled && (!status.verified || !status.runtimeAvailable)) {
             GkeysSettings.saveOnDeviceAiPredictionsEnabled(context, false)
             return false
         }

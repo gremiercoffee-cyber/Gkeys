@@ -400,11 +400,16 @@ class VoiceBubbleController(
         val view = rootView ?: return
         cancelHideAnimation()
         stopAnimators()
-        view.scaleX = 1f
-        view.scaleY = 1f
+        resetRootTransform(view)
         applyWindowPosition()
         val params = layoutParams
         if (params != null) {
+            params.width = bubbleWidthPx
+            params.height = if (state == VoiceBubbleState.RECORDING) {
+                expandedWindowHeightPx
+            } else {
+                compactWindowHeightPx
+            }
             try {
                 windowManager.updateViewLayout(view, params)
             } catch (_: Exception) {
@@ -834,10 +839,12 @@ class VoiceBubbleController(
         val view = rootView ?: return
         val showCancel = state == VoiceBubbleState.RECORDING
         bubbleCancel?.visibility = if (showCancel) View.VISIBLE else View.GONE
+        params.width = bubbleWidthPx
         params.height = if (showCancel) expandedWindowHeightPx else compactWindowHeightPx
         clampToScreen(params)
         posX = params.x
         posY = params.y
+        resetRootTransform(view)
         try {
             windowManager.updateViewLayout(view, params)
         } catch (_: Exception) {
@@ -851,6 +858,7 @@ class VoiceBubbleController(
         if (!isAttached) return
 
         val body = bubbleBody ?: return
+        rootView?.let { resetRootTransform(it) }
 
         val icon = bubbleIcon
 
@@ -918,6 +926,15 @@ class VoiceBubbleController(
 
         updateOverlaySize()
 
+    }
+
+    private fun resetRootTransform(view: View) {
+        view.scaleX = 1f
+        view.scaleY = 1f
+        view.translationX = 0f
+        view.translationY = 0f
+        view.pivotX = view.width / 2f
+        view.pivotY = view.height / 2f
     }
 
 
