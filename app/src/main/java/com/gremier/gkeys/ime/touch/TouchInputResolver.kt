@@ -82,6 +82,12 @@ class TouchInputResolver(
     fun resolve(touchX: Float, touchY: Float): TouchResolution? {
         if (!enabled || targets.isEmpty()) return null
 
+        // Wide non-letter keys should win inside their painted bounds. This is
+        // especially important for the spacebar, whose top edge sits near v/b/n.
+        priorityNonLetterTarget(touchX, touchY)?.let {
+            return TouchResolution(it.label, 0f)
+        }
+
         val blend = personalizationBlend()
         val corrected = personalization.applyPersonalizedCorrection(
             touchX, touchY,
@@ -131,6 +137,24 @@ class TouchInputResolver(
         }
 
         return best?.let { TouchResolution(it.label, bestScore) }
+    }
+
+    private fun priorityNonLetterTarget(x: Float, y: Float): KeyHitTarget? =
+        targets.firstOrNull { target ->
+            target.char == null &&
+                isPriorityNonLetter(target.label) &&
+                x >= target.centerX - target.width * 0.5f &&
+                x <= target.centerX + target.width * 0.5f &&
+                y >= target.centerY - target.height * 0.5f &&
+                y <= target.centerY + target.height * 0.5f
+        }
+
+    private fun isPriorityNonLetter(label: String): Boolean {
+        val normalized = label.lowercase()
+        return normalized == "space" ||
+            normalized == " " ||
+            normalized.contains("space") ||
+            normalized == "␣"
     }
 
     fun recordTap(touchX: Float, touchY: Float, resolution: TouchResolution) {
