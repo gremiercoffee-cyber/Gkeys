@@ -235,6 +235,7 @@ class AospGestureTypingEngine(
                 startDistance * 0.34 +
                 endDistance * 0.40 +
                 lengthPenalty * 0.22 +
+                underExplainedGesturePenalty(detailedObservedPath, wordPath) +
                 extraLetterPenalty(observedPath, wordPath) -
                 shortWordBoost(observedPath, word) -
                 literalPathBoost(observedPath, wordPath, word, personal) -
@@ -404,6 +405,16 @@ class AospGestureTypingEngine(
             observedPath.length <= 2 -> extra * 0.48
             observedPath.length <= 4 -> extra * 0.26
             else -> extra * 0.10
+        }
+    }
+
+    private fun underExplainedGesturePenalty(detailedObservedPath: String, wordPath: String): Double {
+        val unclaimed = (detailedObservedPath.length - wordPath.length).coerceAtLeast(0)
+        if (unclaimed <= 1) return 0.0
+        return when {
+            wordPath.length <= 3 -> unclaimed * 0.18
+            wordPath.length <= 5 -> unclaimed * 0.09
+            else -> unclaimed * 0.04
         }
     }
 

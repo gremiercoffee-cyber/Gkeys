@@ -152,7 +152,7 @@ class KeyboardTouchLayout @JvmOverloads constructor(
                     removeCallbacks(backspaceLongPressRunnable)
                 }
                 if (swiping) {
-                    addSwipePoint(event)
+                    addSwipePoints(event)
                 }
 
                 return true
@@ -194,7 +194,7 @@ class KeyboardTouchLayout @JvmOverloads constructor(
                 }
 
                 if (swiping) {
-                    addSwipePoint(event)
+                    addSwipePoints(event)
                     val label = downLabel
                     val path = swipePoints.toList()
                     swipePoints.clear()
@@ -288,10 +288,22 @@ class KeyboardTouchLayout @JvmOverloads constructor(
         return kotlin.math.hypot(x - downX, y - downY) >= threshold
     }
 
-    private fun addSwipePoint(event: MotionEvent) {
-        val point = SwipePoint(event.x, event.y, event.eventTime)
+    private fun addSwipePoints(event: MotionEvent) {
+        for (index in 0 until event.historySize) {
+            addSwipePoint(
+                SwipePoint(
+                    event.getHistoricalX(index),
+                    event.getHistoricalY(index),
+                    event.getHistoricalEventTime(index),
+                )
+            )
+        }
+        addSwipePoint(SwipePoint(event.x, event.y, event.eventTime))
+    }
+
+    private fun addSwipePoint(point: SwipePoint) {
         val last = swipePoints.lastOrNull()
-        if (last == null || kotlin.math.hypot(point.x - last.x, point.y - last.y) >= 2f) {
+        if (last == null || kotlin.math.hypot(point.x - last.x, point.y - last.y) >= 1.25f) {
             swipePoints.add(point)
         }
     }
